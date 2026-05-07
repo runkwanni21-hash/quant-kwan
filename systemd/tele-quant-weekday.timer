@@ -1,0 +1,16 @@
+[Unit]
+Description=Run Tele Quant weekday digest Mon-Fri at 07,11,15,19,23 and Tue-Sat at 03:00
+
+[Timer]
+# Mon-Fri at 07:00, 11:00, 15:00, 19:00, 23:00
+OnCalendar=Mon..Fri *-*-* 07:00:00
+OnCalendar=Mon..Fri *-*-* 11:00:00
+OnCalendar=Mon..Fri *-*-* 15:00:00
+OnCalendar=Mon..Fri *-*-* 19:00:00
+OnCalendar=Mon..Fri *-*-* 23:00:00
+# Tue-Sat at 03:00 (overnight run after Mon-Fri evenings)
+OnCalendar=Tue..Sat *-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,23 @@
+[Unit]
+Description=Run Tele Quant macro-only digest on weekends
+
+[Timer]
+# Saturday 07:00, 11:00, 15:00, 19:00, 23:00
+OnCalendar=Sat *-*-* 07:00:00
+OnCalendar=Sat *-*-* 11:00:00
+OnCalendar=Sat *-*-* 15:00:00
+OnCalendar=Sat *-*-* 19:00:00
+OnCalendar=Sat *-*-* 23:00:00
+
+# Sunday 03:00, 07:00, 11:00, 15:00, 19:00
+# Sunday 23:00 is handled by tele-quant-weekly.timer
+OnCalendar=Sun *-*-* 03:00:00
+OnCalendar=Sun *-*-* 07:00:00
+OnCalendar=Sun *-*-* 11:00:00
+OnCalendar=Sun *-*-* 15:00:00
+OnCalendar=Sun *-*-* 19:00:00
+
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Tele Quant one-shot digest
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+Environment=DIGEST_MODE=fast
+ExecStart=%h/.local/bin/uv run tele-quant once --send --hours 4

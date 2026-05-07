@@ -1,0 +1,66 @@
+# 시작용 텔레그램 채널 후보입니다.
+# 공개 채널/검색 결과 기반 후보이므로 실제 구독 전 채널 설명과 운영 주체를 직접 확인하세요.
+# .env.local의 TELEGRAM_SOURCE_CHATS에 handle만 쉼표로 넣으면 됩니다.
+
+official_or_broker_research:
+  - handle: KiwoomResearch
+    name: 키움증권 리서치센터
+    focus: 국내/해외/채권/섹터 리서치
+  - handle: HanaResearch
+    name: 하나증권 리서치
+    focus: 국내/해외주식, 섹터, 매크로
+  - handle: meritz_research
+    name: 메리츠증권 리서치
+    focus: 섹터/기업 리서치
+  - handle: yuantaresearch
+    name: 유안타증권 리서치센터
+    focus: 리서치센터 공지/자료
+  - handle: daolresearch
+    name: 다올투자증권 리서치센터
+    focus: 리서치센터 자료
+  - handle: hmsecresearch
+    name: 현대차증권 리서치센터
+    focus: 국내 리서치
+  - handle: sksresearch
+    name: SK증권 리서치
+    focus: 리서치센터 자료
+  - handle: sk_smallcap
+    name: SK증권 스몰캡 리서치
+    focus: 미드/스몰캡
+  - handle: shsmallcap
+    name: 신한 리서치본부 혁신성장
+    focus: 스몰캡/혁신성장
+
+analyst_or_team_channels:
+  - handle: eqmirae
+    name: 미래에셋증권 전략/퀀트 유명간
+    focus: 전략/퀀트/컨센서스
+  - handle: KISemicon
+    name: 한투 반도체
+    focus: 반도체
+  - handle: kmj_retailcosmetics
+    name: 한투증권 김명주 유통/화장품
+    focus: 유통/화장품
+  - handle: cjdbj
+    name: 미래에셋 배터리/디스플레이
+    focus: 2차전지/디스플레이
+  - handle: qooowooo
+    name: 미래에셋 글로벌/한국 ETF
+    focus: ETF
+
+aggregators_and_independent:
+  - handle: companyreport
+    name: 주식 증권사 리포트
+    focus: 증권사 리포트 취합
+  - handle: corevalue
+    name: 가치투자클럽
+    focus: 공표 자료/공시/뉴스 취합
+  - handle: valuefinder
+    name: 독립리서치 밸류파인더
+    focus: 독립 리서치
+  - handle: growthresearch
+    name: 그로쓰리서치
+    focus: 독립 리서치
+  - handle: siglab
+    name: 시그널랩 리서치
+    focus: 시장/테마 모니터링

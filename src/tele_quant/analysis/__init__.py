@@ -1,0 +1,1 @@
+"""Stock candidate analysis pipeline."""

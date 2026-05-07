@@ -1,0 +1,10 @@
+[Unit]
+Description=Tele Quant weekly digest (7-day rollup)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+ExecStart=%h/.local/bin/uv run tele-quant weekly --send --days 7 --mode deep_polish
+StandardOutput=journal
+StandardError=journal

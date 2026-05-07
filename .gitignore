@@ -1,0 +1,27 @@
+# secrets
+.env
+.env.local
+*.session
+*.session-journal
+
+# runtime data
+data/*.db
+data/*.sqlite
+data/*.jsonl
+data/*.log
+data/*.session*
+
+# python
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

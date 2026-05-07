@@ -1,0 +1,198 @@
+version: 1
+
+groups:
+  core_kr:
+    label: "국내 핵심 관심"
+    description: "한국 대표 대형주/주도 섹터"
+    symbols:
+      - "005930.KS"   # 삼성전자
+      - "000660.KS"   # SK하이닉스
+      - "035420.KS"   # NAVER
+      - "005380.KS"   # 현대차
+      - "000270.KS"   # 기아
+      - "005490.KS"   # 포스코홀딩스
+      - "373220.KS"   # LG에너지솔루션
+      - "247540.KQ"   # 에코프로비엠
+
+  kr_growth:
+    label: "국내 성장/테마"
+    description: "바이오, 방산, 조선, 로봇, 원전"
+    symbols:
+      - "012450.KS"   # 한화에어로스페이스
+      - "064350.KS"   # 현대로템
+      - "329180.KS"   # HD현대중공업
+      - "042660.KS"   # 한화오션
+      - "034020.KS"   # 두산에너빌리티
+      - "196170.KQ"   # 알테오젠
+      - "068270.KS"   # 셀트리온
+      - "454910.KS"   # 두산로보틱스
+
+  us_ai_bigtech:
+    label: "미국 AI/빅테크"
+    description: "AI, 클라우드, 반도체, 플랫폼"
+    symbols:
+      - "NVDA"        # NVIDIA
+      - "MSFT"        # Microsoft
+      - "AAPL"        # Apple
+      - "GOOGL"       # Alphabet
+      - "AMZN"        # Amazon
+      - "META"        # Meta
+      - "AVGO"        # Broadcom
+      - "AMD"         # AMD
+      - "QCOM"        # Qualcomm
+      - "PLTR"        # Palantir
+      - "ASML"        # ASML
+      - "TSM"         # TSMC
+      - "MU"          # Micron
+      - "ARM"         # Arm
+
+  us_healthcare_consumer:
+    label: "미국 헬스케어/소비"
+    description: "방어주와 성장주 혼합"
+    symbols:
+      - "LLY"         # Eli Lilly
+      - "MRK"         # Merck
+      - "UNH"         # UnitedHealth
+      - "PFE"         # Pfizer
+      - "NFLX"        # Netflix
+      - "DIS"         # Disney
+      - "RCL"         # Royal Caribbean
+
+  macro_etf:
+    label: "매크로/ETF 관찰"
+    description: "시장 방향성 확인용"
+    symbols:
+      - "SPY"         # S&P500 ETF
+      - "QQQ"         # Nasdaq ETF
+      - "SOXX"        # Semiconductor ETF
+      - "IWM"         # Russell 2000 ETF
+      - "TLT"         # Long Treasury ETF
+      - "GLD"         # Gold ETF
+      - "BTC-USD"     # Bitcoin indicator
+      - "ETH-USD"     # Ethereum indicator
+
+  avoid:
+    label: "제외/주의"
+    description: "롱 후보에서 제외하거나 관망 우선"
+    symbols: []
+
+risk_profile:
+  style: "개인 리서치 보조형"
+  beginner_safe_mode: true
+
+  prefer_markets:
+    - "KR"
+    - "US"
+
+  prefer_sectors:
+    - "AI"
+    - "반도체"
+    - "HBM"
+    - "바이오"
+    - "조선"
+    - "방산"
+    - "원전"
+    - "로봇"
+    - "자동차"
+    - "금융"
+
+  avoid_themes:
+    - "리딩방"
+    - "광고"
+    - "무근거 급등주"
+    - "코인선물"
+    - "작전성 테마"
+
+  max_candidates_per_report: 8
+  show_watchlist_first: true
+
+  long_rules:
+    min_score: 65
+    prefer_rsi_min: 45
+    prefer_rsi_max: 75
+    max_rsi_for_new_long: 80
+    require_positive_evidence: true
+    require_technical_confirmation: true
+    avoid_chasing_if_rsi_over: 85
+
+  short_rules:
+    min_score: 60
+    require_negative_evidence: true
+    allow_overheated_short_watch: true
+    overheated_rsi: 85
+    require_risk_note: true
+
+  position_language:
+    use_confirmed_buy_sell_words: false
+    long_word: "롱 관심"
+    short_word: "숏/매도 경계"
+    watch_word: "관망"
+    entry_word: "관심 진입"
+    stop_word: "손절·무효화"
+    target_word: "목표/매도 관찰"
+
+report_style:
+  tone: "전문 개인투자자 리서치 노트"
+  compact: true
+  show_reason_first: true
+  show_macro_first: true
+  show_watchlist_section: true
+  show_sector_board: true
+  show_event_calendar: true
+  show_delta_from_previous_report: true
+  show_performance_review: true
+  show_source_rank_summary: true
+
+  report_sections:
+    - "한 줄 결론"
+    - "4시간 전 대비 바뀐 점"
+    - "좋은 매크로 / 나쁜 매크로"
+    - "섹터 온도판"
+    - "새로 뜬 호재 / 새로 뜬 악재"
+    - "내 관심종목 변화"
+    - "롱 관심 후보"
+    - "숏/매도 경계 후보"
+    - "관망/추격주의"
+    - "다음 72시간 체크포인트"
+
+schedule_context:
+  "07":
+    label: "아침 브리핑"
+    focus:
+      - "전일 미국장"
+      - "한국장 개장 전 체크"
+      - "환율/금리/유가"
+      - "오늘 볼 섹터"
+  "11":
+    label: "오전장 점검"
+    focus:
+      - "한국장 오전 수급"
+      - "특징주"
+      - "새 리포트"
+  "15":
+    label: "장마감 전 점검"
+    focus:
+      - "한국장 마감 전 수급"
+      - "당일 강한 섹터"
+      - "종가 기준 관심 구간"
+  "19":
+    label: "저녁 점검"
+    focus:
+      - "한국장 마감 정리"
+      - "유럽장/미국장 프리마켓"
+      - "다음날 체크포인트"
+  "23":
+    label: "미국장 개장 체크"
+    focus:
+      - "미국장 개장 전 뉴스"
+      - "빅테크/반도체/ETF"
+      - "프리마켓 급등락"
+  "03":
+    label: "미국장 중반 체크"
+    focus:
+      - "미국장 흐름"
+      - "금리/달러/유가"
+      - "익일 한국장 영향"
+
+disclaimer:
+  text: "공개 정보 기반 개인 리서치 보조용이며 투자 판단 책임은 사용자에게 있음."
