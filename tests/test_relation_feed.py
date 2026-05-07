@@ -278,8 +278,7 @@ def test_report_section_generation():
     feed = _make_feed_with_rows()
     section = build_relation_feed_section(feed)
 
-    assert "어제 급등·급락" in section
-    assert "후행 후보" in section
+    assert "후행 관찰 후보" in section
     assert "SNDK" in section
     assert "통계적 관찰 목록" in section
 
@@ -297,7 +296,7 @@ def test_report_section_empty_feed():
     feed = RelationFeedData()
     feed.load_warnings.append("relation feed 없음")
     section = build_relation_feed_section(feed)
-    assert "후행 후보" in section or section == ""
+    assert "후행 관찰 후보" in section or section == ""
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import csv
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -90,6 +90,20 @@ class LeadLagCandidateRow:
 
 
 @dataclass
+class RelationTargetLiveCheck:
+    """Current price/volume/4H status for a relation-feed target symbol."""
+    target_symbol: str
+    latest_price: float | None = None
+    today_return_pct: float | None = None
+    volume_ratio: float | None = None
+    rsi_4h: float | None = None
+    obv_trend_4h: str = ""
+    bollinger_4h: str = ""
+    expected_direction: str = "UP"  # UP or DOWN
+    live_status: str = "DATA_MISSING"  # CONFIRMED / WATCH / MIXED / NOT_CONFIRMED / DATA_MISSING
+
+
+@dataclass
 class RelationFeedData:
     summary: RelationFeedSummary | None = None
     movers: list[MoverRow] = field(default_factory=list)
@@ -129,6 +143,95 @@ def _feed_age_hours(generated_at: str) -> float | None:
         return (now - dt).total_seconds() / 3600.0
     except Exception:
         return None
+
+
+def _is_recent_asof(asof_date: str, max_days: int = 3) -> bool:
+    """Return True if asof_date is within max_days calendar days of today."""
+    try:
+        d = date.fromisoformat(asof_date)
+        return 0 <= (date.today() - d).days <= max_days
+    except Exception:
+        return False
+
+
+def _yf_symbol(symbol: str, market: str) -> str:
+    if market == "KR":
+        return f"{symbol}.KS"
+    return symbol
+
+
+def _fetch_yf_daily_safe(yf_sym: str) -> tuple[float | None, float | None, float | None]:
+    """Return (latest_price, today_return_pct, volume_ratio_vs_recent). Never raises."""
+    try:
+        import yfinance as yf
+
+        df = yf.Ticker(yf_sym).history(period="5d", interval="1d", auto_adjust=True)
+        if df is None or df.empty or len(df) < 2:
+            return None, None, None
+        prev_close = float(df["Close"].iloc[-2])
+        last_close = float(df["Close"].iloc[-1])
+        ret = (last_close - prev_close) / prev_close * 100 if prev_close > 0 else None
+        vol_ratio: float | None = None
+        if "Volume" in df.columns:
+            vols = df["Volume"].dropna()
+            if len(vols) >= 2:
+                avg = float(vols.iloc[:-1].mean())
+                if avg > 0:
+                    vol_ratio = float(vols.iloc[-1]) / avg
+        return last_close, ret, vol_ratio
+    except Exception:
+        return None, None, None
+
+
+def _expected_direction_from_relation_type(relation_type: str) -> str:
+    rt = relation_type.upper()
+    if rt in ("UP_LEADS_UP", "DOWN_LEADS_UP"):
+        return "UP"
+    return "DOWN"
+
+
+def _judge_live_status(
+    expected_direction: str,
+    today_return_pct: float | None,
+    volume_ratio: float | None,
+    obv_trend: str,
+) -> str:
+    if today_return_pct is None:
+        return "DATA_MISSING"
+    is_up = expected_direction == "UP"
+    if is_up:
+        if today_return_pct > 0:
+            if volume_ratio is not None and volume_ratio >= 1.0 and obv_trend == "상승":
+                return "CONFIRMED"
+            return "WATCH"
+        if today_return_pct < -0.5:
+            return "NOT_CONFIRMED"
+        return "MIXED"
+    else:
+        if today_return_pct < 0:
+            if volume_ratio is not None and volume_ratio >= 1.0 and obv_trend == "하락":
+                return "CONFIRMED"
+            return "WATCH"
+        if today_return_pct > 0.5:
+            return "NOT_CONFIRMED"
+        return "MIXED"
+
+
+_LIVE_STATUS_LABELS: dict[str, str] = {
+    "CONFIRMED": "확인됨",
+    "WATCH": "부분 확인 (거래량/4H 추가 확인 필요)",
+    "MIXED": "혼조 (통계와 현재가 불일치)",
+    "NOT_CONFIRMED": "미확인 (통계와 현재가 반대 방향)",
+    "DATA_MISSING": "현재가 확인 불가, 통계만 참고",
+}
+
+_LIVE_STATUS_JUDGMENT: dict[str, str] = {
+    "CONFIRMED": "조건 충족, 관심 관찰 대상",
+    "WATCH": "가격 확인 전 관찰 후보",
+    "MIXED": "관찰만 — 통계와 현재가 불일치",
+    "NOT_CONFIRMED": "관찰만 — 통계와 현재가 반대",
+    "DATA_MISSING": "가격 확인 전 관찰 후보",
+}
 
 
 def load_relation_feed(settings: Settings) -> RelationFeedData:
@@ -271,6 +374,58 @@ def load_relation_feed(settings: Settings) -> RelationFeedData:
     return result
 
 
+def fetch_relation_target_live_checks(
+    feed: RelationFeedData,
+    settings: Any = None,
+) -> dict[str, RelationTargetLiveCheck]:
+    """Fetch current price/volume/4H status for all relation-feed targets. Never raises."""
+    target_info: dict[str, tuple[str, str]] = {}
+    for row in feed.leadlag:
+        if row.target_symbol not in target_info:
+            ed = _expected_direction_from_relation_type(row.relation_type)
+            target_info[row.target_symbol] = (row.target_market, ed)
+    for c in feed.fallback_candidates:
+        if c.target_symbol not in target_info:
+            ed = _expected_direction_from_relation_type(
+                getattr(c, "relation_type", "UP_LEADS_UP")
+            )
+            target_info[c.target_symbol] = (getattr(c, "target_market", "US"), ed)
+
+    result: dict[str, RelationTargetLiveCheck] = {}
+    for sym, (market, expected_dir) in target_info.items():
+        yf_sym = _yf_symbol(sym, market)
+        price, ret_pct, vol_ratio = _fetch_yf_daily_safe(yf_sym)
+
+        rsi_4h: float | None = None
+        obv_trend = ""
+        bb_pos = ""
+        if settings is not None:
+            try:
+                from tele_quant.analysis.intraday import fetch_intraday_4h
+
+                snap = fetch_intraday_4h(yf_sym, settings)
+                if snap is not None:
+                    rsi_4h = snap.rsi14
+                    obv_trend = snap.obv_trend
+                    bb_pos = snap.bb_position
+            except Exception:
+                pass
+
+        status = _judge_live_status(expected_dir, ret_pct, vol_ratio, obv_trend)
+        result[sym] = RelationTargetLiveCheck(
+            target_symbol=sym,
+            latest_price=price,
+            today_return_pct=ret_pct,
+            volume_ratio=vol_ratio,
+            rsi_4h=rsi_4h,
+            obv_trend_4h=obv_trend,
+            bollinger_4h=bb_pos,
+            expected_direction=expected_dir,
+            live_status=status,
+        )
+    return result
+
+
 def get_all_target_symbols(feed: RelationFeedData) -> set[str]:
     syms = {row.target_symbol for row in feed.leadlag}
     syms.update(c.target_symbol for c in feed.fallback_candidates)
@@ -282,12 +437,14 @@ def get_relation_boost(
     symbol: str,
     has_telegram_evidence: bool,
     technical_ok: bool,
+    live_checks: dict[str, RelationTargetLiveCheck] | None = None,
 ) -> tuple[float, str]:
     """Return (score_boost, note) for a symbol. boost=0 when conditions not met.
 
     Boost scale: high=+2, medium=+1.
     Guards: source must be an actual mover (latest_movers.csv), abs(source_return_pct)>0,
     confidence>=medium, note must not be from refill/deeper-empirical.
+    When live_checks is provided, only CONFIRMED live status allows a boost.
     """
     if feed is None or not feed.available:
         return 0.0, ""
@@ -295,6 +452,12 @@ def get_relation_boost(
     # Only boost when telegram evidence AND technical signal both present
     if not has_telegram_evidence or not technical_ok:
         return 0.0, ""
+
+    # Live status guard: when live_checks provided, require CONFIRMED
+    if live_checks is not None:
+        check = live_checks.get(symbol)
+        if check is None or check.live_status != "CONFIRMED":
+            return 0.0, ""
 
     mover_symbols = {m.symbol for m in feed.movers}
 
@@ -380,7 +543,7 @@ def format_confidence_explanation(confidence: str) -> str:
     if confidence == "high":
         return "표본 수와 반복성이 비교적 양호"
     if confidence == "medium":
-        return "관찰할 만하지만 추가 확인 필요"
+        return "관찰할 만하지만 현재 가격 확인 필요"
     return "참고만 가능, 리포트 기본 노출 제한"
 
 
@@ -393,8 +556,8 @@ def _today_watchpoints(is_up: bool) -> str:
 
 _RELATION_FEED_DISCLAIMER = (
     "이 섹션은 매수/매도 지시가 아니라, 과거 급등·급락 이후 반복된 후행 반응을 보여주는 "
-    "통계적 관찰 목록입니다. 실제 판단은 오늘의 거래량, 4시간봉 RSI/OBV, 뉴스 지속성을 "
-    "함께 확인해야 합니다."
+    "통계적 관찰 목록입니다. 현재 주가·거래량·4H RSI/OBV가 같은 방향으로 확인되지 않으면 "
+    "관찰만 합니다."
 )
 
 
@@ -406,6 +569,7 @@ def build_relation_feed_section(
     max_movers: int = 8,
     max_targets: int = 3,
     settings: Any = None,
+    live_checks: dict[str, RelationTargetLiveCheck] | None = None,
 ) -> str:
     """Build the relation feed digest section."""
     if settings is not None:
@@ -419,7 +583,7 @@ def build_relation_feed_section(
 
     if not feed.available:
         if feed.load_warnings:
-            lines.append("⚡ 어제 급등·급락 → 후행 후보")
+            lines.append("⚡ 후행 관찰 후보")
             lines.append(f"- {feed.load_warnings[0]}")
         return "\n".join(lines)
 
@@ -430,7 +594,12 @@ def build_relation_feed_section(
         lines.append("⚡ 급등·급락 후행 관찰 후보")
         lines.append("- 이번 주말에는 매매 시나리오가 아니라 통계적 관찰 후보만 표시합니다.")
     else:
-        lines.append("⚡ 어제 급등·급락 → 후행 후보")
+        is_recent = _is_recent_asof(summary.asof_date)
+        if is_recent:
+            lines.append("⚡ 최근 급등·급락 → 후행 관찰 후보")
+        else:
+            lines.append("⚡ 과거 급등·급락 기반 후행 관찰 후보")
+            lines.append(f"  ※ 기준일({summary.asof_date})이 오래된 통계 자료이므로 현재 가격 확인 필수")
 
     lines.append(f"- 기준일: {summary.asof_date}")
     lines.append(
@@ -505,8 +674,6 @@ def build_relation_feed_section(
 
         targets = source_targets.get(mover.symbol, [])
         if not targets:
-            # Mover without targets: single compact line
-            block.append(f"  {star}{src_label} {src_sign}")
             return block
 
         for t in targets:
@@ -536,13 +703,33 @@ def build_relation_feed_section(
             conf_str = format_confidence_explanation(t.confidence)
             watch_str = _today_watchpoints(is_up)
 
+            # Live check status
+            if live_checks is not None:
+                chk = live_checks.get(t.target_symbol)
+                live_label = _LIVE_STATUS_LABELS.get(
+                    chk.live_status if chk else "DATA_MISSING",
+                    "현재가 확인 불가",
+                )
+                judgment = _LIVE_STATUS_JUDGMENT.get(
+                    chk.live_status if chk else "DATA_MISSING",
+                    "가격 확인 전 관찰 후보",
+                )
+                if chk and chk.today_return_pct is not None:
+                    ret_sign = "+" if chk.today_return_pct > 0 else ""
+                    live_label += f" ({ret_sign}{chk.today_return_pct:.1f}%)"
+            else:
+                live_label = "현재가 확인 불가, 통계만 참고"
+                judgment = "가격 확인 전 관찰 후보"
+
             block.append(f"{_pair_count}. {star}{src_label} {src_sign}")
             block.append(f"   → {direction_label}: {wl_t}{tgt_label}{tg_note}")
             block.append(f"   - 의미: {meaning}")
             block.append(
                 f"   - 통계: 조건부확률 {prob_str} / {lift_str} / 신뢰도 {t.confidence} ({conf_str})"
             )
+            block.append(f"   - 현재 확인: {live_label}")
             block.append(f"   - 오늘 볼 것: {watch_str}")
+            block.append(f"   - 판정: {judgment}")
 
         return block
 
@@ -603,6 +790,22 @@ def build_relation_feed_section(
             lift_str = format_lift_explanation(cand.lift, cand.event_count)
             conf_str = format_confidence_explanation(cand.confidence)
             watch_str = _today_watchpoints(is_up)
+            if live_checks is not None:
+                fb_chk = live_checks.get(cand.target_symbol)
+                fb_live_label = _LIVE_STATUS_LABELS.get(
+                    fb_chk.live_status if fb_chk else "DATA_MISSING",
+                    "현재가 확인 불가",
+                )
+                fb_judgment = _LIVE_STATUS_JUDGMENT.get(
+                    fb_chk.live_status if fb_chk else "DATA_MISSING",
+                    "가격 확인 전 관찰 후보",
+                )
+                if fb_chk and fb_chk.today_return_pct is not None:
+                    fb_ret_sign = "+" if fb_chk.today_return_pct > 0 else ""
+                    fb_live_label += f" ({fb_ret_sign}{fb_chk.today_return_pct:.1f}%)"
+            else:
+                fb_live_label = "현재가 확인 불가, 통계만 참고"
+                fb_judgment = "가격 확인 전 관찰 후보"
             lines.append(f"{i}. {src_label} {sign}{cand.source_return_pct:.1f}%")
             lines.append(f"   → {direction_label}: {wl}{tgt_label}")
             lines.append(f"   - 의미: {meaning}")
@@ -610,7 +813,9 @@ def build_relation_feed_section(
                 f"   - 통계: 조건부확률 {cand.conditional_prob:.1%} / {lift_str}"
                 f" / 신뢰도 {cand.confidence} ({conf_str})"
             )
+            lines.append(f"   - 현재 확인: {fb_live_label}")
             lines.append(f"   - 오늘 볼 것: {watch_str}")
+            lines.append(f"   - 판정: {fb_judgment}")
             if cand.confidence == "low":
                 lines.append("   ⚠️ 낮은 신뢰도 — 가격/거래량 확인 전까지는 참고용")
         if not medium and low_top:

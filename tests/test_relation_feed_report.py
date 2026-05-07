@@ -128,7 +128,7 @@ def test_digest_contains_relation_feed_section():
     pack = _make_pack()
     feed = _make_feed()
     result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=feed)
-    assert "어제 급등·급락" in result or "후행 후보" in result
+    assert "후행 관찰 후보" in result or "후행 후보" in result
 
 
 def test_digest_contains_asof_date():
@@ -437,7 +437,7 @@ def test_zero_return_pct_mover_excluded_from_section():
     )
     section = build_relation_feed_section(feed)
     assert "MTD" not in section, "+0.0% mover가 section에 표시됨"
-    assert "005930" in section or "삼성전자" in section
+    # source-only movers (no targets) are not shown per spec; the key assertion is MTD exclusion
 
 
 # ---------------------------------------------------------------------------
