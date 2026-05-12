@@ -53,6 +53,7 @@ _TITLE_PREFIX_RE = re.compile(r"^제목\s*:\s*", re.IGNORECASE)
 # Plain-text broker/channel names at start of text (no brackets)
 _PLAIN_BROKER_HEADER_RE = re.compile(
     r"^(?:Hana\s+Global\s+Guru\s+Eye|유안타\s*리서치센터|"
+    r"하나증권\s*해외주식분석|키움증권\s*미국\s*주식[^가-힣]{0,10}|"
     r"(?:모닝|아침|저녁|일일|주간|프리마켓|애프터마켓)\s*(?:브리핑|뉴스|리포트)?)"
     r"\s*[:\-]?\s*",
     re.IGNORECASE,
@@ -73,8 +74,12 @@ _HEADER_ONLY_RES = [
     re.compile(r"^Global Research\s*$", re.IGNORECASE),
     re.compile(r"^Hana\s+Global\s+Guru\s+Eye\s*$", re.IGNORECASE),
     re.compile(r"^유안타\s*리서치센터\s*$", re.IGNORECASE),
+    re.compile(r"^하나증권\s*해외주식분석\s*$", re.IGNORECASE),
+    re.compile(r"^키움증권\s*미국\s*주식\s*박기현.*$", re.IGNORECASE),
     re.compile(r"^(?:모닝|아침|일일|프리마켓)\s*(?:브리핑|뉴스)\s*$", re.IGNORECASE),
     re.compile(r"^(?:link|카테고리|출처)\s*:\s*\S*\s*$", re.IGNORECASE),
+    re.compile(r"^ShowHashtag\b", re.IGNORECASE),
+    re.compile(r"^연합인포맥스\s*$", re.IGNORECASE),
 ]
 
 # Noise / low-quality patterns: when matched, headline is low-investment-relevance
@@ -87,6 +92,21 @@ _LOW_QUALITY_RES = [
     re.compile(r"^link\s*:", re.IGNORECASE),
     re.compile(r"^카테고리\s*:", re.IGNORECASE),
     re.compile(r"^출처\s*:", re.IGNORECASE),
+    re.compile(r"ShowHashtag", re.IGNORECASE),
+    re.compile(r"하나증권\s*해외주식분석", re.IGNORECASE),
+    re.compile(r"키움증권\s*미국\s*주식\s*박기현", re.IGNORECASE),
+]
+
+# Patterns that disqualify a sentence from being used as evidence
+_NOISE_SENTENCE_RES = [
+    re.compile(r"tel:|href=|ShowHashtag", re.IGNORECASE),
+    re.compile(r"☎️?\s*\d[\d\-\s]{4,14}"),
+    re.compile(r"\(0\d{1,2}[-–]\d{3,4}[-–]\d{4}\)"),  # noqa: RUF001
+    re.compile(r"하나증권\s*해외주식분석|키움증권\s*미국\s*주식", re.IGNORECASE),
+    re.compile(r"유안타\s*리서치센터|Hana\s*Global\s*Guru\s*Eye", re.IGNORECASE),
+    re.compile(r"연합인포맥스", re.IGNORECASE),
+    re.compile(r"S&P\s*500\s*map", re.IGNORECASE),
+    re.compile(r"^(?:제목|카테고리|출처명?|증권사|원문)\s*:", re.IGNORECASE | re.MULTILINE),
 ]
 
 
@@ -162,6 +182,11 @@ def extract_issue_sentence(text: str, fallback_title: str = "") -> str:
         cleaned = (cut or cleaned[:90]) + "..."
 
     return cleaned
+
+
+def is_noise_sentence(text: str) -> bool:
+    """Return True if the text contains noise that disqualifies it as investment evidence."""
+    return any(p.search(text) for p in _NOISE_SENTENCE_RES)
 
 
 def summarize_issue_for_display(cluster: EvidenceCluster) -> str:

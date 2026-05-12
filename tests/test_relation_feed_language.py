@@ -314,6 +314,7 @@ def test_section_title_no_yesterday():
 def test_section_title_recent_asof():
     """기준일이 최근(3일 이내)이면 '최근 급등·급락' 제목."""
     from datetime import date
+
     asof = date.today().isoformat()
     feed = RelationFeedData(
         summary=RelationFeedSummary(

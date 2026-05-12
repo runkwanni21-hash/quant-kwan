@@ -549,22 +549,43 @@ def weekly(
                 scenario_rows = store.recent_scenarios(since=since, side="LONG", min_score=80)
                 console.print(f"[weekly] performance scenarios={len(scenario_rows)}")
 
-                # scenario_history에서 price 있는 항목 처리
-                seen_syms: dict[str, dict] = {}
+                # scenario_history에서 price 있는 항목 처리 — 첫 80점 이상 시점 기준
+                sym_all: dict[str, list[dict]] = {}
                 for row in scenario_rows:
-                    entry_price = row.get("close_price_at_report")
                     sym = row.get("symbol", "")
-                    if not sym or entry_price is None:
+                    if sym:
+                        sym_all.setdefault(sym, []).append(row)
+
+                seen_syms: dict[str, dict] = {}
+                for sym, rows_for_sym in sym_all.items():
+                    # Sort ascending by created_at → oldest = first 80-point recommendation
+                    rows_sorted = sorted(rows_for_sym, key=lambda r: r.get("created_at") or "")
+                    first_row = rows_sorted[0]
+                    entry_price = first_row.get("close_price_at_report")
+                    if entry_price is None:
+                        for r in rows_sorted:
+                            if r.get("close_price_at_report") is not None:
+                                first_row = r
+                                entry_price = r.get("close_price_at_report")
+                                break
+                    if entry_price is None:
                         continue
-                    # 같은 종목: 첫 추천 시점 기준
-                    if sym not in seen_syms:
-                        seen_syms[sym] = {
-                            "symbol": sym,
-                            "name": row.get("name"),
-                            "score": row.get("score", 0),
-                            "entry_price": entry_price,
-                            "created_at": row.get("created_at"),
-                        }
+                    best_row = max(rows_sorted, key=lambda r: r.get("score") or 0)
+                    mkt = "KR" if sym.endswith((".KS", ".KQ")) else "US"
+                    seen_syms[sym] = {
+                        "symbol": sym,
+                        "name": first_row.get("name"),
+                        "score": first_row.get("score", 0),
+                        "max_score": best_row.get("score", first_row.get("score", 0)),
+                        "max_score_at": best_row.get("created_at"),
+                        "entry_price": entry_price,
+                        "created_at": first_row.get("created_at"),
+                        "first_seen_at": first_row.get("created_at"),
+                        "repeat_count": len(rows_for_sym),
+                        "market": mkt,
+                        "entry_basis": "report_time_latest_close",
+                        "_source": "scenario_history",
+                    }
 
                 for sym, info in seen_syms.items():
                     try:
@@ -590,10 +611,40 @@ def weekly(
                     console.print("[weekly] scenario_history 없음 → analysis_text fallback 파싱")
                     from tele_quant.weekly import parse_long_candidates_from_analysis
 
+                    # Diagnose why scenario_history is empty
+                    has_long_80 = (
+                        any(
+                            r.get("side") == "LONG" and (r.get("score") or 0) >= 80
+                            for r in scenario_rows
+                        )
+                        if scenario_rows
+                        else False
+                    )
+                    has_no_price = (
+                        any(
+                            r.get("close_price_at_report") is None
+                            for r in scenario_rows
+                            if r.get("side") == "LONG" and (r.get("score") or 0) >= 80
+                        )
+                        if scenario_rows
+                        else False
+                    )
+                    _diag: list[str] = []
+                    if not scenario_rows:
+                        _diag.append("DB 저장 없음 (scenario_history 비어 있음)")
+                    elif not has_long_80:
+                        _diag.append("80점 이상 LONG 후보 없음")
+                    elif has_no_price:
+                        _diag.append("가격 확인 실패 (close_price_at_report NULL)")
+                    if _diag:
+                        console.print(f"[weekly] 성과 리뷰 진단: {'; '.join(_diag)}")
+
                     fallback_seen: dict[str, dict] = {}
+                    has_analysis = False
                     for rep in reports:
                         if not rep.analysis:
                             continue
+                        has_analysis = True
                         candidates = parse_long_candidates_from_analysis(
                             rep.analysis, min_score=80.0
                         )
@@ -605,9 +656,17 @@ def weekly(
                                     "created_at": rep.created_at.isoformat()
                                     if rep.created_at
                                     else None,
+                                    "market": "KR" if sym.endswith((".KS", ".KQ")) else "US",
                                 }
 
-                    console.print(f"[weekly] fallback candidates={len(fallback_seen)}")
+                    if not has_analysis:
+                        _diag.append("분석 리포트 없음 (macro-only 기간)")
+                    elif not fallback_seen:
+                        _diag.append("fallback 파싱 실패 (80점 이상 롱 섹션 미발견)")
+
+                    console.print(
+                        f"[weekly] fallback candidates={len(fallback_seen)} source=analysis_text"
+                    )
                     for sym, info in fallback_seen.items():
                         try:
                             hist = yf.Ticker(sym).history(period="2d", auto_adjust=True)
@@ -624,11 +683,12 @@ def weekly(
                                         "current_price": current,
                                         "return_pct": ret_pct,
                                         "win": ret_pct > 0,
+                                        "_source": "fallback",
                                     }
                                 )
                             else:
-                                # 가격 확인 불가
                                 no_price_count += 1
+                                _diag.append(f"{sym}: 진입가 없음")
                         except Exception:
                             no_price_count += 1
 
@@ -648,8 +708,33 @@ def weekly(
             console.print("[yellow]최근 리포트가 없어 주간 요약 생략[/yellow]")
             return
 
+        # Relation signal performance review
+        relation_signal_review: str | None = None
+        try:
+            from tele_quant.weekly import build_relation_signal_review_section
+
+            relation_signal_review = build_relation_signal_review_section(store, since=since)
+            console.print("[weekly] relation_signal_review=ok")
+        except Exception as _rsr_exc:
+            console.print(f"[yellow][weekly] relation_signal_review failed: {_rsr_exc}[/yellow]")
+
+        # Pair watch weekly review
+        pair_watch_review: str | None = None
+        try:
+            from tele_quant.live_pair_watch import build_pair_watch_weekly_review
+
+            pair_watch_review = build_pair_watch_weekly_review(
+                store, since=since, settings=settings
+            )
+            console.print("[weekly] pair_watch_review=ok")
+        except Exception as _pwr_exc:
+            console.print(f"[yellow][weekly] pair_watch_review failed: {_pwr_exc}[/yellow]")
+
         summary = build_weekly_deterministic_summary(
-            weekly_input, relation_feed_data=relation_feed_data
+            weekly_input,
+            relation_feed_data=relation_feed_data,
+            relation_signal_review=relation_signal_review,
+            pair_watch_review=pair_watch_review,
         )
 
         if mode == "deep_polish":
@@ -768,6 +853,10 @@ def relation_feed_cmd(
     force_fallback: Annotated[
         bool,
         typer.Option("--force-fallback", help="stock feed leadlag가 있어도 fallback 강제 계산"),
+    ] = False,
+    review: Annotated[
+        bool,
+        typer.Option("--review/--no-review", help="저장된 relation 신호 성과 리뷰 표시"),
     ] = False,
     limit: Annotated[
         int,
@@ -962,6 +1051,170 @@ def relation_feed_cmd(
 
         _asyncio.run(_send())
 
+    if review:
+        from datetime import timedelta
+
+        from tele_quant.db import Store
+        from tele_quant.models import utc_now
+        from tele_quant.weekly import build_relation_signal_review_section
+
+        _store = Store(settings.sqlite_path)
+        _since = utc_now() - timedelta(days=7)
+        _review_section = build_relation_signal_review_section(_store, since=_since)
+        console.rule("[dim]Relation Signal 성과 리뷰 (최근 7일)[/dim]")
+        console.print(_review_section)
+
+
+@app.command("pair-watch")
+def pair_watch_cmd(
+    sector: Annotated[
+        str | None,
+        typer.Option("--sector", help="섹터 필터: semiconductor|ess|cosmetics|defense"),
+    ] = None,
+    hours: Annotated[
+        float | None,
+        typer.Option("--hours", help="4H 기준 시간 (현재는 universe 가격 기준이므로 참고용)"),
+    ] = None,
+    send: Annotated[
+        bool,
+        typer.Option("--send/--no-send", help="관찰 섹션을 텔레그램으로 전송할지"),
+    ] = False,
+    no_db: Annotated[
+        bool,
+        typer.Option("--no-db", help="DB에 신호를 저장하지 않음"),
+    ] = False,
+) -> None:
+    """선행·후행 페어 관찰 후보를 실시간으로 계산하고 표시합니다.
+
+    출력: source / source_return / target / target_return / gap / prob / lift / confidence / action
+
+    예: source NVDA +5.1% → target SK하이닉스 +0.6%, gap=미반응, confidence=medium, action=4H 확인 후보
+    """
+    from tele_quant.live_pair_watch import (
+        build_pair_watch_section,
+        format_signal_oneline,
+        run_pair_watch,
+    )
+
+    settings = _settings()
+
+    async def run() -> None:
+        relation_feed = None
+        try:
+            from tele_quant.relation_feed import load_relation_feed
+
+            relation_feed = load_relation_feed(settings)
+        except Exception:
+            pass
+
+        corr_store = None
+        try:
+            from tele_quant.local_data import load_correlation
+
+            corr_store = load_correlation(settings)
+        except Exception:
+            pass
+
+        signals, used_stale, diagnostics = run_pair_watch(
+            settings,
+            sector_filter=sector,
+            relation_feed=relation_feed,
+            corr_store=corr_store,
+        )
+
+        if diagnostics:
+            for d in diagnostics:
+                console.print(f"[yellow]⚠ {d}[/yellow]")
+
+        if used_stale:
+            console.print("[dim]일부 가격 캐시 사용[/dim]")
+
+        if not signals:
+            console.print("[yellow]현재 기준 충족 pair-watch 신호 없음[/yellow]")
+            console.print("[dim](source 움직임 부족 또는 min_confidence 미달)[/dim]")
+            return
+
+        table = Table(title=f"선행·후행 페어 관찰 ({len(signals)}개 신호)")
+        table.add_column("source")
+        table.add_column("4H 등락", justify="right")
+        table.add_column("1D 등락", justify="right")
+        table.add_column("→ target")
+        table.add_column("target 4H", justify="right")
+        table.add_column("gap")
+        table.add_column("prob", justify="right")
+        table.add_column("lift", justify="right")
+        table.add_column("confidence")
+        table.add_column("action")
+
+        from tele_quant.live_pair_watch import _fmt_return
+
+        for sig in signals:
+            prob_str = f"{sig.conditional_prob:.1%}" if sig.conditional_prob is not None else "N/A"
+            lift_str = f"{sig.lift:.1f}x" if sig.lift is not None else "N/A"
+            action_short = (
+                sig.watch_action.split(" — ")[0] if " — " in sig.watch_action else sig.watch_action
+            )[:20]
+            gap_color = {
+                "미반응": "green",
+                "약세전이미확인": "yellow",
+                "부분반응": "blue",
+                "현재불일치": "red",
+                "불일치": "red",
+                "이미반응": "dim",
+            }.get(sig.gap_type, "white")
+            is_rule_based = sig.conditional_prob is None and sig.lift is None
+            conf_display = "규칙기반" if is_rule_based else sig.confidence
+            table.add_row(
+                f"{sig.source_name[:16]} / {sig.source_symbol}",
+                _fmt_return(sig.source_return_4h),
+                _fmt_return(sig.source_return_1d),
+                f"{sig.target_name[:16]} / {sig.target_symbol}",
+                _fmt_return(sig.target_return_4h),
+                f"[{gap_color}]{sig.gap_type}[/{gap_color}]",
+                prob_str,
+                lift_str,
+                conf_display,
+                action_short,
+            )
+        console.print(table)
+
+        # One-liner summary
+        console.rule("[dim]요약[/dim]")
+        for sig in signals[:5]:
+            console.print(format_signal_oneline(sig))
+
+        # Section preview
+        section = build_pair_watch_section(
+            signals,
+            settings=settings,
+            used_stale_cache=used_stale,
+            diagnostics=diagnostics,
+        )
+        if section:
+            console.rule("[dim]섹션 미리보기[/dim]")
+            console.print(section)
+
+        # DB save
+        if not no_db:
+            try:
+                from tele_quant.db import Store
+
+                store = Store(settings.sqlite_path)
+                saved = store.save_pair_watch_signals(signals)
+                if saved:
+                    console.print(f"[green]pair_watch_history 저장: {saved}건[/green]")
+            except Exception as exc:
+                console.print(f"[yellow]DB 저장 실패: {exc}[/yellow]")
+
+        # Telegram send
+        if send and section:
+            async with TelegramGateway(settings) as gateway:
+                sender = TelegramSender(settings, gateway=gateway)
+                await sender.send(section)
+            console.print("[green]pair-watch 섹션 전송 완료[/green]")
+
+    asyncio.run(run())
+
 
 @app.command("ollama-tags")
 def ollama_tags() -> None:
@@ -987,12 +1240,12 @@ def ollama_tags() -> None:
 def lint_report(
     hours: Annotated[
         float, typer.Option("--hours", help="최근 몇 시간치 DB 리포트를 검사할지")
-    ] = 1.0,
+    ] = 4.0,
     limit: Annotated[int, typer.Option("--limit", help="최대 검사 리포트 수")] = 10,
 ) -> None:
-    """최근 리포트의 품질 문제를 검사합니다 (브로커명 유출·극단적 헤드라인·폴라리티 오분류 등).
+    """최근 리포트의 품질 문제를 검사합니다 (브로커명 유출·근거 오류·SHORT 게이트 위반 등).
 
-    Example: uv run tele-quant lint-report --hours 1
+    Example: uv run tele-quant lint-report --hours 4
     """
     import re as _re
     from datetime import datetime as _datetime
@@ -1005,7 +1258,6 @@ def lint_report(
     from tele_quant.models import utc_now
 
     def _read_report_field(row: object, name: str, default: str = "") -> str:
-        """RunReport 객체와 dict 양쪽을 안전하게 처리."""
         val = row.get(name, default) if isinstance(row, dict) else getattr(row, name, default)  # type: ignore[union-attr]
         if val is None:
             return default
@@ -1016,17 +1268,36 @@ def lint_report(
     _BROKER_HEADER_RES = [
         _re.compile(
             r"\b(?:Hana\s+Global\s+Guru\s+Eye|유안타\s*리서치센터|"
-            r"JP모건|Goldman\s*Sachs|Morgan\s*Stanley|모건스탠리|"
-            r"골드만삭스|Wedbush|Piper\s+Sandler|BofA)\b",
+            r"하나증권\s*해외주식분석|키움증권\s*미국\s*주식\s*박기현|"
+            r"연합인포맥스|ShowHashtag|S&P\s*500\s*map)\b",
             _re.IGNORECASE,
         ),
     ]
+    # Broker false-positive: broker name appearing as stock candidate (not as source)
+    # These appear when broker name leaks into LONG/SHORT section header/reasons
+    _BROKER_AS_CANDIDATE_RE = _re.compile(
+        r"(?:JPMorgan\s*(?:Chase)?|Goldman\s*Sachs|Morgan\s*Stanley|"
+        r"JP모건|골드만삭스|모건스탠리|씨티|뱅크오브아메리카|BofA|Wedbush|"
+        r"Piper\s+Sandler|Jefferies|HSBC)\s*/\s*(?:JPM|GS|MS|C|BAC|DB)",
+        _re.IGNORECASE,
+    )
+    # Broker name raw leak in digest/analysis (report body should not name brokers directly)
+    _BROKER_NAME_LEAK_RE = _re.compile(
+        r"\b(?:JPMorgan(?:\s+Chase)?|Goldman\s+Sachs|Morgan\s+Stanley|"
+        r"JP모건|골드만삭스|모건스탠리|뱅크오브아메리카|BofA|"
+        r"Wedbush|Piper\s+Sandler|Jefferies)\b",
+        _re.IGNORECASE,
+    )
     _FORBIDDEN_WORDS = [
         "ACTION_READY",
         "LIVE_READY",
         "무조건 매수",
         "반드시 상승",
         "확정 수익",
+    ]
+    _NOISE_PATTERNS = [
+        _re.compile(r"tel:|href=|ShowHashtag|연합인포맥스", _re.IGNORECASE),
+        _re.compile(r"\d{2,3}[-–]\d{3,4}[-–]\d{4}"),  # phone numbers  # noqa: RUF001
     ]
 
     settings = _settings()
@@ -1040,9 +1311,13 @@ def lint_report(
 
     console.print(f"[bold]lint-report: {len(reports)}개 리포트 검사[/bold] (최근 {hours}h)")
 
-    issues_found = 0
+    # Check scenario_history for LONG ≥ 80 coverage
+    scenario_rows = store.recent_scenarios(since=since, side="LONG", min_score=80)
+    long80_saved = len(scenario_rows)
+    long80_with_price = sum(1 for r in scenario_rows if r.get("close_price_at_report") is not None)
+
+    total_issues = 0
     for row in reports:
-        # RunReport: digest / analysis; dict raw row: digest_text / analysis_text
         digest = _read_report_field(row, "digest") or _read_report_field(row, "digest_text")
         analysis = _read_report_field(row, "analysis") or _read_report_field(row, "analysis_text")
         created_raw = _read_report_field(row, "created_at")
@@ -1051,16 +1326,31 @@ def lint_report(
 
         row_issues: list[str] = []
 
-        # 1. 브로커 이름 헤드라인 유출
+        # 1. Noise header residuals
         for pat in _BROKER_HEADER_RES:
             for m in pat.finditer(full_text):
-                ctx_start = max(0, m.start() - 30)
-                ctx_end = min(len(full_text), m.end() + 30)
-                snippet = full_text[ctx_start:ctx_end].replace("\n", " ").strip()
-                row_issues.append(f"[yellow]브로커명 유출:[/yellow] ...{escape(snippet)}...")
+                ctx_s = max(0, m.start() - 30)
+                ctx_e = min(len(full_text), m.end() + 30)
+                snippet = full_text[ctx_s:ctx_e].replace("\n", " ").strip()
+                row_issues.append(f"[yellow]노이즈헤더 잔류:[/yellow] ...{escape(snippet[:80])}...")
                 break
 
-        # 2. 저품질 헤드라인 패턴
+        # 2. Broker as stock candidate false-positive
+        if analysis and _BROKER_AS_CANDIDATE_RE.search(analysis):
+            m2 = _BROKER_AS_CANDIDATE_RE.search(analysis)
+            assert m2
+            row_issues.append(
+                f"[red]브로커 종목 오인:[/red] {escape(m2.group())} — 브로커명이 종목 후보로 표시됨"
+            )
+
+        # 2b. Broker name raw leak in report body
+        m_broker = _BROKER_NAME_LEAK_RE.search(full_text)
+        if m_broker:
+            row_issues.append(
+                f"[yellow]브로커명 잔류:[/yellow] '{escape(m_broker.group())}' — 리포트 본문에 브로커명 직접 노출"
+            )
+
+        # 3. Broker-header-only lines
         for line in full_text.splitlines():
             line = line.strip()
             if len(line) > 3 and is_broker_header_only(line):
@@ -1068,23 +1358,64 @@ def lint_report(
             elif len(line) > 3 and is_low_quality_headline(line):
                 row_issues.append(f"[dim]저품질 라인:[/dim] {escape(line[:80])}")
 
-        # 3. 금지 표현 (확정 매수/수익 등)
+        # 4. Forbidden expressions
         for fw in _FORBIDDEN_WORDS:
             if fw in full_text:
                 row_issues.append(f"[red]금지표현:[/red] '{fw}'")
 
-        # 4. link: / 카테고리: / 출처: 잔류
+        # 5. Metadata residuals
         for pat_str in [r"^link\s*:", r"^카테고리\s*:", r"^출처\s*:"]:
             if _re.search(pat_str, full_text, _re.IGNORECASE | _re.MULTILINE):
                 row_issues.append(f"[yellow]메타데이터 잔류:[/yellow] {pat_str[:20]}")
 
+        # 6. Phone / link noise in analysis reasons
+        if analysis:
+            for npat in _NOISE_PATTERNS:
+                m3 = npat.search(analysis)
+                if m3:
+                    ctx_s = max(0, m3.start() - 20)
+                    ctx_e = min(len(analysis), m3.end() + 20)
+                    snippet = analysis[ctx_s:ctx_e].replace("\n", " ")
+                    row_issues.append(f"[yellow]노이즈 문장:[/yellow] {escape(snippet[:80])}")
+                    break
+
+        # 7. SHORT gate violation: check for 상승 추세 + OBV 상승 near SHORT section
+        if analysis:
+            short_section = _re.search(r"🔴\s*숏.+?(?=🟡|🟢|─|$)", analysis, _re.DOTALL)
+            if short_section:
+                sblock = short_section.group()
+                if "상승 추세" in sblock and "OBV: 상승" in sblock:
+                    row_issues.append(
+                        "[red]SHORT 게이트 위반:[/red] 상승 추세 + OBV 상승인데 숏 후보 표시"
+                    )
+
         if row_issues:
-            issues_found += 1
+            total_issues += 1
             console.rule(f"[bold]{created}[/bold]")
-            for issue in row_issues[:10]:
+            for issue in row_issues[:12]:
                 console.print(f"  {issue}")
 
-    if issues_found == 0:
-        console.print("[green]문제 없음[/green]")
+    # Scenario history coverage check
+    console.rule("[dim]scenario_history 커버리지[/dim]")
+    console.print(f"  LONG ≥80 저장: {long80_saved}개 (가격 있음: {long80_with_price}개)")
+    # Count how many reports have analysis with LONG section
+    reports_with_long = sum(
+        1 for r in reports if ("🟢 롱 관심 후보" in (_read_report_field(r, "analysis") or ""))
+    )
+    if reports_with_long > 0 and long80_saved == 0:
+        console.print(
+            f"  [red]⚠ LONG 섹션이 있는 리포트 {reports_with_long}개인데 scenario_history 저장 0[/red]"
+        )
+        console.print("  권장 조치: pipeline의 save_scenarios 호출 경로 확인")
+    elif long80_saved > 0 and long80_with_price == 0:
+        console.print(
+            "  [yellow]⚠ 저장됐지만 가격 없음 → weekly 성과 리뷰 비어 있을 수 있음[/yellow]"
+        )
     else:
-        console.print(f"[bold red]{issues_found}/{len(reports)} 리포트에 품질 이슈[/bold red]")
+        console.print("  [green]scenario_history OK[/green]")
+
+    if total_issues == 0:
+        console.print("[green]품질 이슈 없음 (문제 없음)[/green]")
+    else:
+        console.print(f"[bold red]{total_issues}/{len(reports)} 리포트에 품질 이슈[/bold red]")
+        raise SystemExit(1)

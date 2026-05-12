@@ -270,22 +270,74 @@ def _chasing_block(chase_list: list[TradeScenario]) -> list[str]:
     return lines
 
 
+def _compact_tech_summary(s: TradeScenario) -> str:
+    """Parse chart_summary + intraday_4h_summary into one compact line."""
+    parts: list[str] = []
+    # Prefer 4H intraday if available
+    source = s.intraday_4h_summary if s.intraday_4h_summary else s.chart_summary
+    for line in source.splitlines():
+        stripped = line.strip()
+        if "RSI" in stripped:
+            val = stripped.replace("RSI14:", "RSI").replace("- RSI:", "RSI").strip("- ")
+            parts.append(val)
+        elif "OBV:" in stripped:
+            parts.append(stripped.strip("- "))
+        elif "거래량:" in stripped:
+            v = stripped.replace("거래량: 20일 평균 대비 ", "거래량 ").strip("- ")
+            parts.append(v)
+    if not parts and s.technical_summary and s.technical_summary != "기술적 데이터 없음":
+        return s.technical_summary[:60]
+    return " / ".join(parts) if parts else ""
+
+
+def _compact_chase_note(s: TradeScenario) -> str:
+    rsi = _rsi_from_chart(s)
+    if rsi is not None and rsi >= _RSI_CHASE_HARD:
+        return f"RSI {rsi:.0f} 강한 과열 — 거래량 확인 전 추격 금지"
+    if rsi is not None and rsi >= _RSI_CHASE_WARN:
+        return f"RSI {rsi:.0f} 과열권 — 눌림 대기 후 접근"
+    for line in s.chart_summary.splitlines():
+        if "OBV: 하락" in line:
+            return "OBV 하락 — 거래량 약화, 진입 신중"
+    return "거래량 확인 후 접근"
+
+
 def _compact_scenario_line(s: TradeScenario, idx: int, max_reasons: int = 2) -> list[str]:
-    """시나리오 1~2줄 압축 출력 (진입/손절/목표 블록 생략)."""
+    """압축 출력: 왜 / 확인 / 진입 전 조건 / 무효화 / 주의."""
     star = "⭐ " if s.is_watchlist else ""
     name_part = f"{s.name} / {s.symbol}" if s.name else s.symbol
-    lines: list[str] = [f"{idx}. {star}{name_part}  점수: {s.score:.0f}"]
+    lines: list[str] = [f"{idx}. {star}{name_part} — {s.score:.0f}점"]
 
-    up = [r for r in s.reasons_up if r.strip()][:max_reasons]
-    if up:
-        lines.append(f"   근거: {' / '.join(up)}")
-    elif s.reasons_down:
-        dn = [r for r in s.reasons_down if r.strip()][:max_reasons]
-        if dn:
-            lines.append(f"   근거: {' / '.join(dn)}")
+    # 왜
+    reasons = [r for r in (s.reasons_up if s.side != "SHORT" else s.reasons_down) if r.strip()]
+    if not reasons:
+        reasons = [r for r in s.reasons_up if r.strip()]
+    if reasons:
+        reason_str = ", ".join(reasons[:max_reasons])
+        lines.append(f"- 왜: {reason_str}")
+
+    # 확인 (기술)
+    tech = _compact_tech_summary(s)
+    if tech:
+        lines.append(f"- 확인: {tech}")
+
+    # 진입 전 조건
+    if s.entry_zone and s.entry_zone not in ("데이터 부족", "SMA20 또는 볼린저 중단 부근"):
+        lines.append(f"- 진입 전 조건: {s.entry_zone}")
+
+    # 무효화
+    if s.invalidation and s.invalidation not in ("데이터 부족",):
+        lines.append(f"- 무효화: {s.invalidation}")
+
+    # 주의
+    lines.append(f"- 주의: {_compact_chase_note(s)}")
+
+    # 가치 (단일 줄)
+    if s.fundamental_summary and s.fundamental_summary not in ("재무 데이터 없음", "데이터 부족"):
+        lines.append(f"- 가치: {s.fundamental_summary}")
 
     if s.relation_feed_note:
-        lines.append(f"   연구DB: {s.relation_feed_note}")
+        lines.append(f"- 연구DB: {s.relation_feed_note}")
 
     return lines
 

@@ -92,6 +92,7 @@ class LeadLagCandidateRow:
 @dataclass
 class RelationTargetLiveCheck:
     """Current price/volume/4H status for a relation-feed target symbol."""
+
     target_symbol: str
     latest_price: float | None = None
     today_return_pct: float | None = None
@@ -386,9 +387,7 @@ def fetch_relation_target_live_checks(
             target_info[row.target_symbol] = (row.target_market, ed)
     for c in feed.fallback_candidates:
         if c.target_symbol not in target_info:
-            ed = _expected_direction_from_relation_type(
-                getattr(c, "relation_type", "UP_LEADS_UP")
-            )
+            ed = _expected_direction_from_relation_type(getattr(c, "relation_type", "UP_LEADS_UP"))
             target_info[c.target_symbol] = (getattr(c, "target_market", "US"), ed)
 
     result: dict[str, RelationTargetLiveCheck] = {}
@@ -599,7 +598,9 @@ def build_relation_feed_section(
             lines.append("⚡ 최근 급등·급락 → 후행 관찰 후보")
         else:
             lines.append("⚡ 과거 급등·급락 기반 후행 관찰 후보")
-            lines.append(f"  ※ 기준일({summary.asof_date})이 오래된 통계 자료이므로 현재 가격 확인 필수")
+            lines.append(
+                f"  ※ 기준일({summary.asof_date})이 오래된 통계 자료이므로 현재 가격 확인 필수"
+            )
 
     lines.append(f"- 기준일: {summary.asof_date}")
     lines.append(

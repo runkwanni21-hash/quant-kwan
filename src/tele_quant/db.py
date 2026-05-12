@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from collections.abc import Iterable
@@ -92,7 +93,68 @@ CREATE TABLE IF NOT EXISTS mover_chain_history (
 
 CREATE INDEX IF NOT EXISTS idx_mover_chain_created_at ON mover_chain_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_mover_chain_asof_date ON mover_chain_history(asof_date);
+
+CREATE TABLE IF NOT EXISTS pair_watch_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    source_symbol TEXT NOT NULL,
+    source_name TEXT,
+    source_market TEXT,
+    source_sector TEXT,
+    source_return_4h REAL,
+    source_return_1d REAL,
+    source_volume_ratio REAL,
+    target_symbol TEXT NOT NULL,
+    target_name TEXT,
+    target_market TEXT,
+    target_sector TEXT,
+    target_return_at_signal REAL,
+    target_price_at_signal REAL,
+    target_price_at_review REAL,
+    expected_direction TEXT,
+    pair_score REAL,
+    confidence TEXT,
+    gap_type TEXT,
+    outcome_return_pct REAL,
+    hit INTEGER,
+    status TEXT DEFAULT 'pending',
+    UNIQUE(created_at, source_symbol, target_symbol)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pair_watch_created_at ON pair_watch_history(created_at);
+CREATE INDEX IF NOT EXISTS idx_pair_watch_target ON pair_watch_history(target_symbol);
 """
+
+# Columns added after initial schema — applied via ALTER TABLE in _init
+_COLUMN_MIGRATIONS: list[str] = [
+    "ALTER TABLE mover_chain_history ADD COLUMN report_id INTEGER",
+    "ALTER TABLE mover_chain_history ADD COLUMN source_name TEXT",
+    "ALTER TABLE mover_chain_history ADD COLUMN target_name TEXT",
+    "ALTER TABLE mover_chain_history ADD COLUMN target_market TEXT",
+    "ALTER TABLE mover_chain_history ADD COLUMN direction TEXT",
+    "ALTER TABLE mover_chain_history ADD COLUMN live_status TEXT",
+    "ALTER TABLE mover_chain_history ADD COLUMN note TEXT",
+]
+
+
+def _is_refill_note_db(note: str) -> bool:
+    n = note.lower()
+    return "refill" in n or "deeper" in n or "empirical" in n or "lawbook" in n
+
+
+def _fetch_signal_price_safe(symbol: str, market: str) -> float | None:
+    if not symbol:
+        return None
+    try:
+        import yfinance as yf
+
+        yf_sym = f"{symbol}.KS" if (market or "").upper() == "KR" else symbol
+        df = yf.Ticker(yf_sym).history(period="2d", interval="1d", auto_adjust=True)
+        if df is None or df.empty:
+            return None
+        return float(df["Close"].iloc[-1])
+    except Exception:
+        return None
 
 
 class Store:
@@ -109,6 +171,9 @@ class Store:
     def _init(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            for _sql in _COLUMN_MIGRATIONS:
+                with contextlib.suppress(sqlite3.OperationalError):
+                    conn.execute(_sql)
             conn.commit()
 
     def insert_items(self, items: Iterable[RawItem]) -> list[RawItem]:
@@ -247,6 +312,19 @@ class Store:
         now = utc_now().isoformat()
         close_map = close_map or {}
         sector_map = sector_map or {}
+
+        # Prefetch prices for LONG scenarios missing from close_map (fallback for weekly perf)
+        for s in scenarios:
+            symbol = getattr(s, "symbol", "")
+            side = getattr(s, "side", "WATCH")
+            if side == "LONG" and symbol and close_map.get(symbol) is None:
+                market = getattr(s, "market", "") or (
+                    "KR" if symbol.endswith((".KS", ".KQ")) else "US"
+                )
+                price = _fetch_signal_price_safe(symbol, market)
+                if price is not None:
+                    close_map[symbol] = price
+
         with self.connect() as conn:
             for s in scenarios:
                 symbol = getattr(s, "symbol", "")
@@ -300,39 +378,81 @@ class Store:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
-    def save_mover_chain(self, relation_feed: Any) -> int:
-        """Save lead-lag rows from relation feed. Returns count of inserted rows."""
+    def save_mover_chain(self, relation_feed: Any, report_id: int | None = None) -> int:
+        """Save lead-lag rows from relation feed. Returns count of inserted rows.
+
+        Filters: skips zero-return sources, refill/deeper notes, empty target symbols.
+        Fetches target_price_at_signal via yfinance (batch-cached per symbol).
+        """
         try:
             leadlag = getattr(relation_feed, "leadlag", [])
         except Exception:
             return 0
         if not leadlag:
             return 0
+
+        # Batch-fetch target prices before opening DB connection
+        price_cache: dict[str, float | None] = {}
+        for row in leadlag:
+            src_ret = getattr(row, "source_return_pct", None)
+            if src_ret is None or src_ret == 0.0:
+                continue
+            note = getattr(row, "note", "") or ""
+            if _is_refill_note_db(note):
+                continue
+            tgt_sym = getattr(row, "target_symbol", "") or ""
+            if not tgt_sym:
+                continue
+            if tgt_sym not in price_cache:
+                tgt_market = getattr(row, "target_market", "") or ""
+                price_cache[tgt_sym] = _fetch_signal_price_safe(tgt_sym, tgt_market)
+
         now = utc_now().isoformat()
         inserted = 0
         with self.connect() as conn:
             for row in leadlag:
+                src_ret = getattr(row, "source_return_pct", None)
+                if src_ret is None or src_ret == 0.0:
+                    continue
+                note = getattr(row, "note", "") or ""
+                if _is_refill_note_db(note):
+                    continue
+                tgt_sym = getattr(row, "target_symbol", "") or ""
+                if not tgt_sym:
+                    continue
+                signal_price = price_cache.get(tgt_sym)
                 try:
                     conn.execute(
                         """
                         INSERT OR IGNORE INTO mover_chain_history
-                        (created_at, asof_date, source_symbol, source_return_pct,
-                         source_move_type, target_symbol, relation_type, lag_days,
-                         conditional_prob, lift, confidence)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (created_at, asof_date, report_id,
+                         source_symbol, source_name, source_return_pct, source_move_type,
+                         target_symbol, target_name, target_market,
+                         relation_type, direction, lag_days,
+                         conditional_prob, lift, confidence,
+                         live_status, target_price_at_signal, note)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             now,
                             getattr(row, "asof_date", ""),
+                            report_id,
                             getattr(row, "source_symbol", ""),
-                            getattr(row, "source_return_pct", None),
+                            getattr(row, "source_name", None),
+                            src_ret,
                             getattr(row, "source_move_type", None),
-                            getattr(row, "target_symbol", ""),
+                            tgt_sym,
+                            getattr(row, "target_name", None),
+                            getattr(row, "target_market", None),
                             getattr(row, "relation_type", None),
+                            getattr(row, "direction", None),
                             getattr(row, "lag_days", None),
                             getattr(row, "conditional_prob", None),
                             getattr(row, "lift", None),
                             getattr(row, "confidence", None),
+                            "DATA_MISSING" if signal_price is None else "SIGNAL_SAVED",
+                            signal_price,
+                            note or None,
                         ),
                     )
                     inserted += conn.execute("SELECT changes()").fetchone()[0]
@@ -340,6 +460,140 @@ class Store:
                     continue
             conn.commit()
         return inserted
+
+    def recent_mover_chain_signals(
+        self,
+        since: datetime,
+        until: datetime | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Query mover_chain_history rows for weekly review.
+
+        Filters out zero-return sources and refill/empirical notes.
+        """
+        clauses = [
+            "created_at >= ?",
+            "source_return_pct IS NOT NULL",
+            "source_return_pct != 0.0",
+            "target_symbol != ''",
+            "(note IS NULL OR ("
+            "note NOT LIKE '%refill%' AND note NOT LIKE '%deeper%' AND "
+            "note NOT LIKE '%empirical%' AND note NOT LIKE '%lawbook%'))",
+        ]
+        params: list[Any] = [since.isoformat()]
+        if until is not None:
+            clauses.append("created_at <= ?")
+            params.append(until.isoformat())
+        params.append(limit)
+        sql = (
+            f"SELECT * FROM mover_chain_history WHERE {' AND '.join(clauses)}"
+            " ORDER BY created_at DESC LIMIT ?"
+        )
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_mover_chain_review(
+        self,
+        row_id: int,
+        target_price_at_review: float,
+        outcome_return_pct: float,
+        hit: int,
+    ) -> None:
+        """Update review results for a mover_chain_history row."""
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE mover_chain_history
+                   SET target_price_at_review = ?, outcome_return_pct = ?, hit = ?
+                   WHERE id = ?""",
+                (target_price_at_review, outcome_return_pct, hit, row_id),
+            )
+            conn.commit()
+
+    def save_pair_watch_signals(self, signals: list[Any]) -> int:
+        """Persist LivePairSignal list to pair_watch_history. Returns inserted count."""
+        if not signals:
+            return 0
+        now = utc_now().isoformat()
+        inserted = 0
+        with self.connect() as conn:
+            for sig in signals:
+                try:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO pair_watch_history
+                        (created_at, source_symbol, source_name, source_market, source_sector,
+                         source_return_4h, source_return_1d, source_volume_ratio,
+                         target_symbol, target_name, target_market, target_sector,
+                         target_return_at_signal, target_price_at_signal,
+                         expected_direction, pair_score, confidence, gap_type, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            now,
+                            getattr(sig, "source_symbol", ""),
+                            getattr(sig, "source_name", None),
+                            getattr(sig, "source_market", None),
+                            getattr(sig, "source_sector", None),
+                            getattr(sig, "source_return_4h", None),
+                            getattr(sig, "source_return_1d", None),
+                            getattr(sig, "source_volume_ratio", None),
+                            getattr(sig, "target_symbol", ""),
+                            getattr(sig, "target_name", None),
+                            getattr(sig, "target_market", None),
+                            getattr(sig, "target_sector", None),
+                            getattr(sig, "target_return_4h", None)
+                            or getattr(sig, "target_return_1d", None),
+                            None,  # target_price_at_signal fetched separately if needed
+                            getattr(sig, "expected_direction", "UP"),
+                            getattr(sig, "pair_score", None),
+                            getattr(sig, "confidence", None),
+                            getattr(sig, "gap_type", None),
+                            "pending",
+                        ),
+                    )
+                    inserted += conn.execute("SELECT changes()").fetchone()[0]
+                except sqlite3.IntegrityError:
+                    continue
+            conn.commit()
+        return inserted
+
+    def recent_pair_watch_signals(
+        self,
+        since: datetime,
+        until: datetime | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Query pair_watch_history for weekly review."""
+        clauses = ["created_at >= ?"]
+        params: list[Any] = [since.isoformat()]
+        if until is not None:
+            clauses.append("created_at <= ?")
+            params.append(until.isoformat())
+        params.append(limit)
+        sql = (
+            f"SELECT * FROM pair_watch_history WHERE {' AND '.join(clauses)}"
+            " ORDER BY created_at DESC LIMIT ?"
+        )
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_pair_watch_review(
+        self,
+        row_id: int,
+        target_price_at_review: float,
+        outcome_return_pct: float,
+        hit: int,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE pair_watch_history
+                   SET target_price_at_review = ?, outcome_return_pct = ?, hit = ?, status = 'reviewed'
+                   WHERE id = ?""",
+                (target_price_at_review, outcome_return_pct, hit, row_id),
+            )
+            conn.commit()
 
     def _row_to_run_report(self, row: sqlite3.Row) -> RunReport:
         created_at = parse_dt(row["created_at"]) or utc_now()

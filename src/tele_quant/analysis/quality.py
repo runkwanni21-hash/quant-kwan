@@ -86,11 +86,13 @@ def clean_snippets(texts: list[str], max_items: int = 2, max_len: int = 80) -> l
     Strips broker headers, source suffixes, URLs, line breaks, scenario phrases, and duplicates.
     Returns max max_items unique snippets, each <= max_len chars.
     """
-    from tele_quant.headline_cleaner import clean_source_header
+    from tele_quant.headline_cleaner import clean_source_header, is_noise_sentence
 
     out: list[str] = []
     seen: set[str] = set()
     for t in texts:
+        if is_noise_sentence(t):
+            continue
         t = clean_source_header(t)
         t = _URL_RE.sub("", t)
         t = t.replace("\n", " ").replace("\r", " ")
@@ -99,6 +101,8 @@ def clean_snippets(texts: list[str], max_items: int = 2, max_len: int = 80) -> l
             continue
         # Drop scenario analysis phrases — these are from our own output
         if any(phrase in t for phrase in _SCENARIO_PHRASES):
+            continue
+        if is_noise_sentence(t):
             continue
         if len(t) > max_len:
             t = t[:max_len].rsplit(" ", 1)[0].rstrip(".,;:") + "…"

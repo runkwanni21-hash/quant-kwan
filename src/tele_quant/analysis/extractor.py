@@ -138,6 +138,34 @@ _BROKER_TICKERS: frozenset[str] = frozenset(
 )
 _BROKER_SUFFIX_RE = re.compile(r"^[)\]]\s*|^\s*외\b|^:\s*")
 
+# Keywords indicating broker is the SUBJECT (not just the source) of the news
+_BROKER_SELF_NEWS_RE = re.compile(
+    r"EPS|실적|영업이익|순이익|매출|IB수익|트레이딩수익|자사주|배당|CEO|대손충당금|"
+    r"Q[1-4]|[1-4]Q|[Bb]eat|수수료수익|ROE|ROA|주당순이익|순영업수익|거래수익|"
+    r"주가\s*(?:상승|하락|급등|급락)|투자등급\s*상향|투자등급\s*하향|신용등급",
+    re.IGNORECASE,
+)
+
+# Keywords indicating broker appears as a SOURCE/ATTRIBUTOR at start of text
+_BROKER_AS_SOURCE_RE = re.compile(
+    r"^(?:시장\s*코멘트?|분석가?|애널리스트|스트래티지스트?|리서치|전략가|"
+    r"시장\s*전망|투자의견|섹터\s*분석|업종\s*분석|코멘트|주식\s*시장|"
+    r"금융시장|섹터|전략|전망|관련\s*코멘트|보고서|리포트|뷰|전략\s*뷰)",
+    re.IGNORECASE,
+)
+
+# Noise patterns in context windows — disqualify as direct evidence
+_NOISE_CONTEXT_RE = re.compile(
+    r"tel:|href=|ShowHashtag|☎|연합인포맥스|하나증권\s*해외주식분석|"
+    r"키움증권\s*미국\s*주식|유안타\s*리서치센터|Hana\s*Global\s*Guru|"
+    r"\d{2,3}[-–]\d{3,4}[-–]\d{4}",  # noqa: RUF001
+    re.IGNORECASE,
+)
+
+
+def _is_noise_context(text: str) -> bool:
+    return bool(_NOISE_CONTEXT_RE.search(text))
+
 
 def _infer_sentiment(texts: list[str]) -> str:
     pos = sum(len(POSITIVE_WORDS.findall(t)) for t in texts)
@@ -198,7 +226,7 @@ def extract_candidates_dict_fallback(
 
     candidates: list[StockCandidate] = []
     for symbol, info in sorted(mention_map.items(), key=lambda x: -x[1]["mentions"]):
-        contexts = info["contexts"][:10]
+        contexts = [c for c in info["contexts"][:10] if not _is_noise_context(c)]
         sentiment = _infer_sentiment(contexts)
         catalysts = [ctx for ctx in contexts[:3] if POSITIVE_WORDS.search(ctx)]
         risks = [ctx for ctx in contexts[:3] if NEGATIVE_WORDS.search(ctx)]
@@ -216,6 +244,7 @@ def extract_candidates_dict_fallback(
                     for item in items
                     if info["name"] in item.compact_text
                 ][:3],
+                direct_evidence_count=len(contexts),
             )
         )
     return candidates[:max_symbols]
@@ -252,6 +281,39 @@ def _is_broker_prefix_match(text: str, alias: str, idx: int) -> bool:
     return bool(_BROKER_SUFFIX_RE.match(suffix))
 
 
+def _is_broker_attribution(text: str, alias: str, idx: int) -> bool:
+    """Enhanced check: True if alias is broker source attribution, not a stock subject.
+
+    Catches:
+    - "JPM) ..." / "GS: ..." / "Goldman 외" (standard suffix)
+    - "Goldman Sachs 시장 코멘트..." (start-of-text + attribution topic)
+    Does NOT block self-news like "Goldman Sachs Q1 EPS beat" or "JPMorgan 주가 상승".
+    """
+    if alias not in _BROKER_TICKERS:
+        return False
+
+    suffix_start = idx + len(alias)
+    suffix = text[suffix_start : suffix_start + 6]
+
+    # Standard broker prefix: "JPM) ...", "GS: ...", "Goldman 외"
+    if _BROKER_SUFFIX_RE.match(suffix):
+        return True
+
+    # Broker name at very start (≤3 chars in) + space + attribution topic, no self-news
+    if idx <= 3 and suffix and suffix[0] == " ":
+        context_after = text[suffix_start : suffix_start + 80]
+        if _BROKER_AS_SOURCE_RE.search(context_after):
+            return True
+        # Block start-of-text broker + general content only if no self-news keywords
+        if not _BROKER_SELF_NEWS_RE.search(context_after):
+            # Extra guard: only block if next word is NOT a stock ticker / price / number
+            next_word = context_after.strip()[:10]
+            if not re.match(r"^[A-Z]{2,5}[\s/\(]|^\d+[\s원달러]", next_word):
+                return True
+
+    return False
+
+
 def extract_candidates_with_book(
     items: list[RawItem],
     max_symbols: int,
@@ -267,19 +329,22 @@ def extract_candidates_with_book(
 
     candidates: list[StockCandidate] = []
     for m in matched:
-        contexts: list[str] = []
+        raw_contexts: list[str] = []
         for alias in m.matched_aliases:
             for text in all_texts:
                 idx = text.find(alias)
                 if idx >= 0:
-                    # Skip broker prefix matches (e.g. "JPM) 전자부품" is not a JPM stock mention)
-                    if _is_broker_prefix_match(text, alias, idx):
+                    # Skip broker source attributions (e.g. "JPM) 전자부품" / "Goldman Sachs 시장 코멘트")
+                    if _is_broker_attribution(text, alias, idx):
                         continue
                     lo = max(0, idx - 80)
                     hi = min(len(text), idx + len(alias) + 80)
-                    contexts.append(text[lo:hi])
+                    ctx = text[lo:hi]
+                    if not _is_noise_context(ctx):
+                        raw_contexts.append(ctx)
 
-        contexts = contexts[:10]
+        contexts = raw_contexts[:10]
+        direct_evidence_count = len(contexts)
         sentiment = _infer_sentiment(contexts)
         catalysts = [ctx for ctx in contexts[:3] if POSITIVE_WORDS.search(ctx)]
         risks = [ctx for ctx in contexts[:3] if NEGATIVE_WORDS.search(ctx)]
@@ -299,6 +364,7 @@ def extract_candidates_with_book(
                 catalysts=[truncate(c, 60) for c in catalysts],
                 risks=[truncate(r, 60) for r in risks],
                 source_titles=source_titles,
+                direct_evidence_count=direct_evidence_count,
             )
         )
 

@@ -1,15 +1,34 @@
 # secrets
 .env
 .env.local
+.env.*
+!.env.example
+
+# telegram sessions
 *.session
 *.session-journal
+telegram.session
+tele_quant.session
 
 # runtime data
 data/*.db
+data/*.db-*
 data/*.sqlite
+data/*.sqlite-*
 data/*.jsonl
 data/*.log
 data/*.session*
+data/cache/
+data/external/
+data/research/
+
+# logs / temp
+logs/
+tmp/
+*.log
+*.tmp
+*.bak
+messages*.html
 
 # python
 __pycache__/
@@ -19,6 +38,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+*.pyc
 
 # OS / editors
 .DS_Store

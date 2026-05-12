@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -99,9 +100,11 @@ def _run_lint_with_reports(reports):
         mock_settings.return_value = MagicMock(sqlite_path=":memory:")
         mock_store = MockStore.return_value
         mock_store.recent_run_reports.return_value = reports
+        mock_store.recent_scenarios.return_value = []
         from tele_quant.cli import lint_report
 
-        lint_report(hours=1.0, limit=10)
+        with contextlib.suppress(SystemExit):
+            lint_report(hours=1.0, limit=10)
 
     return output.getvalue()
 

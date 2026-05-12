@@ -1,0 +1,439 @@
+
+# Pair Watch Universe — 선행·후행 페어 관찰 대상 종목
+# format: { ticker, name, market, sector, theme, role }
+# role: source | target | both
+# market: US | KR
+# ticker: yfinance-compatible (KR → xxx.KS or xxx.KQ)
+
+stocks:
+
+  # ── 섹터 1: 반도체 / AI 칩 ──────────────────────────────────────────
+  - ticker: NVDA
+    name: NVIDIA
+    market: US
+    sector: semiconductor
+    theme: ai_gpu
+    role: source
+
+  - ticker: AMD
+    name: AMD
+    market: US
+    sector: semiconductor
+    theme: ai_gpu
+    role: both
+
+  - ticker: AVGO
+    name: Broadcom
+    market: US
+    sector: semiconductor
+    theme: asic_network
+    role: both
+
+  - ticker: MU
+    name: Micron Technology
+    market: US
+    sector: semiconductor
+    theme: memory_hbm
+    role: both
+
+  - ticker: AMAT
+    name: Applied Materials
+    market: US
+    sector: semiconductor
+    theme: equipment
+    role: both
+
+  - ticker: LRCX
+    name: Lam Research
+    market: US
+    sector: semiconductor
+    theme: equipment
+    role: both
+
+  - ticker: KLAC
+    name: KLA Corporation
+    market: US
+    sector: semiconductor
+    theme: equipment
+    role: both
+
+  - ticker: TSM
+    name: TSMC
+    market: US
+    sector: semiconductor
+    theme: foundry
+    role: both
+
+  - ticker: ASML
+    name: ASML
+    market: US
+    sector: semiconductor
+    theme: equipment
+    role: source
+
+  - ticker: QCOM
+    name: Qualcomm
+    market: US
+    sector: semiconductor
+    theme: mobile_ai
+    role: both
+
+  - ticker: "005930.KS"
+    name: 삼성전자
+    market: KR
+    sector: semiconductor
+    theme: memory_hbm
+    role: both
+
+  - ticker: "000660.KS"
+    name: SK하이닉스
+    market: KR
+    sector: semiconductor
+    theme: memory_hbm
+    role: both
+
+  - ticker: "042700.KS"
+    name: 한미반도체
+    market: KR
+    sector: semiconductor
+    theme: equipment
+    role: target
+
+  - ticker: "039030.KQ"
+    name: 이오테크닉스
+    market: KR
+    sector: semiconductor
+    theme: equipment
+    role: target
+
+  - ticker: "058470.KQ"
+    name: 리노공업
+    market: KR
+    sector: semiconductor
+    theme: equipment
+    role: target
+
+  - ticker: "036810.KQ"
+    name: 에프에스티
+    market: KR
+    sector: semiconductor
+    theme: equipment
+    role: target
+
+  - ticker: "095340.KQ"
+    name: ISC
+    market: KR
+    sector: semiconductor
+    theme: equipment
+    role: target
+
+  - ticker: "348210.KQ"
+    name: 넥스틴
+    market: KR
+    sector: semiconductor
+    theme: equipment
+    role: target
+
+  # ── 섹터 2: AI 데이터센터 / 전력 / ESS / 전력기기 ──────────────────
+  - ticker: VST
+    name: Vistra Energy
+    market: US
+    sector: power_infra
+    theme: ai_power
+    role: source
+
+  - ticker: CEG
+    name: Constellation Energy
+    market: US
+    sector: power_infra
+    theme: nuclear
+    role: source
+
+  - ticker: NRG
+    name: NRG Energy
+    market: US
+    sector: power_infra
+    theme: power
+    role: source
+
+  - ticker: ETN
+    name: Eaton
+    market: US
+    sector: power_infra
+    theme: power_mgmt
+    role: source
+
+  - ticker: PWR
+    name: Quanta Services
+    market: US
+    sector: power_infra
+    theme: power_epc
+    role: source
+
+  - ticker: GE
+    name: GE Vernova
+    market: US
+    sector: power_infra
+    theme: turbine
+    role: source
+
+  - ticker: GEV
+    name: GE Vernova (spinoff)
+    market: US
+    sector: power_infra
+    theme: turbine
+    role: source
+
+  - ticker: SMR
+    name: NuScale Power
+    market: US
+    sector: power_infra
+    theme: nuclear_smr
+    role: source
+
+  - ticker: BWXT
+    name: BWX Technologies
+    market: US
+    sector: power_infra
+    theme: nuclear_smr
+    role: source
+
+  - ticker: FLNC
+    name: Fluence Energy
+    market: US
+    sector: power_infra
+    theme: ess
+    role: both
+
+  - ticker: ENPH
+    name: Enphase Energy
+    market: US
+    sector: power_infra
+    theme: solar_ess
+    role: both
+
+  - ticker: TSLA
+    name: Tesla
+    market: US
+    sector: power_infra
+    theme: ess_megapack
+    role: source
+
+  - ticker: "034020.KS"
+    name: 두산에너빌리티
+    market: KR
+    sector: power_infra
+    theme: nuclear
+    role: target
+
+  - ticker: "006910.KS"
+    name: 보성파워텍
+    market: KR
+    sector: power_infra
+    theme: power_equipment
+    role: target
+
+  - ticker: "033100.KQ"
+    name: 제룡전기
+    market: KR
+    sector: power_infra
+    theme: power_equipment
+    role: target
+
+  - ticker: "298040.KS"
+    name: 효성중공업
+    market: KR
+    sector: power_infra
+    theme: power_equipment
+    role: target
+
+  - ticker: "267260.KS"
+    name: HD현대일렉트릭
+    market: KR
+    sector: power_infra
+    theme: power_equipment
+    role: target
+
+  - ticker: "010120.KS"
+    name: LS ELECTRIC
+    market: KR
+    sector: power_infra
+    theme: power_equipment
+    role: target
+
+  - ticker: "103590.KQ"
+    name: 일진전기
+    market: KR
+    sector: power_infra
+    theme: power_equipment
+    role: target
+
+  - ticker: "019990.KQ"
+    name: 에너토크
+    market: KR
+    sector: power_infra
+    theme: power_equipment
+    role: target
+
+  - ticker: "373220.KS"
+    name: LG에너지솔루션
+    market: KR
+    sector: power_infra
+    theme: ess_battery
+    role: target
+
+  - ticker: "006400.KS"
+    name: 삼성SDI
+    market: KR
+    sector: power_infra
+    theme: ess_battery
+    role: target
+
+  - ticker: "003670.KS"
+    name: 포스코퓨처엠
+    market: KR
+    sector: power_infra
+    theme: ess_battery
+    role: target
+
+  - ticker: "247540.KQ"
+    name: 에코프로비엠
+    market: KR
+    sector: power_infra
+    theme: ess_battery
+    role: target
+
+  # ── 섹터 3: 화장품 / K-뷰티 ────────────────────────────────────────
+  - ticker: EL
+    name: Estee Lauder
+    market: US
+    sector: cosmetics
+    theme: beauty_global
+    role: source
+
+  - ticker: ULTA
+    name: Ulta Beauty
+    market: US
+    sector: cosmetics
+    theme: beauty_retail
+    role: source
+
+  - ticker: COTY
+    name: Coty
+    market: US
+    sector: cosmetics
+    theme: beauty_global
+    role: source
+
+  - ticker: ELF
+    name: e.l.f. Beauty
+    market: US
+    sector: cosmetics
+    theme: beauty_mass
+    role: source
+
+  - ticker: "090430.KS"
+    name: 아모레퍼시픽
+    market: KR
+    sector: cosmetics
+    theme: kbeauty_brand
+    role: target
+
+  - ticker: "051900.KS"
+    name: LG생활건강
+    market: KR
+    sector: cosmetics
+    theme: kbeauty_brand
+    role: target
+
+  - ticker: "161890.KQ"
+    name: 한국콜마
+    market: KR
+    sector: cosmetics
+    theme: kbeauty_odm
+    role: target
+
+  - ticker: "192820.KQ"
+    name: 코스맥스
+    market: KR
+    sector: cosmetics
+    theme: kbeauty_odm
+    role: target
+
+  - ticker: "214450.KQ"
+    name: 파마리서치
+    market: KR
+    sector: cosmetics
+    theme: kbeauty_specialty
+    role: target
+
+  - ticker: "003230.KS"
+    name: 삼양식품
+    market: KR
+    sector: cosmetics
+    theme: kconsumer
+    role: target
+
+  # ── 섹터 4: 조선 / 방산 / 우주 ────────────────────────────────────
+  - ticker: LMT
+    name: Lockheed Martin
+    market: US
+    sector: defense
+    theme: defense_aerospace
+    role: source
+
+  - ticker: RTX
+    name: RTX Corporation
+    market: US
+    sector: defense
+    theme: defense_aerospace
+    role: source
+
+  - ticker: NOC
+    name: Northrop Grumman
+    market: US
+    sector: defense
+    theme: defense_aerospace
+    role: source
+
+  - ticker: GD
+    name: General Dynamics
+    market: US
+    sector: defense
+    theme: defense_aerospace
+    role: source
+
+  - ticker: "329180.KS"
+    name: HD현대중공업
+    market: KR
+    sector: defense
+    theme: shipbuilding
+    role: both
+
+  - ticker: "010140.KS"
+    name: 삼성중공업
+    market: KR
+    sector: defense
+    theme: shipbuilding
+    role: both
+
+  - ticker: "042660.KS"
+    name: 한화오션
+    market: KR
+    sector: defense
+    theme: shipbuilding
+    role: both
+
+  - ticker: "012450.KS"
+    name: 한화에어로스페이스
+    market: KR
+    sector: defense
+    theme: defense_aerospace
+    role: target
+
+  - ticker: "047810.KS"
+    name: 한국항공우주
+    market: KR
+    sector: defense
+    theme: defense_aerospace
+    role: target

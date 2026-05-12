@@ -152,11 +152,14 @@ class Settings(BaseSettings):
     report_show_coverage: bool = True
 
     # Compact scenario mode (긴 진입/손절/목표 블록 제거, 최대 5L/2S/8W)
-    report_compact_scenarios: bool = False
+    report_compact_scenarios: bool = True
     report_compact_max_longs: int = 5
     report_compact_max_shorts: int = 2
     report_compact_max_watch: int = 8
     report_compact_max_reasons: int = 2
+    report_reason_max_lines: int = 2
+    report_hide_raw_links: bool = True
+    report_hide_broker_headers: bool = True
 
     # Watchlist
     watchlist_enabled: bool = True
@@ -206,6 +209,21 @@ class Settings(BaseSettings):
     research_top_pairs_limit: int = 200
     research_min_reliability: str = "promising_research_candidate"
     research_allow_caution: bool = False
+
+    # Live Pair Watch (선행·후행 페어 관찰 엔진)
+    live_pair_watch_enabled: bool = True
+    live_pair_watch_interval: str = "1h"
+    live_pair_watch_period: str = "60d"
+    live_pair_watch_refresh_hours: float = 4.0
+    live_pair_watch_max_sources: int = 30
+    live_pair_watch_max_targets: int = 40
+    live_pair_watch_min_source_move_pct: float = 2.5
+    live_pair_watch_min_source_volume_ratio: float = 1.2
+    live_pair_watch_target_lag_window_hours: str = "4,8,24"
+    live_pair_watch_max_report_items: int = 10
+    live_pair_watch_min_confidence: str = "medium"
+    pair_watch_universe_path: str = "config/pair_watch_universe.yml"
+    pair_watch_rules_path: str = "config/pair_watch_rules.yml"
 
     @field_validator(
         "telegram_api_id",

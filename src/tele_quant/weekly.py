@@ -1,11 +1,268 @@
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 from tele_quant.models import RunReport
+
+_KST_OFFSET = timezone(timedelta(hours=9))
+
+
+def _fmt_kst_datetime(dt: datetime | str | None) -> str:
+    """Return 'YYYY-MM-DD HH:MM KST' from a datetime or ISO string."""
+    if dt is None:
+        return "?"
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt)
+        except Exception:
+            return str(dt)[:16]
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(_KST_OFFSET).strftime("%Y-%m-%d %H:%M KST")
+
+
+def _fmt_price(price: float | None, market: str) -> str:
+    if price is None:
+        return "확인 불가"
+    if (market or "").upper() == "KR":
+        return f"{price:,.0f}원"
+    return f"${price:,.2f}"
+
+
+def _fmt_hold_period(from_dt: datetime | str | None, to_dt: datetime | None = None) -> str:
+    if from_dt is None:
+        return "?"
+    if to_dt is None:
+        to_dt = datetime.now(UTC)
+    if isinstance(from_dt, str):
+        try:
+            from_dt = datetime.fromisoformat(from_dt)
+        except Exception:
+            return "?"
+    if from_dt.tzinfo is None:
+        from_dt = from_dt.replace(tzinfo=UTC)
+    if to_dt.tzinfo is None:
+        to_dt = to_dt.replace(tzinfo=UTC)
+    delta = to_dt - from_dt
+    if delta.total_seconds() <= 0:
+        return "0시간"
+    total_hours = int(delta.total_seconds() / 3600)
+    days, hours = divmod(total_hours, 24)
+    if days > 0 and hours > 0:
+        return f"{days}일 {hours}시간"
+    if days > 0:
+        return f"{days}일"
+    return f"{hours}시간"
+
+
+def _fetch_review_price(symbol: str, market: str) -> float | None:
+    if not symbol:
+        return None
+    try:
+        import yfinance as yf
+
+        yf_sym = f"{symbol}.KS" if (market or "").upper() == "KR" else symbol
+        df = yf.Ticker(yf_sym).history(period="2d", interval="1d", auto_adjust=True)
+        if df is None or df.empty:
+            return None
+        return float(df["Close"].iloc[-1])
+    except Exception:
+        return None
+
+
+def build_relation_signal_review_section(
+    store: Any,
+    since: datetime,
+    until: datetime | None = None,
+) -> str:
+    """주간 relation 신호 성과 리뷰 섹션. 가격 조회 및 DB 업데이트 포함."""
+    lines: list[str] = []
+    lines.append("📈 급등·급락 후행 후보 성과 리뷰")
+    lines.append(
+        "- 평가 기준: 4시간 리포트에 표시된 통계적 후행 후보를 신호 시점 가격 기준으로 추적"
+    )
+    lines.append("- 신호가 기준: 후보가 처음 리포트에 표시된 시점의 target 기준가")
+    lines.append("- 평가가 기준: 주간 리포트 생성 시점의 target 최신 가격")
+    lines.append("- 주의: 실제 매매 수익이 아니라 통계 후보 사후 검증")
+
+    try:
+        rows = store.recent_mover_chain_signals(since=since, until=until)
+    except Exception as exc:
+        lines.append(f"- DB 조회 실패: {exc}")
+        lines.append("")
+        lines.append(
+            "※ 이 평가는 실제 매매 수익이 아니라, 통계적 후행 후보가 사후에 얼마나 맞았는지 점검하는 리서치 성과표입니다."
+        )
+        return "\n".join(lines)
+
+    if not rows:
+        lines.append("- 이번 주 관찰 후보 없음")
+        lines.append("")
+        lines.append(
+            "※ 이 평가는 실제 매매 수익이 아니라, 통계적 후행 후보가 사후에 얼마나 맞았는지 점검하는 리서치 성과표입니다."
+        )
+        return "\n".join(lines)
+
+    now = datetime.now(UTC)
+    evaluable: list[dict] = []
+    pending: list[dict] = []
+    no_price: list[dict] = []
+    review_price_cache: dict[str, float | None] = {}
+
+    for row in rows:
+        try:
+            created_at = datetime.fromisoformat(row.get("created_at", ""))
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=UTC)
+        except Exception:
+            no_price.append(row)
+            continue
+
+        lag_days = int(row.get("lag_days") or 0)
+        elapsed_days = (now - created_at).days
+
+        if elapsed_days < lag_days:
+            pending.append(row)
+            continue
+
+        signal_price = row.get("target_price_at_signal")
+        if signal_price is None:
+            no_price.append(row)
+            continue
+
+        # Already reviewed in a previous weekly run
+        if row.get("target_price_at_review") is not None:
+            evaluable.append(dict(row))
+            continue
+
+        tgt_sym = row.get("target_symbol") or ""
+        tgt_market = row.get("target_market") or ""
+        if tgt_sym not in review_price_cache:
+            review_price_cache[tgt_sym] = _fetch_review_price(tgt_sym, tgt_market)
+        review_price = review_price_cache[tgt_sym]
+
+        if review_price is None:
+            no_price.append(row)
+            continue
+
+        direction = (row.get("direction") or "").lower()
+        relation_type = (row.get("relation_type") or "").upper()
+
+        if direction == "beneficiary" or relation_type in ("UP_LEADS_UP", "DOWN_LEADS_UP"):
+            outcome_ret = (review_price - signal_price) / signal_price * 100
+            hit_val = 1 if review_price > signal_price else 0
+        else:
+            outcome_ret = (signal_price - review_price) / signal_price * 100
+            hit_val = 1 if review_price < signal_price else 0
+
+        with contextlib.suppress(Exception):
+            store.update_mover_chain_review(row["id"], review_price, outcome_ret, hit_val)
+
+        evaluable.append(
+            {
+                **row,
+                "target_price_at_review": review_price,
+                "outcome_return_pct": outcome_ret,
+                "hit": hit_val,
+            }
+        )
+
+    total = len(rows)
+    eval_count = len(evaluable)
+    lines.append(f"- 이번 주 후보: {total}개")
+    lines.append(f"- 평가 가능: {eval_count}개")
+
+    if evaluable:
+        win_list = [e for e in evaluable if e.get("hit")]
+        avg_ret = sum((e.get("outcome_return_pct") or 0.0) for e in evaluable) / eval_count
+        lines.append(f"- 평균 성과: {avg_ret:+.1f}%")
+        lines.append(f"- 적중률: {len(win_list)}/{eval_count}")
+
+        beneficiary_list = [
+            e for e in evaluable if (e.get("direction") or "").lower() == "beneficiary"
+        ]
+        risk_list = [e for e in evaluable if (e.get("direction") or "").lower() == "risk"]
+        if beneficiary_list:
+            b_hits = sum(1 for e in beneficiary_list if e.get("hit"))
+            lines.append(f"- 동행 후보 적중률: {b_hits}/{len(beneficiary_list)}")
+        if risk_list:
+            r_hits = sum(1 for e in risk_list if e.get("hit"))
+            lines.append(f"- 약세 후보 적중률: {r_hits}/{len(risk_list)}")
+
+        hits_sorted = sorted(
+            [e for e in evaluable if e.get("hit")],
+            key=lambda x: -(x.get("outcome_return_pct") or 0.0),
+        )
+        if hits_sorted:
+            best = hits_sorted[0]
+            src = best.get("source_name") or best.get("source_symbol") or "?"
+            tgt = best.get("target_name") or best.get("target_symbol") or "?"
+            ret = best.get("outcome_return_pct") or 0.0
+            lines.append(f"- 가장 잘 맞은 후보: {src} → {tgt} ({ret:+.1f}%)")
+
+        misses = [e for e in evaluable if not e.get("hit")]
+        if misses:
+            worst = sorted(misses, key=lambda x: x.get("outcome_return_pct") or 0.0)[0]
+            src = worst.get("source_name") or worst.get("source_symbol") or "?"
+            tgt = worst.get("target_name") or worst.get("target_symbol") or "?"
+            ret = worst.get("outcome_return_pct") or 0.0
+            lines.append(f"- 빗나간 후보: {src} → {tgt} ({ret:+.1f}%)")
+
+    if no_price:
+        lines.append(f"- 가격 확인 불가: {len(no_price)}개")
+    if pending:
+        lines.append(f"- 평가 대기 (lag_days 미경과): {len(pending)}개")
+
+    if evaluable:
+        lines.append("")
+        for idx, e in enumerate(evaluable[:5], 1):
+            src = e.get("source_name") or e.get("source_symbol") or "?"
+            tgt = e.get("target_name") or e.get("target_symbol") or "?"
+            direction = (e.get("direction") or "").lower()
+            dir_label = (
+                "동행 후보"
+                if direction == "beneficiary"
+                else "약세 전이 후보"
+                if direction == "risk"
+                else "후보"
+            )
+            s_price = e.get("target_price_at_signal")
+            r_price = e.get("target_price_at_review")
+            outcome = e.get("outcome_return_pct") or 0.0
+            tgt_market = e.get("target_market") or "KR"
+            cond_prob = e.get("conditional_prob")
+            lift_val = e.get("lift")
+            created_at_str = e.get("created_at")
+            if direction == "beneficiary":
+                hit_label = "✅ 후행 반응 적중" if e.get("hit") else "❌ 부진"
+            elif direction == "risk":
+                hit_label = "✅ 약세 전이 적중" if e.get("hit") else "❌ 부진"
+            else:
+                hit_label = "✅ 적중" if e.get("hit") else "❌ 부진"
+            lines.append(f"{idx}. {src} → {tgt}")
+            lines.append(f"   - 신호 시점: {_fmt_kst_datetime(created_at_str)}")
+            lines.append(f"   - 방향: {dir_label}")
+            if cond_prob is not None and lift_val is not None:
+                lines.append(f"   - 조건부확률/lift: {cond_prob * 100:.1f}% / {lift_val:.1f}x")
+            if s_price is not None:
+                lines.append(f"   - 당시 target 기준가: {_fmt_price(s_price, tgt_market)}")
+            if r_price is not None:
+                lines.append(f"   - 평가 기준가: {_fmt_price(r_price, tgt_market)}")
+            if s_price is not None and r_price is not None:
+                lines.append(f"   - 보유 가정 기간: {_fmt_hold_period(created_at_str, now)}")
+                lines.append(f"   - 가상 성과: {outcome:+.1f}%")
+            lines.append(f"   - 결과: {hit_label}")
+
+    lines.append("")
+    lines.append(
+        "※ 이 평가는 실제 매매 수익이 아니라, 통계적 후행 후보가 사후에 얼마나 맞았는지 점검하는 리서치 성과표입니다."
+    )
+    return "\n".join(lines)
+
 
 # Regex to extract "N. Name / SYMBOL" from analysis sections
 _SCENARIO_LINE_RE = re.compile(r"^\d+\.\s+\S*\s+(.+?)\s*/\s*(\S+)")
@@ -364,6 +621,8 @@ def build_weekly_input(
 def build_weekly_deterministic_summary(
     weekly_input: WeeklyInput,
     relation_feed_data: Any = None,
+    relation_signal_review: str | None = None,
+    pair_watch_review: str | None = None,
 ) -> str:
     wi = weekly_input
 
@@ -465,57 +724,114 @@ def build_weekly_deterministic_summary(
         lines.append("- 반복 언급 종목 없음")
     lines.append("")
 
-    # 6. 📈 성과 리뷰 (LONG ≥80 가상 수익률)
-    lines.append("6. 📈 성과 리뷰 (LONG ≥80 점 가상 수익률)")
-    lines.append("- 평가 기준: 점수 80점 이상 롱 관심 후보를 추천 시점 종가에 샀다고 가정")
+    # 6. 📈 성과 리뷰: 80점 이상 첫 추천 기준 가상 수익률
+    lines.append("6. 📈 성과 리뷰: 80점 이상 첫 추천 기준 가상 수익률")
     lines.append(
-        "- ⚠️ 실제 수익 보장이 아니라 리서치 시스템 사후 검증입니다. 매수/매도 확정 표현 아님."
+        '- 평가 기준: 이번 주 4시간 리포트에서 처음으로 LONG 점수 80점 이상이 된 시점을 "첫 추천 시점"으로 기록'
     )
+    lines.append("- 진입가 기준: 첫 추천 리포트 생성 시점의 종가/확인 가능한 최신 가격")
+    lines.append("- 평가가 기준: 주간 리포트 생성 시점에 확인 가능한 최신 가격")
+    lines.append("- 주의: 실제 매매 체결가가 아니라 리서치 시스템의 사후 검증용 가상 수익률")
     perf = wi.performance_entries
+    now_utc = datetime.now(UTC)
     if perf:
         wins = [e for e in perf if e.get("win")]
-        win_rate = len(wins) / len(perf) * 100
+        eval_count = len([e for e in perf if e.get("entry_price") and e.get("current_price")])
         avg_ret = sum(e.get("return_pct", 0) for e in perf) / len(perf)
-        rets = [e.get("return_pct", 0) for e in perf]
-        best_ret = max(rets) if rets else 0.0
-        worst_ret = min(rets) if rets else 0.0
-        no_price = [e for e in perf if not e.get("entry_price")]
-        lines.append(f"- 평가 후보: {len(perf)}개")
-        lines.append(f"- 평균 수익률: {avg_ret:+.1f}%")
-        lines.append(f"- 승률: {len(wins)}/{len(perf)} ({win_rate:.0f}%)")
-        lines.append(f"- 최고 수익: {best_ret:+.1f}%")
-        lines.append(f"- 최악 수익: {worst_ret:+.1f}%")
-        if no_price:
-            lines.append(f"- 가격 확인 불가: {len(no_price)}개 제외")
-        # 반복 추천 종목 표시
-        repeat_syms = [e["symbol"] for e in perf if (e.get("repeat_count") or 0) > 1]
-        if repeat_syms:
-            lines.append(f"- 반복 추천 종목: {', '.join(repeat_syms[:5])}")
+        best_entry = max(perf, key=lambda x: x.get("return_pct", 0))
+        worst_entry = min(perf, key=lambda x: x.get("return_pct", 0))
+        best_ret = best_entry.get("return_pct", 0)
+        worst_ret = worst_entry.get("return_pct", 0)
+
+        hold_days_list: list[float] = []
+        for _e in perf:
+            _cat = _e.get("created_at")
+            if _cat:
+                try:
+                    _fdt = datetime.fromisoformat(str(_cat)) if isinstance(_cat, str) else _cat
+                    if _fdt.tzinfo is None:
+                        _fdt = _fdt.replace(tzinfo=UTC)
+                    _delta_h = (now_utc - _fdt).total_seconds() / 3600
+                    if _delta_h > 0:
+                        hold_days_list.append(_delta_h / 24)
+                except Exception:
+                    pass
+
+        all_fallback = all(e.get("_source") == "fallback" for e in perf)
+        any_fallback = any(e.get("_source") == "fallback" for e in perf)
+        if all_fallback:
+            source_label = "analysis_text fallback"
+        elif any_fallback:
+            source_label = "scenario_history (일부 analysis_text fallback)"
+        else:
+            source_label = "scenario_history"
+
+        no_price_list = [e for e in perf if not e.get("entry_price")]
+        lines.append("")
+        lines.append("📊 80점 이상 첫 추천 성과 요약")
+        lines.append(f"- 첫 추천 후보 수: {len(perf)}개")
+        lines.append(f"- 평가 가능: {eval_count}개")
+        if hold_days_list:
+            avg_hold = sum(hold_days_list) / len(hold_days_list)
+            lines.append(f"- 평균 보유 가정 기간: {avg_hold:.1f}일")
+        lines.append(f"- 평균 가상 수익률: {avg_ret:+.1f}%")
+        lines.append(f"- 승률: {len(wins)}/{len(perf)} ({len(wins) / len(perf) * 100:.0f}%)")
+        best_name = best_entry.get("name") or best_entry.get("symbol", "?")
+        worst_name = worst_entry.get("name") or worst_entry.get("symbol", "?")
+        lines.append(f"- 최고: {best_name} {best_ret:+.1f}%")
+        lines.append(f"- 최악: {worst_name} {worst_ret:+.1f}%")
+        lines.append(f"- 저장/파싱 방식: {source_label}")
+        if no_price_list:
+            lines.append(f"- 가격 확인 불가: {len(no_price_list)}개 제외")
+
         lines.append("")
         lines.append("종목별:")
         for idx, e in enumerate(perf[:8], 1):
             sym = e.get("symbol", "?")
             name = e.get("name") or sym
             score = e.get("score", 0)
+            max_score = e.get("max_score")
+            max_score_at = e.get("max_score_at")
             entry = e.get("entry_price")
             current = e.get("current_price")
             ret_pct = e.get("return_pct", 0)
-            first_rec = e.get("created_at", "")
-            icon = "✅ 성공" if e.get("win") else "❌ 부진"
+            first_rec = e.get("created_at")
+            market = e.get("market") or ("KR" if (sym or "").endswith((".KS", ".KQ")) else "US")
+            source_tag = (
+                "analysis_text fallback" if e.get("_source") == "fallback" else "scenario_history"
+            )
+            icon = "✅ 상승 적중" if e.get("win") else "❌ 부진"
+            hold_str = _fmt_hold_period(first_rec, now_utc)
             lines.append(f"{idx}. {name} / {sym}")
             if first_rec:
-                lines.append(f"   - 첫 추천: {str(first_rec)[:10]}")
-            lines.append(f"   - 추천점수: {score:.0f}")
+                lines.append(f"   - 첫 80점 이상 추천: {_fmt_kst_datetime(first_rec)}")
+            lines.append(f"   - 당시 리포트 점수: {score:.0f}점")
+            if max_score is not None and float(max_score) > float(score):
+                lines.append(
+                    f"   - 최고점 참고: {_fmt_kst_datetime(max_score_at)} / {float(max_score):.0f}점"
+                )
             if entry:
-                lines.append(f"   - 진입가: {entry:.2f}")
+                lines.append(f"   - 당시 기준가: {_fmt_price(entry, market)}")
+            else:
+                lines.append("   - 당시 기준가: 가격 기준 확인 필요")
             if current:
-                lines.append(f"   - 주말가: {current:.2f}")
+                lines.append(f"   - 평가 기준가: {_fmt_price(current, market)}")
             if entry and current:
-                lines.append(f"   - 수익률: {ret_pct:+.1f}%")
+                lines.append(f"   - 보유 가정 기간: {hold_str}")
+                lines.append(f"   - 가상 수익률: {ret_pct:+.1f}%")
             lines.append(f"   - 결과: {icon}")
+            lines.append(f"   - 저장/파싱 방식: {source_tag}")
     else:
         lines.append("- 이번 주 LONG ≥80 점 성과 데이터 없음")
-        lines.append("  (scenario_history 저장 전이거나 분석 리포트에서 추출 불가)")
+        if not wi.performance_entries:
+            diag = getattr(wi, "_perf_diag", None)
+            if diag:
+                for d in diag:
+                    lines.append(f"  진단: {d}")
+            else:
+                lines.append(
+                    "  진단: scenario_history 미저장, 가격 확인 실패, 또는 80점 이상 후보 없음"
+                )
     lines.append("")
 
     # 7. 숏 사후 점검
@@ -607,7 +923,16 @@ def build_weekly_deterministic_summary(
             lines.append(f"- relation feed 로드 오류: {_wrf_exc}")
     else:
         lines.append("- relation feed 미제공 (--no-send 모드 또는 비활성화)")
+
+    if relation_signal_review:
+        lines.append("")
+        lines.append(relation_signal_review)
     lines.append("")
+
+    # 11. 선행·후행 페어 관찰 성과 (pair watch weekly review)
+    if pair_watch_review:
+        lines.append("11. " + pair_watch_review)
+        lines.append("")
 
     lines += [
         "─" * 30,

@@ -13,6 +13,8 @@ class StockCandidate:
     catalysts: list[str] = field(default_factory=list)
     risks: list[str] = field(default_factory=list)
     source_titles: list[str] = field(default_factory=list)
+    # Count of contexts where symbol/name appears as subject (not as broker attribution)
+    direct_evidence_count: int = 0
 
 
 @dataclass

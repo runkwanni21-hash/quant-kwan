@@ -288,6 +288,35 @@ class TeleQuantPipeline:
             log.warning("[pipeline] corr_store load failed: %s", type(exc).__name__)
             return None
 
+    def _run_pair_watch(
+        self,
+        relation_feed: Any = None,
+        macro_only: bool = False,
+    ) -> tuple[str, list[Any]]:
+        """Run live pair watch engine. Returns (section_text, signals). Never raises."""
+        if not getattr(self.settings, "live_pair_watch_enabled", True):
+            return "", []
+        try:
+            from tele_quant.live_pair_watch import build_pair_watch_section, run_pair_watch
+
+            corr_store = self._load_corr_store()
+            signals, used_stale, diagnostics = run_pair_watch(
+                self.settings,
+                relation_feed=relation_feed,
+                corr_store=corr_store,
+            )
+            section = build_pair_watch_section(
+                signals,
+                settings=self.settings,
+                used_stale_cache=used_stale,
+                diagnostics=diagnostics or [],
+            )
+            log.info("[pair_watch] signals=%d section_len=%d", len(signals), len(section))
+            return section, signals
+        except Exception as exc:
+            log.warning("[pair_watch] run failed: %s", exc)
+            return "", []
+
     def _load_research_pairs(self) -> list[Any]:
         """Load GPTPRO research lead-lag pairs. Returns empty list if disabled/missing."""
         if not getattr(self.settings, "research_db_enabled", True):
@@ -617,6 +646,8 @@ class TeleQuantPipeline:
                 pass
         watchlist_cfg = _load_watchlist(self.settings)
         relation_feed = self._load_relation_feed()
+        pair_watch_section = ""
+        pair_watch_signals: list[Any] = []
 
         saved_scenarios: list[Any] = []
         saved_close_map: dict[str, float] = {}
@@ -663,6 +694,13 @@ class TeleQuantPipeline:
 
                         analysis = clean_report(analysis)
 
+            # Live pair watch — run regardless of macro_only, append to digest
+            pair_watch_section, pair_watch_signals = await asyncio.to_thread(
+                self._run_pair_watch, relation_feed, macro_only
+            )
+            if pair_watch_section:
+                digest = digest + "\n\n" + pair_watch_section
+
             elapsed = time.monotonic() - start_time
             log.info(
                 "[run] raw=%d quality_dropped=- clusters=- selected=- elapsed=%.0fs mode=%s macro_only=%s",
@@ -693,11 +731,18 @@ class TeleQuantPipeline:
                 )
             if relation_feed is not None:
                 try:
-                    saved_chains = self.store.save_mover_chain(relation_feed)
+                    saved_chains = self.store.save_mover_chain(relation_feed, report_id=report_id)
                     if saved_chains:
                         log.info("[pipeline] mover_chain saved: %d rows", saved_chains)
                 except Exception as _mc_exc:
                     log.debug("[pipeline] mover_chain save failed: %s", _mc_exc)
+            if pair_watch_signals:
+                try:
+                    saved_pw = self.store.save_pair_watch_signals(pair_watch_signals)
+                    if saved_pw:
+                        log.info("[pipeline] pair_watch saved: %d signals", saved_pw)
+                except Exception as _pw_exc:
+                    log.debug("[pipeline] pair_watch save failed: %s", _pw_exc)
             return digest, analysis
 
     async def run_candidates(

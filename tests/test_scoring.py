@@ -15,6 +15,7 @@ def _make_candidate(
     catalysts: list[str] | None = None,
     risks: list[str] | None = None,
     symbol: str = "TEST",
+    direct_evidence_count: int = 2,
 ) -> StockCandidate:
     return StockCandidate(
         symbol=symbol,
@@ -24,6 +25,7 @@ def _make_candidate(
         sentiment=sentiment,
         catalysts=catalysts or [],
         risks=risks or [],
+        direct_evidence_count=direct_evidence_count,
     )
 
 

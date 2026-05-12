@@ -1,0 +1,287 @@
+
+# Pair Watch Rules — 선행·후행 페어 관계 규칙
+# 규칙은 candidate generation을 위한 것이지 hard recommendation이 아님.
+# 실제 표시 여부는 현재가/거래량/통계 점수로 결정한다.
+
+rules:
+
+  # ── 반도체/AI 칩 ────────────────────────────────────────────────
+
+  - id: nvda_leads_kr_memory
+    sector: semiconductor
+    theme: ai_gpu → memory_hbm
+    source: NVDA
+    targets:
+      - "000660.KS"   # SK하이닉스
+      - "005930.KS"   # 삼성전자
+      - MU
+      - TSM
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "AI GPU 수요 강세 → 메모리/파운드리 후행 관찰"
+
+  - id: nvda_leads_us_semi
+    sector: semiconductor
+    theme: ai_gpu → broad_semi
+    source: NVDA
+    targets:
+      - AMD
+      - AVGO
+      - QCOM
+      - MU
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "NVDA 급등 후 AI 수혜 반도체 피어 관찰"
+
+  - id: mu_leads_kr_memory
+    sector: semiconductor
+    theme: memory_hbm
+    source: MU
+    targets:
+      - "000660.KS"   # SK하이닉스
+      - "005930.KS"   # 삼성전자
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "Micron 강세 후 한국 메모리 대형주 후행 관찰"
+
+  - id: asml_leads_kr_equipment
+    sector: semiconductor
+    theme: equipment
+    source: ASML
+    targets:
+      - AMAT
+      - LRCX
+      - KLAC
+      - "042700.KS"   # 한미반도체
+      - "039030.KQ"   # 이오테크닉스
+      - "036810.KQ"   # 에프에스티
+      - "095340.KQ"   # ISC
+      - "348210.KQ"   # 넥스틴
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "EUV 장비/ASML 강세 후 한국 반도체 장비주 후행 관찰"
+
+  - id: amat_leads_kr_equipment
+    sector: semiconductor
+    theme: equipment
+    source: AMAT
+    targets:
+      - LRCX
+      - KLAC
+      - "042700.KS"   # 한미반도체
+      - "039030.KQ"   # 이오테크닉스
+      - "058470.KQ"   # 리노공업
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "미국 반도체 장비 강세 → 한국 장비주 후행 관찰"
+
+  - id: kr_hynix_leads_semi
+    sector: semiconductor
+    theme: memory_hbm
+    source: "000660.KS"
+    targets:
+      - MU
+      - "005930.KS"
+      - "042700.KS"
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "SK하이닉스 급등 후 피어 반응 관찰"
+
+  # ── AI 데이터센터 / 전력 / ESS ───────────────────────────────────
+
+  - id: us_ai_power_leads_kr_power
+    sector: power_infra
+    theme: ai_power → power_equipment
+    source: VST
+    targets:
+      - "267260.KS"   # HD현대일렉트릭
+      - "010120.KS"   # LS ELECTRIC
+      - "298040.KS"   # 효성중공업
+      - "033100.KQ"   # 제룡전기
+      - "006910.KS"   # 보성파워텍
+      - "103590.KQ"   # 일진전기
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "미국 AI 전력 인프라 강세 → 한국 전력기기 확산 관찰"
+
+  - id: etn_leads_kr_power
+    sector: power_infra
+    theme: power_mgmt → power_equipment
+    source: ETN
+    targets:
+      - "267260.KS"   # HD현대일렉트릭
+      - "010120.KS"   # LS ELECTRIC
+      - "298040.KS"   # 효성중공업
+      - "033100.KQ"   # 제룡전기
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "Eaton 전력관리 강세 → 한국 전력기기 관찰"
+
+  - id: nuclear_us_leads_kr
+    sector: power_infra
+    theme: nuclear
+    source: CEG
+    targets:
+      - "034020.KS"   # 두산에너빌리티
+      - SMR
+      - BWXT
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "미국 원전 강세 → 두산에너빌리티 후행 관찰"
+
+  - id: smr_leads_kr_nuclear
+    sector: power_infra
+    theme: nuclear_smr
+    source: SMR
+    targets:
+      - "034020.KS"   # 두산에너빌리티
+      - "006910.KS"   # 보성파워텍
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "소형 원전 강세 → 한국 원전 관련주 후행 관찰"
+
+  - id: kr_power_infra_peers
+    sector: power_infra
+    theme: power_equipment
+    source: "034020.KS"
+    targets:
+      - "006910.KS"
+      - "033100.KQ"
+      - "019990.KQ"
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "두산에너빌리티 급등 후 전력기기 소형주 후행 관찰"
+
+  - id: kr_power_small_leads_peers
+    sector: power_infra
+    theme: power_equipment
+    source: "033100.KQ"
+    targets:
+      - "103590.KQ"
+      - "298040.KS"
+      - "267260.KS"
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "제룡전기 급등 후 전력기기 피어 후행 관찰"
+
+  - id: tsla_ess_leads_kr_battery
+    sector: power_infra
+    theme: ess_megapack → ess_battery
+    source: TSLA
+    targets:
+      - "373220.KS"   # LG에너지솔루션
+      - "006400.KS"   # 삼성SDI
+      - FLNC
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "Tesla Megapack/ESS 강세 → 한국 배터리 후행 관찰"
+
+  - id: flnc_leads_kr_ess
+    sector: power_infra
+    theme: ess
+    source: FLNC
+    targets:
+      - "373220.KS"
+      - "006400.KS"
+      - "003670.KS"
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "ESS 강세 → 한국 배터리/소재 후행 관찰"
+
+  # ── 화장품 / K-뷰티 ─────────────────────────────────────────────
+
+  - id: us_beauty_leads_kr_odm
+    sector: cosmetics
+    theme: beauty_mass → kbeauty_odm
+    source: ELF
+    targets:
+      - "161890.KQ"   # 한국콜마
+      - "192820.KQ"   # 코스맥스
+      - "090430.KS"   # 아모레퍼시픽
+      - "051900.KS"   # LG생활건강
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "미국 뷰티 강세 → 한국 ODM/브랜드 후행 관찰"
+
+  - id: ulta_leads_kr_beauty
+    sector: cosmetics
+    theme: beauty_retail → kbeauty_brand
+    source: ULTA
+    targets:
+      - "090430.KS"
+      - "051900.KS"
+      - "161890.KQ"
+      - "192820.KQ"
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "Ulta Beauty 강세 → K-뷰티 브랜드·ODM 후행 관찰"
+
+  - id: el_leads_kr_brand
+    sector: cosmetics
+    theme: beauty_global → kbeauty_brand
+    source: EL
+    targets:
+      - "090430.KS"
+      - "051900.KS"
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "에스티로더 강세 → 아모레퍼시픽·LG생활건강 후행 관찰"
+
+  - id: kr_odm_leads_brand
+    sector: cosmetics
+    theme: kbeauty_odm → kbeauty_brand
+    source: "161890.KQ"
+    targets:
+      - "192820.KQ"
+      - "090430.KS"
+      - "051900.KS"
+      - "214450.KQ"
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "한국콜마 급등 후 코스맥스·브랜드주 후행 관찰"
+
+  # ── 조선 / 방산 ───────────────────────────────────────────────
+
+  - id: us_defense_leads_kr_aerospace
+    sector: defense
+    theme: defense_aerospace
+    source: LMT
+    targets:
+      - "012450.KS"   # 한화에어로스페이스
+      - "047810.KS"   # 한국항공우주
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "미국 방산 강세 → 한화에어로·KAI 후행 관찰"
+
+  - id: rtx_leads_kr_defense
+    sector: defense
+    theme: defense_aerospace
+    source: RTX
+    targets:
+      - "012450.KS"
+      - "047810.KS"
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "RTX 강세 → 한국 방산 후행 관찰"
+
+  - id: kr_shipbuilding_peers
+    sector: defense
+    theme: shipbuilding
+    source: "329180.KS"
+    targets:
+      - "010140.KS"   # 삼성중공업
+      - "042660.KS"   # 한화오션
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "HD현대중공업 급등 후 조선 피어 후행 관찰"
+
+  - id: kr_shipbuilding_hh_leads
+    sector: defense
+    theme: shipbuilding
+    source: "010140.KS"
+    targets:
+      - "329180.KS"
+      - "042660.KS"
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "삼성중공업 급등 후 조선 피어 후행 관찰"

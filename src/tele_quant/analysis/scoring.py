@@ -227,6 +227,13 @@ def compute_scorecard(
     ):
         total = min(total, 74.0)
 
+    # Direct evidence caps: no direct evidence → score capped below send threshold
+    direct_ev = getattr(candidate, "direct_evidence_count", 0)
+    if direct_ev == 0:
+        total = min(total, 44.0)  # below analysis_min_score_to_send (55)
+    elif direct_ev == 1:
+        total = min(total, 74.0)  # single direct evidence → can't reach 80
+
     if total >= 75:
         grade = "강한 관심"
     elif total >= 60:
@@ -284,6 +291,11 @@ def _determine_side(
     if is_avoid:
         return "WATCH"
 
+    # Hard gate: no direct evidence → never LONG or SHORT
+    direct_ev = getattr(candidate, "direct_evidence_count", 0)
+    if direct_ev == 0:
+        return "WATCH"
+
     rsi = technical.rsi14 if technical and technical.close is not None else None
     obv = getattr(technical, "obv_trend", "") if technical else ""
     trend = getattr(technical, "trend_label", "") if technical else ""
@@ -291,12 +303,16 @@ def _determine_side(
     if candidate.sentiment == "positive":
         if score < 45:
             return "WATCH"
-        if rsi is not None and rsi > 85:
+        # RSI ≥ 85 → 과열 관망 (not LONG)
+        if rsi is not None and rsi >= 85:
             return "WATCH"
         return "LONG"
 
     if candidate.sentiment == "negative":
-        if score >= 45:
+        # SHORT forbidden when trend is UP + OBV rising — price action contradicts thesis
+        if trend == "상승 추세" and obv == "상승":
+            return "WATCH"
+        if score >= 45 and trend != "상승 추세":
             return "SHORT"
         if trend == "하락 추세" and obv == "하락":
             return "SHORT"
@@ -305,11 +321,16 @@ def _determine_side(
     if candidate.sentiment == "mixed":
         if score < 45:
             return "WATCH"
-        if rsi is not None and rsi > 85:
+        if rsi is not None and rsi >= 85:
             return "WATCH"
         if len(candidate.catalysts) > len(candidate.risks):
             return "LONG"
-        if len(candidate.risks) > len(candidate.catalysts) and trend == "하락 추세":
+        # SHORT only when trend is genuinely weak (not 상승 추세 + OBV 상승)
+        if (
+            len(candidate.risks) > len(candidate.catalysts)
+            and trend == "하락 추세"
+            and not (trend == "상승 추세" and obv == "상승")
+        ):
             return "SHORT"
         return "WATCH"
 
@@ -387,21 +408,20 @@ def build_scenario(
 
     fund_summary = "재무 데이터 없음"
     if fundamental:
-        parts = []
-        if fundamental.trailing_pe is not None:
-            parts.append(f"PER {fundamental.trailing_pe:.1f}")
-        if fundamental.price_to_book is not None:
-            parts.append(f"PBR {fundamental.price_to_book:.2f}")
-        if fundamental.roe is not None:
-            parts.append(f"ROE {fundamental.roe * 100:.1f}%")
-        if fundamental.operating_margin is not None:
-            parts.append(f"영업이익률 {fundamental.operating_margin * 100:.1f}%")
-        if fundamental.revenue_growth is not None:
-            parts.append(f"매출성장 {fundamental.revenue_growth * 100:.1f}%")
-        if parts:
-            fund_summary = " / ".join(parts) + f" ({fundamental.valuation_label})"
-        else:
-            fund_summary = fundamental.valuation_label
+        # Compact single-line: key valuation hints only
+        hints: list[str] = []
+        lbl = fundamental.valuation_label
+        if lbl and lbl not in ("데이터 부족", ""):
+            hints.append(lbl)
+        if fundamental.roe is not None and fundamental.roe > 0.15:
+            hints.append("수익성 양호")
+        pe = fundamental.trailing_pe
+        if pe is not None and pe > 0:
+            if pe > 40:
+                hints.append("고평가 주의")
+            elif pe < 15:
+                hints.append("저평가 가능")
+        fund_summary = " / ".join(dict.fromkeys(hints)) if hints else fundamental.valuation_label
 
     from tele_quant.headline_cleaner import clean_source_header
 
