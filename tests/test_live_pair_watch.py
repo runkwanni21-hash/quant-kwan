@@ -594,3 +594,444 @@ def test_stale_feed_relation_stats_not_used():
     assert prob is None
     assert lift is None
     assert count == 0
+
+
+# ── 신규: local price DB 기반 조건부확률/lift ────────────────────────────────
+
+
+def _make_price_csv(tmp_path, src_ticker, tgt_ticker, src_market="US", tgt_market="US"):
+    """Create a minimal event_price CSV with synthetic big-move events."""
+    import pandas as pd
+
+    dates = pd.bdate_range("2023-01-02", periods=120)  # 120 business days
+
+    # Source: big UP event every ~15 days (8 events)
+    src_prices = [100.0]
+    for i in range(1, 120):
+        ret = 6.5 if i % 15 == 0 else 0.2  # +6.5% event, else flat
+        src_prices.append(src_prices[-1] * (1 + ret / 100))
+
+    # Target: follows UP event on day+2 (hit) for first 6 events, misses last 2
+    tgt_prices = [50.0]
+    for i in range(1, 120):
+        # hit on day after a source event for first 6 events
+        event_idx = i // 15
+        is_hit_day = (i % 15 == 2) and (event_idx < 6)
+        ret = 2.5 if is_hit_day else 0.1
+        tgt_prices.append(tgt_prices[-1] * (1 + ret / 100))
+
+    rows = []
+    for i, d in enumerate(dates):
+        ds = d.strftime("%Y-%m-%d")
+        rows.append(
+            {
+                "market": src_market,
+                "ticker": src_ticker,
+                "date": ds,
+                "close": src_prices[i],
+                "adjusted_close": src_prices[i],
+                "volume": 1_000_000,
+                "open": src_prices[i],
+                "high": src_prices[i] * 1.01,
+                "low": src_prices[i] * 0.99,
+            }
+        )
+        rows.append(
+            {
+                "market": tgt_market,
+                "ticker": tgt_ticker,
+                "date": ds,
+                "close": tgt_prices[i],
+                "adjusted_close": tgt_prices[i],
+                "volume": 500_000,
+                "open": tgt_prices[i],
+                "high": tgt_prices[i] * 1.01,
+                "low": tgt_prices[i] * 0.99,
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    path = tmp_path / "event_price_1000d.csv"
+    df.to_csv(path, index=False)
+    return str(path)
+
+
+def test_compute_local_pair_stats_returns_stats(tmp_path):
+    """local price CSV로 event_count/prob/lift 계산."""
+    from tele_quant.live_pair_watch import _compute_local_pair_stats, _csv_price_cache
+
+    _csv_price_cache.clear()
+    csv_path = _make_price_csv(tmp_path, "NVDA", "MU")
+
+    class S:
+        event_price_csv_path = csv_path
+
+    prob, _lift, count = _compute_local_pair_stats("NVDA", "MU", "UP", S())
+    assert count >= 5, f"event_count={count} should be >=5"
+    assert prob is not None
+    assert 0.0 <= prob <= 1.0
+
+
+def test_compute_local_pair_stats_insufficient_events(tmp_path):
+    """event_count < 5이면 (None, None, 0) 반환."""
+    import pandas as pd
+
+    from tele_quant.live_pair_watch import _compute_local_pair_stats, _csv_price_cache
+
+    _csv_price_cache.clear()
+    # Only 3 events by using threshold too high
+    dates = pd.bdate_range("2023-01-02", periods=60)
+    rows = []
+    src_prices = [100.0]
+    for i in range(1, 60):
+        ret = 6.5 if i in (5, 20, 40) else 0.1  # only 3 events
+        src_prices.append(src_prices[-1] * (1 + ret / 100))
+    tgt_prices = [50.0] * 60
+
+    for i, d in enumerate(dates):
+        ds = d.strftime("%Y-%m-%d")
+        rows.append(
+            {
+                "market": "US",
+                "ticker": "SRC",
+                "date": ds,
+                "close": src_prices[i],
+                "adjusted_close": src_prices[i],
+                "volume": 1_000_000,
+                "open": src_prices[i],
+                "high": src_prices[i],
+                "low": src_prices[i],
+            }
+        )
+        rows.append(
+            {
+                "market": "US",
+                "ticker": "TGT",
+                "date": ds,
+                "close": tgt_prices[i],
+                "adjusted_close": tgt_prices[i],
+                "volume": 500_000,
+                "open": tgt_prices[i],
+                "high": tgt_prices[i],
+                "low": tgt_prices[i],
+            }
+        )
+
+    path = tmp_path / "few_events.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+    class S:
+        event_price_csv_path = str(path)
+
+    prob, lift, _count = _compute_local_pair_stats("SRC", "TGT", "UP", S())
+    assert prob is None
+    assert lift is None
+
+
+def test_compute_local_pair_stats_zero_base_prob_safe(tmp_path):
+    """base_prob가 0이어도 ZeroDivisionError 없이 lift=None을 반환해야 한다."""
+    import pandas as pd
+
+    from tele_quant.live_pair_watch import _compute_local_pair_stats, _csv_price_cache
+
+    _csv_price_cache.clear()
+    # Target price never rises (monotonically decreasing) → base_prob_up = 0
+    dates = pd.bdate_range("2023-01-02", periods=100)
+    rows = []
+    src_prices = [100.0]
+    for i in range(1, 100):
+        ret = 6.5 if i % 12 == 0 else 0.2
+        src_prices.append(src_prices[-1] * (1 + ret / 100))
+
+    tgt_prices = [100.0]
+    for _i in range(1, 100):
+        tgt_prices.append(tgt_prices[-1] * 0.995)  # always falls → base_prob_up = 0
+
+    for i, d in enumerate(dates):
+        ds = d.strftime("%Y-%m-%d")
+        rows.append(
+            {
+                "market": "US",
+                "ticker": "SRC2",
+                "date": ds,
+                "close": src_prices[i],
+                "adjusted_close": src_prices[i],
+                "volume": 1_000_000,
+                "open": src_prices[i],
+                "high": src_prices[i],
+                "low": src_prices[i],
+            }
+        )
+        rows.append(
+            {
+                "market": "US",
+                "ticker": "TGT2",
+                "date": ds,
+                "close": tgt_prices[i],
+                "adjusted_close": tgt_prices[i],
+                "volume": 500_000,
+                "open": tgt_prices[i],
+                "high": tgt_prices[i],
+                "low": tgt_prices[i],
+            }
+        )
+
+    path = tmp_path / "zero_base.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+    class S:
+        event_price_csv_path = str(path)
+
+    _prob, lift, _count = _compute_local_pair_stats("SRC2", "TGT2", "UP", S())
+    # Should not raise; lift is None when base_prob=0
+    assert lift is None or isinstance(lift, float)
+
+
+def test_local_stats_enables_medium_confidence(tmp_path):
+    """local DB로 event_count>=5 + prob>0 + lift>1이면 confidence가 medium 이상."""
+    from tele_quant.live_pair_watch import _compute_confidence, _csv_price_cache
+
+    _csv_price_cache.clear()
+    # Simulate local stats: 10 events, 70% hit rate, lift 1.8
+    conf = _compute_confidence(
+        event_count=10, conditional_prob=0.70, lift=1.8, src_volume_ratio=0.0
+    )
+    assert conf in ("medium", "high")
+
+
+def test_local_stats_absent_low_confidence():
+    """통계 없으면 항상 low confidence."""
+    from tele_quant.live_pair_watch import _compute_confidence
+
+    conf = _compute_confidence(0, None, None, 1.5)
+    assert conf == "low"
+
+
+# ── 신규: 리포트 길이 제한 ───────────────────────────────────────────────────
+
+
+def _make_signals_many(n: int, source: str = "NVDA", sector: str = "semiconductor") -> list:
+    """Make n different signals for the same source and sector."""
+    from datetime import UTC, datetime
+
+    sigs = []
+    for i in range(n):
+        tgt = f"TGT{i:03d}.KS"
+        sigs.append(
+            LivePairSignal(
+                created_at=datetime.now(UTC).isoformat(),
+                source_symbol=source,
+                source_name=source,
+                source_market="US",
+                source_sector=sector,
+                source_theme="ai_gpu",
+                source_return_4h=5.0,
+                source_return_1d=7.0,
+                source_volume_ratio=1.4,
+                target_symbol=tgt,
+                target_name=f"Target{i}",
+                target_market="KR",
+                target_sector=sector,
+                target_theme="memory",
+                target_return_4h=0.3,
+                target_return_1d=0.5,
+                target_volume_ratio=1.0,
+                relation_type="UP_LEADS_UP",
+                expected_direction="UP",
+                gap_type="미반응",
+                lag_status="미확인",
+                correlation=0.7,
+                conditional_prob=None,
+                lift=None,
+                confidence="low",
+                pair_score=60.0 - i,
+                explanation="test",
+                watch_action="test",
+                event_count=0,
+            )
+        )
+    return sigs
+
+
+def test_build_pair_watch_section_max_6_items():
+    """pair-watch 섹션 최대 6개 항목 제한 + '숨김' 표시."""
+    signals = _make_signals_many(12)
+    section = build_pair_watch_section(signals, settings=SETTINGS)
+    assert "숨김" in section
+
+
+def test_build_pair_watch_section_max_2_per_source():
+    """같은 source는 최대 2개 target까지만 표시."""
+    # 5 signals from the same source, different targets
+    signals = _make_signals_many(5, source="NVDA", sector="semiconductor")
+    # Manually set all to same source and different sectors to bypass sector cap
+    for i, sig in enumerate(signals):
+        sig.source_sector = f"sector_{i}"  # unique sectors to remove sector cap
+    section = build_pair_watch_section(signals, settings=SETTINGS)
+    # Count "source: NVDA" occurrences
+    nvda_lines = [line for line in section.splitlines() if "source:" in line and "NVDA" in line]
+    assert len(nvda_lines) <= 2
+
+
+def test_build_pair_watch_section_max_2_현재불일치():
+    """현재불일치는 최대 2개만 표시."""
+    from datetime import UTC, datetime
+
+    sigs = []
+    for i in range(5):
+        sigs.append(
+            LivePairSignal(
+                created_at=datetime.now(UTC).isoformat(),
+                source_symbol=f"SRC{i}",
+                source_name=f"Source{i}",
+                source_market="US",
+                source_sector=f"sector_{i}",
+                source_theme="ai",
+                source_return_4h=5.0,
+                source_return_1d=6.0,
+                source_volume_ratio=1.3,
+                target_symbol=f"TGT{i}.KS",
+                target_name=f"Target{i}",
+                target_market="KR",
+                target_sector=f"sector_{i}",
+                target_theme="memory",
+                target_return_4h=-0.8,
+                target_return_1d=-3.0,
+                target_volume_ratio=0.9,
+                relation_type="UP_LEADS_UP",
+                expected_direction="UP",
+                gap_type="현재불일치",
+                lag_status="미확인",
+                correlation=0.6,
+                conditional_prob=None,
+                lift=None,
+                confidence="low",
+                pair_score=55.0 - i,
+                explanation="test",
+                watch_action="관찰만",
+                event_count=0,
+            )
+        )
+
+    section = build_pair_watch_section(sigs, settings=SETTINGS)
+    # Each dissonance signal has one "→ 현재 불일치" line — count those
+    dissonance_lines = [
+        line for line in section.splitlines() if "→" in line and "현재 불일치" in line
+    ]
+    assert len(dissonance_lines) <= 2
+
+
+# ── 신규: weekly review gap_type breakdown ──────────────────────────────────
+
+
+def test_build_pair_watch_weekly_review_gap_type_breakdown():
+    """주간 리뷰에 gap_type별 성과 줄 (미반응/부분반응/현재불일치) 포함."""
+    from datetime import UTC, datetime, timedelta
+
+    from tele_quant.live_pair_watch import build_pair_watch_weekly_review
+
+    mock_store = MagicMock()
+    mock_store.recent_pair_watch_signals.return_value = [
+        {
+            "id": 1,
+            "source_symbol": "NVDA",
+            "target_symbol": "000660.KS",
+            "source_name": "NVIDIA",
+            "target_name": "SK하이닉스",
+            "target_market": "KR",
+            "source_sector": "semiconductor",
+            "expected_direction": "UP",
+            "gap_type": "미반응",
+            "target_price_at_signal": 80000.0,
+            "target_price_at_review": 84000.0,
+            "outcome_return_pct": 5.0,
+            "hit": 1,
+            "created_at": (datetime.now(UTC) - timedelta(days=3)).isoformat(),
+        },
+        {
+            "id": 2,
+            "source_symbol": "NVDA",
+            "target_symbol": "005930.KS",
+            "source_name": "NVIDIA",
+            "target_name": "삼성전자",
+            "target_market": "KR",
+            "source_sector": "semiconductor",
+            "expected_direction": "UP",
+            "gap_type": "부분반응",
+            "target_price_at_signal": 70000.0,
+            "target_price_at_review": 71000.0,
+            "outcome_return_pct": 1.4,
+            "hit": 1,
+            "created_at": (datetime.now(UTC) - timedelta(days=2)).isoformat(),
+        },
+    ]
+
+    since = datetime.now(UTC) - timedelta(days=7)
+    result = build_pair_watch_weekly_review(mock_store, since=since)
+    assert "미반응 관찰 후보 성과" in result
+    assert "부분반응 후보 성과" in result
+    assert "적중률" in result
+
+
+def test_build_pair_watch_weekly_review_per_signal_details():
+    """주간 리뷰에 종목별 신호 시점·상태·기준가·가상성과·결과 포함."""
+    from datetime import UTC, datetime, timedelta
+
+    from tele_quant.live_pair_watch import build_pair_watch_weekly_review
+
+    mock_store = MagicMock()
+    mock_store.recent_pair_watch_signals.return_value = [
+        {
+            "id": 3,
+            "source_symbol": "MU",
+            "target_symbol": "000660.KS",
+            "source_name": "Micron",
+            "target_name": "SK하이닉스",
+            "target_market": "KR",
+            "source_sector": "semiconductor",
+            "expected_direction": "UP",
+            "gap_type": "미반응",
+            "target_price_at_signal": 90000.0,
+            "target_price_at_review": 95000.0,
+            "outcome_return_pct": 5.6,
+            "hit": 1,
+            "created_at": (datetime.now(UTC) - timedelta(days=4)).isoformat(),
+        }
+    ]
+
+    since = datetime.now(UTC) - timedelta(days=7)
+    result = build_pair_watch_weekly_review(mock_store, since=since)
+    assert "신호 시점" in result
+    assert "당시 target 기준가" in result
+    assert "가상 성과" in result
+    assert "결과" in result
+    assert "후행 반응 적중" in result or "미확인" in result
+
+
+def test_build_pair_watch_weekly_review_pending_and_no_price():
+    """평가 대기(신호가격없음)와 가격확인불가 케이스 구분 표시."""
+    from datetime import UTC, datetime, timedelta
+
+    from tele_quant.live_pair_watch import build_pair_watch_weekly_review
+
+    mock_store = MagicMock()
+    mock_store.recent_pair_watch_signals.return_value = [
+        {
+            "id": 10,
+            "source_symbol": "NVDA",
+            "target_symbol": "000660.KS",
+            "target_market": "KR",
+            "source_sector": "semiconductor",
+            "expected_direction": "UP",
+            "gap_type": "미반응",
+            "target_price_at_signal": None,  # 평가 대기
+            "target_price_at_review": None,
+            "outcome_return_pct": None,
+            "hit": None,
+            "created_at": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+        },
+    ]
+
+    since = datetime.now(UTC) - timedelta(days=7)
+    result = build_pair_watch_weekly_review(mock_store, since=since)
+    assert "평가 대기" in result

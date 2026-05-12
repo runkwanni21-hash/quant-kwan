@@ -14,7 +14,7 @@ import contextlib
 import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,167 @@ _DISCLAIMER = (
 )
 
 _CONF_ORDER = {"high": 2, "medium": 1, "low": 0}
+_KST = timezone(timedelta(hours=9))
+
+# Module-level price CSV cache — keyed by file path to avoid inter-test contamination
+_csv_price_cache: dict[str, Any] = {}
+
+
+def _fmt_kst(dt_str: str) -> str:
+    if not dt_str:
+        return "?"
+    try:
+        dt = datetime.fromisoformat(dt_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(_KST).strftime("%Y-%m-%d %H:%M KST")
+    except Exception:
+        return str(dt_str)[:16]
+
+
+def _fmt_price_simple(price: float | None, market: str) -> str:
+    if price is None:
+        return "확인 불가"
+    if (market or "").upper() == "KR":
+        return f"{price:,.0f}원"
+    return f"${price:,.2f}"
+
+
+def _symbol_to_market_ticker(symbol: str) -> tuple[str, str]:
+    """Convert yfinance ticker to (market, CSV-ticker) pair for local DB lookup."""
+    if symbol.endswith(".KS"):
+        return "KR", symbol[:-3]
+    if symbol.endswith(".KQ"):
+        return "KR", symbol[:-3]
+    return "US", symbol
+
+
+def _load_price_csv(settings: Any) -> Any:
+    """Load event_price CSV once and cache by path. Returns pandas DataFrame or None."""
+    csv_path = str(getattr(settings, "event_price_csv_path", "data/external/event_price_1000d.csv"))
+    if csv_path in _csv_price_cache:
+        return _csv_price_cache[csv_path]
+    try:
+        import pandas as pd
+
+        df = pd.read_csv(csv_path, parse_dates=["date"])
+        df = df.sort_values(["market", "ticker", "date"]).reset_index(drop=True)
+        _csv_price_cache[csv_path] = df
+        return df
+    except Exception as exc:
+        log.debug("[pair_watch] price CSV load failed: %s", exc)
+        return None
+
+
+_MIN_EVENT_COUNT = 5
+_LAG_DAYS = 3
+
+
+def _compute_local_pair_stats(
+    source_symbol: str,
+    target_symbol: str,
+    expected_direction: str,
+    settings: Any,
+) -> tuple[float | None, float | None, int]:
+    """
+    Compute (conditional_prob, lift, event_count) from local event_price CSV.
+
+    Returns (None, None, 0) on any error or insufficient data.
+    Stale relation feed와 무관하게 항상 계산 시도.
+    """
+    try:
+        df = _load_price_csv(settings)
+        if df is None or getattr(df, "empty", True):
+            return None, None, 0
+
+        src_market, src_ticker = _symbol_to_market_ticker(source_symbol)
+        tgt_market, tgt_ticker = _symbol_to_market_ticker(target_symbol)
+
+        src_df = df[(df["market"] == src_market) & (df["ticker"] == src_ticker)].copy()
+        tgt_df = df[(df["market"] == tgt_market) & (df["ticker"] == tgt_ticker)].copy()
+
+        if len(src_df) < 10 or len(tgt_df) < 10:
+            return None, None, 0
+
+        src_df = src_df.sort_values("date").reset_index(drop=True)
+        tgt_df = tgt_df.sort_values("date").reset_index(drop=True)
+
+        # Daily returns for source
+        src_threshold = 7.0 if src_market == "KR" else 5.0
+        src_df["ret"] = src_df["close"].pct_change() * 100
+
+        # Identify event days
+        if expected_direction == "UP":
+            event_rows = src_df[src_df["ret"] >= src_threshold]
+        else:
+            event_rows = src_df[src_df["ret"] <= -src_threshold]
+
+        event_count_raw = len(event_rows)
+        if event_count_raw < _MIN_EVENT_COUNT:
+            return None, None, event_count_raw
+
+        # For each event, check target's cumulative return over lag 1-3 trading days
+        hit_count = 0
+        valid_events = 0
+
+        for _, evt in event_rows.iterrows():
+            event_date = evt["date"]
+            # Target close on or before event date
+            mask_before = tgt_df["date"] <= event_date
+            mask_after = tgt_df["date"] > event_date
+            tgt_before = tgt_df[mask_before]
+            tgt_after = tgt_df[mask_after].head(_LAG_DAYS)
+
+            if tgt_before.empty or tgt_after.empty:
+                continue
+
+            tgt_base = float(tgt_before["close"].iloc[-1])
+            if tgt_base <= 0:
+                continue
+
+            tgt_end = float(tgt_after["close"].iloc[-1])
+            tgt_return = (tgt_end - tgt_base) / tgt_base * 100
+
+            valid_events += 1
+            if (expected_direction == "UP" and tgt_return > 0) or (
+                expected_direction == "DOWN" and tgt_return < 0
+            ):
+                hit_count += 1
+
+        if valid_events < _MIN_EVENT_COUNT:
+            return None, None, valid_events
+
+        cond_prob = hit_count / valid_events
+
+        # Base probability: fraction of all LAG_DAYS-day target windows in expected direction
+        base_hits = 0
+        base_total = 0
+        for i in range(len(tgt_df) - _LAG_DAYS):
+            base_close = float(tgt_df["close"].iloc[i])
+            end_close = float(tgt_df["close"].iloc[i + _LAG_DAYS])
+            if base_close <= 0:
+                continue
+            ret = (end_close - base_close) / base_close * 100
+            if (expected_direction == "UP" and ret > 0) or (
+                expected_direction == "DOWN" and ret < 0
+            ):
+                base_hits += 1
+            base_total += 1
+
+        if base_total == 0:
+            return cond_prob, None, valid_events
+
+        base_prob = base_hits / base_total
+        lift = cond_prob / base_prob if base_prob > 0 else None
+
+        return cond_prob, lift, valid_events
+
+    except Exception as exc:
+        log.debug(
+            "[pair_watch] local_pair_stats %s→%s failed: %s", source_symbol, target_symbol, exc
+        )
+        return None, None, 0
+
 
 # ── Data Models ─────────────────────────────────────────────────────────────
 
@@ -96,6 +257,7 @@ class LivePairSignal:
     watch_action: str
     rule_note: str = ""
     used_cache: bool = False
+    event_count: int = 0
 
 
 # ── Config Loaders ───────────────────────────────────────────────────────────
@@ -763,6 +925,15 @@ def compute_signals(
             cond_prob, lift, event_count, rel_type = _get_relation_stats(
                 relation_feed, src_sym, tgt_sym
             )
+
+            # When no relation-feed stats, try local price CSV
+            if cond_prob is None and lift is None and event_count == 0:
+                local_prob, local_lift, local_count = _compute_local_pair_stats(
+                    src_sym, tgt_sym, expected_dir, settings
+                )
+                if local_prob is not None or local_count >= _MIN_EVENT_COUNT:
+                    cond_prob, lift, event_count = local_prob, local_lift, local_count
+
             correlation = _get_correlation(corr_store, src_sym, tgt_sym)
 
             tgt_stock = stock_map.get(tgt_sym)
@@ -839,6 +1010,7 @@ def compute_signals(
                     watch_action=watch_action,
                     rule_note=rule.note,
                     used_cache=used_cache,
+                    event_count=event_count,
                 )
             )
 
@@ -883,15 +1055,16 @@ def _fmt_return(val: float | None) -> str:
 
 def _fmt_prob_lift(cond_prob: float | None, lift: float | None, event_count: int = 0) -> str:
     if cond_prob is None and lift is None:
-        return "규칙 기반 (통계 N/A)"
+        return "규칙 기반 (통계 N/A, 표본 부족)"
     parts: list[str] = []
+    if event_count >= _MIN_EVENT_COUNT and cond_prob is not None:
+        hit_count = round(event_count * cond_prob)
+        parts.append(f"과거 유사 이벤트 {event_count}회 중 {hit_count}회 반응")
     if cond_prob is not None:
         parts.append(f"조건부확률 {cond_prob:.1%}")
     if lift is not None:
         parts.append(f"lift {lift:.1f}x")
-    if event_count > 0:
-        parts.append(f"표본 {event_count}건")
-    return ", ".join(parts) or "규칙 기반"
+    return " / ".join(parts) or "규칙 기반"
 
 
 def build_pair_watch_section(
@@ -901,10 +1074,14 @@ def build_pair_watch_section(
     diagnostics: list[str] | None = None,
 ) -> str:
     """Build the 🔗 선행·후행 페어 관찰 section for inclusion in 4H reports."""
-    max_items = int(getattr(settings, "live_pair_watch_max_report_items", 10))
-    # Sector cap: max 2 per sector
-    sector_counts: dict[str, int] = {}
+    max_items = min(6, int(getattr(settings, "live_pair_watch_max_report_items", 6)))
     MAX_PER_SECTOR = 2
+    MAX_PER_SOURCE = 2
+    MAX_DISSONANCE = 2
+
+    sector_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    dissonance_count = 0
 
     lines: list[str] = ["🔗 선행·후행 페어 관찰"]
     lines.append(
@@ -949,6 +1126,10 @@ def build_pair_watch_section(
                 break
             if sector_counts.get(sector, 0) >= MAX_PER_SECTOR:
                 break
+            if source_counts.get(sig.source_symbol, 0) >= MAX_PER_SOURCE:
+                continue
+            if sig.gap_type == "현재불일치" and dissonance_count >= MAX_DISSONANCE:
+                continue
 
             idx += 1
             src_ret_4h = _fmt_return(sig.source_return_4h)
@@ -957,7 +1138,7 @@ def build_pair_watch_section(
             tgt_ret_1d = _fmt_return(sig.target_return_1d)
             gap_label = _GAP_LABELS.get(sig.gap_type, sig.gap_type)
             is_rule_based = sig.conditional_prob is None and sig.lift is None
-            prob_str = _fmt_prob_lift(sig.conditional_prob, sig.lift)
+            prob_str = _fmt_prob_lift(sig.conditional_prob, sig.lift, sig.event_count)
             if is_rule_based:
                 conf_kr = "규칙기반"
             else:
@@ -980,18 +1161,14 @@ def build_pair_watch_section(
             lines.append(f"   - 오늘 볼 것: {sig.watch_action}")
 
             sector_counts[sector] = sector_counts.get(sector, 0) + 1
+            source_counts[sig.source_symbol] = source_counts.get(sig.source_symbol, 0) + 1
+            if sig.gap_type == "현재불일치":
+                dissonance_count += 1
             item_count += 1
 
-    hidden_count = (
-        sum(
-            1
-            for s in signals
-            if s.confidence in ("high", "medium") and s.gap_type not in ("이미반응",)
-        )
-        - item_count
-    )
+    hidden_count = len(displayable) - item_count
     if hidden_count > 0:
-        lines.append(f"  (그 외 {hidden_count}개 후보는 섹터 한도 초과로 생략)")
+        lines.append(f"  (그 외 {hidden_count}개 후보 숨김 — 소스·섹터·최대 {max_items}개 한도)")
 
     lines.append("")
     lines.append(f"※ {_DISCLAIMER}")
@@ -1132,7 +1309,7 @@ def build_pair_watch_weekly_review(
     lines: list[str] = []
     lines.append("📈 선행·후행 페어 관찰 성과")
     lines.append("- 평가 기준: pair-watch 신호 시점 target 가격 vs 주간 리포트 시점 가격")
-    lines.append("- 주의: 실제 매매 수익이 아니라 통계 후보 사후 검증")
+    lines.append("- 주의: 실제 매매 수익이 아니라 통계 후보 사후 검증이며 매수·매도 권장 아님")
 
     try:
         rows = store.recent_pair_watch_signals(since=since)
@@ -1149,17 +1326,17 @@ def build_pair_watch_weekly_review(
         return "\n".join(lines)
 
     evaluable: list[dict] = []
+    pending: list[dict] = []
     no_price: list[dict] = []
 
     for row in rows:
         signal_price = row.get("target_price_at_signal")
         if signal_price is None:
-            no_price.append(row)
+            pending.append(row)
             continue
 
         review_price = row.get("target_price_at_review")
         if review_price is None:
-            # Try to fetch current price
             try:
                 import yfinance as yf
 
@@ -1208,6 +1385,23 @@ def build_pair_watch_weekly_review(
         lines.append(f"- 평균 성과: {'+' if avg_ret >= 0 else ''}{avg_ret:.1f}%")
         lines.append(f"- 적중률: {hit_rate:.0f}% ({hits}/{eval_count})")
 
+        # Gap-type breakdown
+        for gap_type, label in [
+            ("미반응", "미반응 관찰 후보"),
+            ("부분반응", "부분반응 후보"),
+            ("현재불일치", "현재불일치 후보"),
+        ]:
+            gap_rows = [r for r in evaluable if r.get("gap_type") == gap_type]
+            if gap_rows:
+                g_hits = sum(1 for r in gap_rows if r.get("hit") == 1)
+                g_rets = [r.get("outcome_return_pct", 0.0) or 0.0 for r in gap_rows]
+                g_avg = sum(g_rets) / len(g_rets)
+                g_rate = g_hits / len(gap_rows) * 100
+                lines.append(
+                    f"- {label} 성과: 적중 {g_hits}/{len(gap_rows)} ({g_rate:.0f}%)"
+                    f" / 평균 {'+' if g_avg >= 0 else ''}{g_avg:.1f}%"
+                )
+
         winners = sorted(evaluable, key=lambda r: r.get("outcome_return_pct", 0) or 0, reverse=True)
         losers = sorted(evaluable, key=lambda r: r.get("outcome_return_pct", 0) or 0)
         if winners:
@@ -1225,7 +1419,7 @@ def build_pair_watch_weekly_review(
                 f" {lo_ret:.1f}%"
             )
 
-        # Repeated themes next week
+        # Best sector for next week
         sector_hits: dict[str, list[float]] = {}
         for r in evaluable:
             sec = r.get("source_sector") or "기타"
@@ -1239,6 +1433,41 @@ def build_pair_watch_weekly_review(
             top_sector = _SECTOR_LABELS.get(best_sectors[0][0], best_sectors[0][0])
             lines.append(f"- 다음 주 반복 관찰 테마: {top_sector} (이번 주 성과 기준)")
 
+        # Per-signal detail block
+        lines.append("")
+        lines.append("[종목별 페어 성과]")
+        for i, row in enumerate(winners[:10], 1):
+            src_sym = row.get("source_symbol", "?")
+            tgt_sym = row.get("target_symbol", "?")
+            src_name = row.get("source_name") or src_sym
+            tgt_name = row.get("target_name") or tgt_sym
+            mkt = row.get("target_market", "US")
+            gap_type = row.get("gap_type", "?")
+            outcome = row.get("outcome_return_pct")
+            hit = row.get("hit")
+            sp = row.get("target_price_at_signal")
+            rp = row.get("target_price_at_review")
+
+            kst_str = _fmt_kst(row.get("created_at", ""))
+            sp_str = _fmt_price_simple(sp, mkt)
+            rp_str = _fmt_price_simple(rp, mkt)
+            out_str = (
+                f"{'+' if (outcome or 0) >= 0 else ''}{outcome:.1f}%"
+                if outcome is not None
+                else "?"
+            )
+            hit_str = "✅ 후행 반응 적중" if hit == 1 else "❌ 미확인"
+
+            lines.append(f"{i}. {src_name} → {tgt_name} ({tgt_sym})")
+            lines.append(f"   - 신호 시점: {kst_str}")
+            lines.append(f"   - 상태: {gap_type}")
+            lines.append(f"   - 당시 target 기준가: {sp_str}")
+            lines.append(f"   - 평가 기준가: {rp_str}")
+            lines.append(f"   - 가상 성과: {out_str}")
+            lines.append(f"   - 결과: {hit_str}")
+
+    if pending:
+        lines.append(f"- 평가 대기: {len(pending)}개 (신호 시점 가격 미기록)")
     if no_price:
         lines.append(f"- 가격 확인 불가: {len(no_price)}개 제외")
 
