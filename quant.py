@@ -48,7 +48,8 @@ def execution_layer(state: dict) -> str:
 def main():
     print("=== Institutional State Extraction Engine (Phase Space Risk) ===\n")
     
-    tickers = ["SPY", "RSP", "^TNX", "^IRX", "DX-Y.NYB", "HYG", "LQD", "GLD", "USO", "^VIX", "^VIX3M"]
+    # 🌟 QQQ, EWY 추가!
+    tickers = ["SPY", "QQQ", "EWY", "RSP", "^TNX", "^IRX", "DX-Y.NYB", "HYG", "LQD", "GLD", "USO", "^VIX", "^VIX3M"]
     df = download_multi_data(tickers, start="2012-01-01")
     
     builder_macro = AdvancedMacroRegimeBuilder(target_window=60)

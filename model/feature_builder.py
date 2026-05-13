@@ -7,6 +7,8 @@ class AdvancedMacroRegimeBuilder(BaseFeatureBuilder):
         # 느린 방향성을 위해 타겟을 다시 60일(약 3개월)로 설정
         self.target_window = target_window
 
+    # model/feature_builder.py의 AdvancedMacroRegimeBuilder 수정
+
     def build_features(self, df: pd.DataFrame) -> pd.DataFrame:
         out = df.copy()
         
@@ -15,21 +17,37 @@ class AdvancedMacroRegimeBuilder(BaseFeatureBuilder):
         rolling_max = out["Close_SPY"].rolling(252, min_periods=1).max()
         out["spy_drawdown"] = out["Close_SPY"] / rolling_max - 1
         
-        # 2. 모멘텀 가속도 (추세 확인용)
+        # 2. 모멘텀 가속도
         spy_mom_20d = out["Close_SPY"].pct_change(20, fill_method=None)
         out["momentum_acceleration"] = spy_mom_20d - (out["spy_return_60d"] / 3) 
 
-        # 3. 거시경제 / 금리 환경 (Macro)
+        # 🌟 3. 글로벌 리더십 직교 피처 (비정상성 제거: Momentum & Z-Score)
+        if "Close_QQQ" in out.columns and "Close_SPY" in out.columns:
+            # 원본 비율은 중간 변수로만 사용 (저장 안 함)
+            ratio_qqq_spy = out["Close_QQQ"] / out["Close_SPY"]
+            out["qqq_spy_mom_20d"] = ratio_qqq_spy.pct_change(20, fill_method=None)
+            out["qqq_spy_z_252d"] = (ratio_qqq_spy - ratio_qqq_spy.rolling(252).mean()) / (ratio_qqq_spy.rolling(252).std() + 1e-6)
+
+        if "Close_EWY" in out.columns and "Close_SPY" in out.columns:
+            ratio_ewy_spy = out["Close_EWY"] / out["Close_SPY"]
+            out["ewy_spy_mom_20d"] = ratio_ewy_spy.pct_change(20, fill_method=None)
+            out["ewy_spy_z_252d"] = (ratio_ewy_spy - ratio_ewy_spy.rolling(252).mean()) / (ratio_ewy_spy.rolling(252).std() + 1e-6)
+
+        if "Close_EWY" in out.columns and "Close_QQQ" in out.columns:
+            ratio_ewy_qqq = out["Close_EWY"] / out["Close_QQQ"]
+            out["ewy_qqq_mom_20d"] = ratio_ewy_qqq.pct_change(20, fill_method=None)
+            out["ewy_qqq_z_252d"] = (ratio_ewy_qqq - ratio_ewy_qqq.rolling(252).mean()) / (ratio_ewy_qqq.rolling(252).std() + 1e-6)
+
+        # 4. 거시경제 / 금리 환경
         if "Close_^IRX" in out.columns and "Close_^TNX" in out.columns:
             out["yield_curve_spread"] = out["Close_^TNX"] - out["Close_^IRX"]
             
-        # 4. 대체자산 트렌드 (인플레이션/안전 선호)
+        # 5. 대체자산 트렌드
         if "Close_GLD" in out.columns:
             out["gold_momentum_60d"] = out["Close_GLD"].pct_change(60, fill_method=None)
         if "Close_USO" in out.columns:
             out["oil_momentum_60d"] = out["Close_USO"].pct_change(60, fill_method=None)
 
-        # 무한대 및 결측치 처리
         out.replace([np.inf, -np.inf], np.nan, inplace=True)
         return out
 
