@@ -267,12 +267,11 @@ def test_stale_relation_feed_hides_detailed_section():
 
 
 def test_stale_relation_feed_shows_warning_message():
-    """stale feed이면 생략 안내 문구(⚠)가 포함된다."""
+    """stale feed이면 생략 안내 문구가 포함된다."""
     pack = _make_pack(macro=[_make_cluster("물가지표 발표 예정")])
     stale_feed = _make_stale_feed(age_hours=130.0)
     result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=stale_feed)
-    assert "⚠" in result
-    assert "pair-watch" in result or "생략" in result
+    assert "생략" in result
 
 
 def test_fresh_relation_feed_shows_detailed_section():

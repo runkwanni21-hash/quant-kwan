@@ -586,6 +586,13 @@ def build_relation_feed_section(
             lines.append(f"- {feed.load_warnings[0]}")
         return "\n".join(lines)
 
+    if feed.is_stale:
+        log.debug(
+            "[relation_feed] stale feed (%.0fh) — section suppressed",
+            feed.feed_age_hours or 0,
+        )
+        return ""
+
     summary = feed.summary
     assert summary is not None
 

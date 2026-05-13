@@ -101,6 +101,8 @@ systemctl --user daemon-reload
 systemctl --user enable --now tele-quant.timer
 ```
 
+> **WSL 주의:** 자동 리포트는 WSL/Ubuntu가 실행 중이어야 동작합니다. systemd timer에는 `Persistent=true`를 적용해 missed run을 보완합니다. 단, WSL 자체가 꺼져 있으면 systemd도 동작하지 않으므로 WSL을 상시 실행 상태로 유지하세요.
+
 ---
 
 ## 리포트 읽는 법 (초보자용)

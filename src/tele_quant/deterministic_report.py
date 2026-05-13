@@ -328,10 +328,7 @@ def build_macro_digest(
         try:
             if getattr(relation_feed, "is_stale", False):
                 age_h = getattr(relation_feed, "feed_age_hours", 0) or 0
-                lines.append(
-                    f"⚠ 과거 relation feed는 {age_h:.0f}시간 전 자료라 생략하고,"
-                    " 최신 yfinance 기반 pair-watch만 표시합니다."
-                )
+                lines.append(f"오래된 relation feed는 {age_h:.0f}시간 초과로 생략했습니다.")
                 lines.append("")
             else:
                 from tele_quant.relation_feed import build_relation_feed_section

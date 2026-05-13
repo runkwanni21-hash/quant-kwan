@@ -1237,7 +1237,7 @@ def run_pair_watch(
     if relation_feed is not None and getattr(relation_feed, "is_stale", False):
         feed_age = getattr(relation_feed, "feed_age_hours", 0)
         diagnostics.append(
-            f"relation feed {feed_age:.0f}시간 전 생성 — 오래된 데이터는 보조 참고만, live yfinance 기준 관찰"
+            f"과거 relation feed는 {feed_age:.0f}시간 전 생성 — 40시간 초과로 무시, 최신 yfinance 1h 기준만 사용"
         )
 
     # Filter by sector if requested

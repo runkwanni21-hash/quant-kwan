@@ -577,9 +577,11 @@ def test_현재불일치_not_shown_as_미반응_관찰():
 def test_stale_feed_diagnostic_shown_in_section():
     """stale relation feed 진단 메시지가 섹션에 포함된다."""
     signals = [_make_signal()]
-    diags = ["relation feed 124시간 전 생성 — 오래된 데이터는 보조 참고만, live yfinance 기준 관찰"]
+    diags = [
+        "과거 relation feed는 124시간 전 생성 — 40시간 초과로 무시, 최신 yfinance 1h 기준만 사용"
+    ]
     section = build_pair_watch_section(signals, settings=SETTINGS, diagnostics=diags)
-    assert "relation feed" in section or "보조 참고" in section
+    assert "40시간 초과" in section or "yfinance 1h" in section
 
 
 def test_stale_feed_relation_stats_not_used():

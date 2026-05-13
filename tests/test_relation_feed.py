@@ -424,3 +424,41 @@ def test_relation_boost_none_feed():
     """feed=None이면 boost=0."""
     boost, _note = get_relation_boost(None, "MU", has_telegram_evidence=True, technical_ok=True)
     assert boost == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Tests: stale feed 40시간 섹션 숨김
+# ---------------------------------------------------------------------------
+
+
+def test_stale_feed_section_hidden():
+    """is_stale=True이면 build_relation_feed_section이 빈 문자열 반환."""
+    feed = _make_feed_with_rows()
+    feed.is_stale = True
+    feed.feed_age_hours = 41.0
+    section = build_relation_feed_section(feed)
+    assert section == ""
+    assert "⚡ 과거 급등" not in section
+    assert "보성파워텍" not in section
+    assert "에스티큐브" not in section
+
+
+def test_stale_feed_section_no_heavy_content():
+    """stale feed 시 후행 관찰 후보 상세가 나오지 않는다."""
+    feed = _make_feed_with_rows()
+    feed.is_stale = True
+    feed.feed_age_hours = 137.0
+    section = build_relation_feed_section(feed)
+    # 제목 자체가 없어야 함
+    assert "⚡" not in section
+    assert "후행 관찰 후보" not in section
+
+
+def test_fresh_feed_section_shown():
+    """is_stale=False이면 섹션이 정상 표시된다."""
+    feed = _make_feed_with_rows()
+    feed.is_stale = False
+    feed.feed_age_hours = 10.0
+    section = build_relation_feed_section(feed)
+    assert section != ""
+    assert "후행 관찰 후보" in section

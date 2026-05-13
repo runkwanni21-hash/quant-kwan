@@ -183,7 +183,7 @@ class Settings(BaseSettings):
     # Relation feed (stock-relation-ai 공유 피드)
     relation_feed_enabled: bool = True
     relation_feed_dir: str = "/home/kwanni/projects/quant_spillover/shared_relation_feed"
-    relation_feed_max_age_hours: float = 72.0
+    relation_feed_max_age_hours: float = 40.0
     relation_feed_min_confidence: str = "medium"
     relation_feed_max_movers: int = 8
     relation_feed_max_targets_per_mover: int = 3
