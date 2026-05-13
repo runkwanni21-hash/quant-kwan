@@ -12,7 +12,8 @@ class PCALatentStressModel(QuantitativeModel):
         self.feature_builder = feature_builder
         self.pca = PCA(n_components=1)
         self.scaler = RobustScaler()
-        self.feature_cols = ["breadth_mom", "vix_term", "stock_bond_corr", "credit_spread"]
+        # 🌟 다시 가장 직교성이 높은 3대 핵심 지표로 복귀
+        self.feature_cols = ["breadth_mom", "vix_term", "credit_spread"]
 
     def fit(self, data: pd.DataFrame):
         self.is_fitted = True

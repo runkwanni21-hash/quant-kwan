@@ -1,60 +1,71 @@
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.model_selection import TimeSeriesSplit
 from .base_model import QuantitativeModel
 
-class LightGBMMultiRegimeModel(QuantitativeModel):
-    def __init__(self, name="LGBM_Macro_AI", train_window=2000, target_col="target_regime", feature_builder=None, calib_method="sigmoid"):
+# model/lightgbm_model.py 전체 교체본
+
+import pandas as pd
+import numpy as np
+import lightgbm as lgb
+from .base_model import QuantitativeModel
+
+class LightGBMMultiRegimeModel(QuantitativeModel): 
+    # 🌟 단, 기본 타겟 컬럼은 분류용(target_regime)에서 회귀용(target_return)으로 몰래 바꿉니다.
+    def __init__(self, name="LGBM_Macro_AI", train_window=2000, target_col="target_return", feature_builder=None):
         super().__init__(name)
         self.train_window = train_window
         self.target_col = target_col
         self.feature_builder = feature_builder
         
-        base_model = lgb.LGBMClassifier(
-            n_estimators=150, learning_rate=0.05, max_depth=5, 
-            min_child_samples=40, random_state=42, verbose=-1,
-            class_weight='balanced'
+        # 🌟 이름은 MultiRegime이지만, 엔진은 LGBMRegressor (연속형) 장착!
+        self.model = lgb.LGBMRegressor(
+            n_estimators=100, 
+            learning_rate=0.05, 
+            max_depth=4, 
+            min_child_samples=10, 
+            objective='huber', # 아웃라이어 방어용 (퀀트 필수)
+            random_state=42, 
+            verbose=-1,
+            importance_type='gain'
         )
-        
-        tscv = TimeSeriesSplit(n_splits=5)
-        self.model = CalibratedClassifierCV(estimator=base_model, method=calib_method, cv=tscv)
-        
         self.feature_cols = []
-        self.latest_probs = {}
-        self.latest_confidence = 0.0
 
     def fit(self, data: pd.DataFrame):
         df_feat = self.feature_builder.process(data, is_training=True)
-        exclude = ["Open", "High", "Low", "Close", "Volume", "target_regime"]
+        exclude = ["Open", "High", "Low", "Close", "Volume", "target_return"]
         self.feature_cols = [c for c in df_feat.columns if c not in exclude and not c.startswith("Close_")]
         
-        train_data = df_feat.dropna(subset=[self.target_col] + self.feature_cols).iloc[-self.train_window:]
-        X_train = train_data[self.feature_cols]
-        y_train = train_data[self.target_col].values
+        # 라벨이 존재하는 구간만 추출 (최근 60일은 미래 수익률이 없으므로 자동 제외)
+        train_data = df_feat.dropna(subset=[self.target_col]).iloc[-self.train_window:]
         
-        self.model.fit(X_train, y_train)
+        if len(train_data) < 50:
+            print(f"⚠️ [{self.name}] 학습 실패: 유효 데이터 부족")
+            self.is_fitted = False
+            return
+
+        self.model.fit(
+            train_data[self.feature_cols], 
+            train_data[self.target_col].values
+        )
         self.is_fitted = True
 
     def predict(self, data: pd.DataFrame) -> dict:
-        if not self.is_fitted: 
-            return {"Bear_Prob": 0.33, "Neutral_Prob": 0.34, "Bull_Prob": 0.33}
+        default_resp = {"expected_return": 0.0}
+        
+        if not self.is_fitted: return default_resp
+
+        try:
+            df_feat = self.feature_builder.process(data, is_training=False)
+            latest_X = df_feat[self.feature_cols].iloc[-1:]
             
-        df_feat = self.feature_builder.process(data, is_training=False)
-        latest_X = df_feat[self.feature_cols].iloc[-1:]
-        
-        probs = self.model.predict_proba(latest_X)[0]
-        self.latest_probs = {
-            "Bear_Prob": probs[0], 
-            "Neutral_Prob": probs[1], 
-            "Bull_Prob": probs[2]
-        }
-        
-        sorted_probs = sorted(probs, reverse=True)
-        self.latest_confidence = sorted_probs[0] - sorted_probs[1]
-        
-        return self.latest_probs
+            # 예측: 60일 미래 기대 수익률 추정치
+            pred_return = self.model.predict(latest_X)[0]
+            
+            return {"expected_return": float(pred_return)}
+        except Exception as e:
+            print(f"🚨 [{self.name}] 예측 중 치명적 에러 발생: {e}")
+            return default_resp
 
     def predict_batch(self, data: pd.DataFrame, smoothing_span=3) -> pd.DataFrame:
         if not self.is_fitted: return pd.DataFrame()
