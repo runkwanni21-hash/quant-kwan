@@ -138,3 +138,5 @@ class TradeScenario:
     direct_evidence_count: int = 0
     evidence_summary: str = ""
     signal_price_basis: str = "yfinance"
+    # 초보자용 한국어 서술 설명 (Ollama 생성, fast mode에서만 채워짐)
+    plain_summary: str = ""

@@ -487,6 +487,113 @@ class OllamaClient:
     # Polish-only entry points (fast / no_llm modes)
     # ------------------------------------------------------------------
 
+    async def extract_market_narrative(
+        self, items: list[RawItem], hours: float
+    ) -> str:
+        """4H 수집 텔레그램 데이터에서 핵심 이슈와 시장 흐름을 초보자 언어로 추출.
+
+        fast mode 전처리 패스. 실패하면 빈 문자열 반환.
+        """
+        if not items:
+            return ""
+        sample = items[:60]
+        texts = "\n".join(
+            f"- {(i.text or '').strip()[:200]}"
+            for i in sample
+            if (i.text or "").strip()
+        )[:4000]
+        if not texts.strip():
+            return ""
+
+        prompt = (
+            f"다음은 최근 {int(hours)}시간 동안 수집된 주식·금융 텔레그램 메시지 샘플입니다.\n\n"
+            f"{texts}\n\n"
+            "초보 투자자가 바로 이해할 수 있게 아래 형식으로 한국어 3~5문장으로 요약하세요.\n"
+            "1. 이 시간에 가장 중요한 이슈 1~2개\n"
+            "2. 주목받는 섹터 또는 종목 (있으면)\n"
+            "3. 조심해야 할 리스크 (있으면)\n\n"
+            "규칙: 확정적 매수/매도 표현 금지. 공개 사실만. URL 포함 금지. 짧고 명확하게."
+        )
+        payload: dict[str, Any] = {
+            "model": self.settings.ollama_chat_model,
+            "messages": [
+                {"role": "system", "content": "한국어 금융 뉴스 요약가. /no_think"},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+            "options": {"temperature": 0.15, "num_ctx": 6144},
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=30, read=90, write=60, pool=30)
+            ) as client:
+                resp = await client.post(f"{self.base_url}/api/chat", json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+            result = (data.get("message", {}).get("content", "") or "").strip()
+            # 금지 표현 검열
+            from tele_quant.deterministic_report import apply_polish_guard
+
+            result = apply_polish_guard(result, result)  # self-check (tickers preserved)
+            return result if len(result) > 30 else ""
+        except Exception as exc:
+            log.warning("[ollama] extract_market_narrative failed: %s", type(exc).__name__)
+            return ""
+
+    async def generate_stock_plain_summary(self, scenario: Any) -> str:
+        """종목별 초보자용 한국어 서술 설명 생성 (2-3문장).
+
+        왜 주목받는지 + 무엇을 조심해야 하는지 중심.
+        실패하면 빈 문자열 반환.
+        """
+        name = getattr(scenario, "name", None) or getattr(scenario, "symbol", "")
+        symbol = getattr(scenario, "symbol", "")
+        score = getattr(scenario, "score", 0.0)
+        grade = getattr(scenario, "grade", "")
+        reasons_up = getattr(scenario, "reasons_up", []) or []
+        risk_notes = getattr(scenario, "risk_notes", []) or []
+        tech_summary = getattr(scenario, "technical_summary", "") or ""
+        intraday = getattr(scenario, "intraday_4h_summary", "") or ""
+
+        reasons_str = ", ".join(reasons_up[:2]) if reasons_up else "뉴스 언급 증가"
+        risk_str = risk_notes[0][:80] if risk_notes else "없음"
+        tech_str = intraday.splitlines()[0] if intraday else tech_summary[:60]
+
+        context = (
+            f"종목: {name} ({symbol})\n"
+            f"점수: {score:.0f}/100 ({grade})\n"
+            f"주목 이유: {reasons_str}\n"
+            f"기술적 상황: {tech_str}\n"
+            f"주요 리스크: {risk_str}"
+        )
+        prompt = (
+            "아래 종목 분석 데이터를 주식을 잘 모르는 초보 투자자에게 설명하는 2~3문장을 작성하세요.\n"
+            "왜 이 종목이 지금 주목받는지, 어떤 것을 조심해야 하는지 중심으로.\n"
+            "전문 용어(RSI, MACD 등)는 쉬운 말로 풀어서. 투자를 확정 권유하지 마세요.\n\n"
+            + context
+        )
+        payload: dict[str, Any] = {
+            "model": self.settings.ollama_chat_model,
+            "messages": [
+                {"role": "system", "content": "한국어 주식 초보자 안내 전문가. /no_think"},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+            "options": {"temperature": 0.2, "num_ctx": 4096},
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=30, read=60, write=30, pool=30)
+            ) as client:
+                resp = await client.post(f"{self.base_url}/api/chat", json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+            result = (data.get("message", {}).get("content", "") or "").strip()
+            return result[:400] if len(result) > 30 else ""
+        except Exception as exc:
+            log.warning("[ollama] generate_stock_plain_summary failed: %s", type(exc).__name__)
+            return ""
+
     async def polish_digest(self, digest_text: str) -> str:
         """Smooth out a deterministic digest. Returns original on failure or timeout."""
         text = digest_text[:6000]

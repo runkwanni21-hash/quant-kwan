@@ -304,6 +304,57 @@ def _build_sentiment_radar_section(
     return "\n".join(lines)
 
 
+def _build_beginner_action_section(pack: RankedEvidencePack) -> str:
+    """초보자 행동 가이드: 시장 분위기 + 섹터 신호등 + 지금 할 일."""
+    pos = len(pack.positive_stock)
+    neg = len(pack.negative_stock)
+    total = pos + neg
+
+    if total == 0:
+        mood_icon, mood_label = "🟡", "중립 관망"
+    elif pos >= neg * 2:
+        mood_icon, mood_label = "🟢", "전반 긍정 — 선별적 관심 가능"
+    elif neg >= pos * 2:
+        mood_icon, mood_label = "🔴", "전반 부정 — 비중 축소 또는 관망"
+    else:
+        mood_icon, mood_label = "🟡", "혼조 — 종목별 선별 접근"
+
+    strong = _detect_strong_sectors(pack)
+    weak = _detect_weak_sectors(pack)
+    mixed = [s for s in strong if s in weak]
+    strong_only = [s for s in strong if s not in weak]
+    weak_only = [s for s in weak if s not in strong]
+
+    lines = [
+        "📌 초보자 행동 가이드",
+        f"시장 분위기: {mood_icon} {mood_label}",
+    ]
+
+    if strong_only:
+        lines.append(f"🟢 관심 섹터: {' / '.join(strong_only[:3])}")
+    if mixed:
+        lines.append(f"🟡 혼조 섹터: {' / '.join(mixed[:2])}")
+    if weak_only:
+        lines.append(f"🔴 약세 섹터: {' / '.join(weak_only[:2])}")
+
+    # 핵심 이슈 1개
+    top_pos = next(
+        (c for c in pack.positive_stock if c.headline and len(c.headline) > 5), None
+    )
+    top_neg = next(
+        (c for c in pack.negative_stock if c.headline and len(c.headline) > 5), None
+    )
+    if top_pos:
+        lines.append(f"지금 눈여겨볼 것: {_one_sentence(top_pos.headline, 70)}")
+    if top_neg:
+        lines.append(f"지금 조심할 것: {_one_sentence(top_neg.headline, 70)}")
+
+    lines.append(
+        "※ 이 가이드는 공개 정보 기반 참고용이며 투자 결정은 본인 책임입니다."
+    )
+    return "\n".join(lines)
+
+
 def build_macro_digest(
     pack: RankedEvidencePack,
     market_snapshot: list[dict[str, Any]],
@@ -315,6 +366,7 @@ def build_macro_digest(
     relation_feed: Any = None,
     scenarios: Any = None,
     prev_sector_sentiments: dict[str, dict] | None = None,
+    market_narrative: str = "",
 ) -> str:
     """4시간 투자 브리핑 형태의 deterministic digest를 생성한다."""
 
@@ -340,6 +392,22 @@ def build_macro_digest(
         lines.append(f"📌 {mode_notice}")
     lines.append(f"🕒 이번 리포트 초점: {_time_focus_label(hour)}")
     lines.append("")
+
+    # 0-A. 초보자 행동 가이드 (항상 표시)
+    try:
+        beginner_section = _build_beginner_action_section(pack)
+        lines.append(beginner_section)
+        lines.append("")
+    except Exception:
+        pass
+
+    # 0-B. AI가 읽은 4시간 뉴스 (fast mode에서 Ollama 전처리 결과)
+    if market_narrative:
+        lines.append("📰 AI가 읽은 4시간 뉴스")
+        for nl in market_narrative.splitlines():
+            if nl.strip():
+                lines.append(nl)
+        lines.append("")
 
     # 1. 한 줄 결론
     pos_cnt, neg_cnt, mac_cnt = len(pack.positive_stock), len(pack.negative_stock), len(pack.macro)

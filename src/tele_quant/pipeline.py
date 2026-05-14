@@ -236,6 +236,25 @@ class TeleQuantPipeline:
         log.info("[pipeline] evidence clusters built: %d", len(clusters))
 
         ranked = rank_evidence_clusters(clusters, self.settings)
+
+        # ① 4H LLM 전처리 패스: 텔레그램 수집 데이터에서 핵심 이슈 추출
+        market_narrative = ""
+        if self.settings.digest_mode == "fast" and kept:
+            elapsed = time.monotonic() - start_time
+            if self.settings.run_max_seconds - elapsed > 90:
+                try:
+                    market_narrative = await asyncio.wait_for(
+                        self.ollama.extract_market_narrative(kept, hours),
+                        timeout=80,
+                    )
+                    log.info(
+                        "[digest] market_narrative extracted (%d chars)", len(market_narrative)
+                    )
+                except TimeoutError:
+                    log.warning("[digest] market_narrative timeout → skipped")
+                except Exception as exc:
+                    log.warning("[digest] market_narrative failed: %s", type(exc).__name__)
+
         digest = build_macro_digest(
             ranked,
             market_snapshot,
@@ -245,6 +264,7 @@ class TeleQuantPipeline:
             macro_only=macro_only,
             relation_feed=relation_feed,
             prev_sector_sentiments=prev_sector_sentiments,
+            market_narrative=market_narrative,
         )
         log.info("[digest] mode=%s deterministic=ok", self.settings.digest_mode)
 
@@ -577,6 +597,27 @@ class TeleQuantPipeline:
             shorts = [s for s in scenarios if s.side == "SHORT"][: self.settings.report_max_shorts]
             watches = [s for s in scenarios if s.side == "WATCH"][: self.settings.report_max_watch]
             limited_scenarios = longs + shorts + watches
+
+            # ③ 종목별 "왜?" 설명 — 롱 상위 3개에 Ollama 서술 생성
+            if self.settings.digest_mode == "fast":
+                for sc in longs[:3]:
+                    try:
+                        elapsed = time.monotonic() - start_time
+                        if self.settings.run_max_seconds - elapsed < 60:
+                            break
+                        sc.plain_summary = await asyncio.wait_for(
+                            self.ollama.generate_stock_plain_summary(sc),
+                            timeout=50,
+                        )
+                        log.info(
+                            "[analysis-fast] plain_summary %s (%d chars)",
+                            sc.symbol,
+                            len(sc.plain_summary),
+                        )
+                    except TimeoutError:
+                        log.warning("[analysis-fast] plain_summary timeout: %s", sc.symbol)
+                    except Exception as _ps_exc:
+                        log.debug("[analysis-fast] plain_summary failed: %s", _ps_exc)
 
             report = build_long_short_report(
                 limited_scenarios,

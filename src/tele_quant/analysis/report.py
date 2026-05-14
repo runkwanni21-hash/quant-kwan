@@ -98,8 +98,13 @@ def _scenario_block_core(s: TradeScenario, idx: int) -> list[str]:
     if s.fundamental_summary and s.fundamental_summary not in ("재무 데이터 없음", "데이터 부족"):
         lines.append(f"   가치: {s.fundamental_summary}")
 
-    # 초보자 힌트 (한 줄)
-    if s.beginner_hint:
+    # 초보자 친화 설명 (Ollama 생성, 있으면 beginner_hint 대체)
+    if s.plain_summary:
+        lines.append("   📖 쉬운 설명:")
+        for pl in s.plain_summary.splitlines():
+            if pl.strip():
+                lines.append(f"   {pl.strip()}")
+    elif s.beginner_hint:
         lines.append(f"   💡 {s.beginner_hint}")
 
     # 연구DB 보조근거 (relation feed lead-lag)
@@ -338,6 +343,14 @@ def _compact_scenario_line(s: TradeScenario, idx: int, max_reasons: int = 2) -> 
 
     if s.relation_feed_note:
         lines.append(f"- 연구DB: {s.relation_feed_note}")
+
+    # 초보자 설명 (compact에서도 표시, 첫 줄만)
+    if s.plain_summary:
+        first_line = next(
+            (ln.strip() for ln in s.plain_summary.splitlines() if ln.strip()), ""
+        )
+        if first_line:
+            lines.append(f"- 📖 {first_line}")
 
     return lines
 

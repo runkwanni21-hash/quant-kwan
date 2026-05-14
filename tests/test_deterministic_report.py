@@ -324,3 +324,76 @@ def test_compute_sector_sentiments_returns_dict():
         assert "bearish" in data
         assert "confidence" in data
         assert 0.0 <= data["score"] <= 100.0
+
+
+# ── 초보자 기능 테스트 ────────────────────────────────────────────────────────
+
+
+def test_beginner_action_section_in_digest():
+    """초보자 행동 가이드 섹션이 digest에 포함된다."""
+    pack = _make_pack(
+        pos=[_make_cluster("AI 반도체 호재"), _make_cluster("방산 수주 급증")],
+        neg=[_make_cluster("바이오 임상 실패", polarity="negative")],
+    )
+    result = build_macro_digest(pack, [], _make_stats(), hours=4)
+    assert "초보자 행동 가이드" in result
+
+
+def test_beginner_action_mood_positive():
+    """호재 많으면 긍정 분위기 표시."""
+    pack = _make_pack(
+        pos=[_make_cluster("호재1"), _make_cluster("호재2"), _make_cluster("호재3")],
+        neg=[],
+    )
+    result = build_macro_digest(pack, [], _make_stats(), hours=4)
+    assert "🟢" in result or "긍정" in result
+
+
+def test_beginner_action_mood_negative():
+    """악재 많으면 부정 분위기 표시."""
+    pack = _make_pack(
+        pos=[],
+        neg=[
+            _make_cluster("악재1", polarity="negative"),
+            _make_cluster("악재2", polarity="negative"),
+            _make_cluster("악재3", polarity="negative"),
+        ],
+    )
+    result = build_macro_digest(pack, [], _make_stats(), hours=4)
+    assert "🔴" in result or "부정" in result
+
+
+def test_market_narrative_appears_in_digest():
+    """market_narrative 파라미터가 있으면 digest에 포함된다."""
+    pack = _make_pack(macro=[_make_cluster("금리 동결")])
+    narrative = "오늘 AI 반도체 섹터가 강세를 보이고 있습니다. 엔비디아 실적 호조가 주요 원인입니다."
+    result = build_macro_digest(pack, [], _make_stats(), hours=4, market_narrative=narrative)
+    assert "AI 반도체 섹터" in result
+    assert "📰" in result
+
+
+def test_market_narrative_empty_not_shown():
+    """market_narrative 빈 문자열이면 해당 섹션이 없다."""
+    pack = _make_pack(macro=[_make_cluster("금리 동결")])
+    result = build_macro_digest(pack, [], _make_stats(), hours=4, market_narrative="")
+    assert "📰 AI가 읽은" not in result
+
+
+def test_plain_summary_shown_in_long_block():
+    """plain_summary가 있으면 롱 시나리오 블록에 표시된다."""
+    from tele_quant.analysis.report import format_analysis_report
+
+    scenario = _make_scenario("005930.KS", "삼성전자", side="LONG", score=78.0)
+    scenario.plain_summary = "삼성전자는 AI 메모리 수요 증가로 주목받고 있습니다. 다만 최근 많이 올라서 분할 접근이 안전합니다."
+    result = format_analysis_report([scenario])
+    assert "쉬운 설명" in result or "삼성전자는 AI 메모리" in result
+
+
+def test_plain_summary_shown_in_compact():
+    """compact 모드에서도 plain_summary 첫 줄이 표시된다."""
+    from tele_quant.analysis.report import format_analysis_report
+
+    scenario = _make_scenario("005930.KS", "삼성전자", side="LONG", score=78.0)
+    scenario.plain_summary = "HBM 수요가 증가하면서 관심이 높아지고 있습니다. 급등 이후라 진입 타이밍 주의."
+    result = format_analysis_report([scenario], compact=True)
+    assert "HBM 수요가 증가" in result
