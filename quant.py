@@ -278,18 +278,45 @@ def main() -> None:
         # ---------------------------------------------------------
         # A. Macro 모델: 승급 심사를 위해 Candidate(도전자) 생성
         # ---------------------------------------------------------
-        print("\n[시스템] 🛡️ Macro 모델: 섀도우 학습 모드 (도전자 생성)")
-        macro_candidate_name = "Macro_AI_Candidate"
-        macro_model.update(df, candidate_mode=True, candidate_name=macro_candidate_name)
+        # 🌟 2. Macro 모델 월 1회 업데이트 & 승급 심사 로직
+        current_date = df.index[-1]
+        
+        # 예: 오늘이 해당 월의 마지막 영업일인지, 혹은 4주에 한 번 돌아가는 날인지 체크
+        # 간단한 예시로 매월 25일 이상일 때 한 번만 작동하도록 플래그 제어 (실전은 스케줄러 사용)
+        is_rebalance_day = current_date.day >= 25 # (단순 예시)
+        
+        if is_rebalance_day:
+            print(f"\n[시스템] 📅 월간 정기 업데이트 기간입니다. Macro 모델 섀도우 학습 및 승급 심사를 가동합니다.")
+            macro_candidate_name = "Macro_AI_Candidate"
+            macro_model.update(df, candidate_mode=True, candidate_name=macro_candidate_name)
+            
+            # (추론 for 루프가 끝난 후 하단에서)
+            engine = PromotionEngine()
+            engine.execute(
+                champion_path=macro_model_path,
+                candidate_path=f"models/v1/candidates/{macro_candidate_name}.pkg",
+                test_data=df,
+                custom_evaluator=strict_sharpe_evaluator
+            )
+        else:
+            print("\n[시스템] 🛡️ 오늘은 Macro 모델 재학습일이 아닙니다. 기존 챔피언 모델로 추론만 진행합니다.")
         
         # ---------------------------------------------------------
         # B. Stress 모델: 승급 심사 없이 즉시 업데이트 (Direct Update)
         # ---------------------------------------------------------
         # AS-IS: candidate_mode=True
         # TO-BE: candidate_mode=False로 설정하여 현재 객체를 즉시 갱신하고 저장
-        print("[시스템] ⚡ Stress 모델: 즉시 업데이트 모드 (심사 생략)")
-        stress_model.update(df, candidate_mode=False) 
-        stress_model.save("models/v1") # 업데이트된 상태를 파일에 바로 반영
+        # 🌟 1. PCA 동결 (Freeze) 로직 적용
+        # (실전에서는 어제의 state_json을 DB나 로컬 JSON 파일에서 읽어옵니다)
+        yesterday_shock_state = False # 예: load_yesterday_state().get("shock_state", False)
+        
+        if yesterday_shock_state:
+            print("[시스템] 🚨 Shock State 발동 중! PCA 가중치 오염을 막기 위해 모델 업데이트를 동결(Freeze)합니다.")
+            # stress_model.update() 호출을 생략!
+        else:
+            print("[시스템] ⚡ Stress 모델: 평시 상태이므로 최신 데이터로 롤링 업데이트 수행")
+            stress_model.update(df, candidate_mode=False) 
+            stress_model.save("models/v1")
         
         # 3. 최신 5일 실전 추론
         # Macro는 검증된 구모델(Champ)을, Stress는 방금 업데이트된 최신 모델을 사용합니다.
@@ -339,21 +366,7 @@ def main() -> None:
         print("\n========================================================")
         print("🏛️ [시스템] 운영 종료. Macro 모델 승급 심사를 시작합니다.")
         print("========================================================")
-        
-        engine = PromotionEngine()
-        
-        # Macro 모델만 심사 루틴 실행
-        #engine.execute(
-        #    champion_path=macro_model_path,
-        #    candidate_path=f"models/v1/candidates/{macro_candidate_name}.pkg",
-        #    test_data=df,
-        #    custom_evaluator=strict_sharpe_evaluator
-        #)
-        engine.execute(
-            champion_path=macro_model_path,
-            candidate_path=f"models/v1/candidates/{macro_candidate_name}.pkg",
-            test_data=df
-        )
+
         
         # Stress 모델은 이미 업데이트 및 저장이 완료되었으므로 심사 엔진 호출을 생략합니다.
 
