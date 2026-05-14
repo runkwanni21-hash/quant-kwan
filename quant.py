@@ -213,6 +213,85 @@ def fx_overlay_engine(df_slice: pd.DataFrame, state: Dict[str, Any]) -> Dict[str
             "hedge_ratio": 0.0
         }
 
+def regional_allocation_engine(df_slice: pd.DataFrame, state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    [Cross-Asset Global Allocator]
+    한국(KR)과 미국(US)의 주식 비중을 결정하는 최상위 지역 배분 엔진.
+    반도체 사이클(SMH), 매크로 기대수익률(tanh), 상대강도(EWY/SPY)를 융합하여
+    시그모이드 매핑을 통해 턴오버를 최소화한 안정적 비중(10%~70%)을 산출합니다.
+    """
+    try:
+        # =====================================================================
+        # 1. EWY/SPY 상대강도 (가중치 45% - 핵심 추세)
+        # =====================================================================
+        ewy_spy_ratio = df_slice["Close_EWY"] / df_slice["Close_SPY"]
+        ewy_mom_20d = ewy_spy_ratio.pct_change(20).iloc[-1]
+        ewy_vel_5d = ewy_spy_ratio.pct_change(5).iloc[-1]
+        ewy_score = max(min(((ewy_mom_20d * 0.7) + (ewy_vel_5d * 0.3)) / 0.05, 1.0), -1.0)
+        
+        # =====================================================================
+        # 2. 🌟 SMH 반도체 모멘텀 (가중치 20% - 한국장 선행/동행 지표)
+        # =====================================================================
+        # 반도체는 변동성이 크므로 분모(scale)를 0.08 정도로 넉넉히 줍니다.
+        smh_mom_20d = df_slice["Close_SMH"].pct_change(20).iloc[-1]
+        smh_vel_5d = df_slice["Close_SMH"].pct_change(5).iloc[-1]
+        smh_score = max(min(((smh_mom_20d * 0.7) + (smh_vel_5d * 0.3)) / 0.08, 1.0), -1.0)
+
+        # =====================================================================
+        # 3. 원화 강세 스코어 (가중치 10% - 다중공선성 방지를 위해 비중 축소)
+        # =====================================================================
+        krw_score = float(state.get("krw_score", 0.0))
+
+        # =====================================================================
+        # 4. 🌟 Macro AI 위험선호도 (가중치 15% - tanh 스케일링)
+        # =====================================================================
+        expected_return = float(state.get("expected_return", 0.0))
+        # -0.05 ~ 0.10 의 좁은 값을 tanh(*8.0)을 통해 -1 ~ 1 사이로 다이내믹하게 증폭
+        macro_score = float(np.tanh(expected_return * 8.0))
+        
+        # =====================================================================
+        # 5. 붕괴 속도 페널티 (가중치 -10%)
+        # =====================================================================
+        transition_risk = float(state.get("transition_risk", 0.5))
+        
+        # =====================================================================
+        # 🌟 6. 마스터 지역 스코어 블렌딩
+        # =====================================================================
+        regional_score = (
+            (ewy_score * 0.45)
+            + (smh_score * 0.20)
+            + (krw_score * 0.10)
+            + (macro_score * 0.15)
+            - (transition_risk * 0.10)
+        )
+        
+        # =====================================================================
+        # 🌟 7. 시그모이드(Sigmoid) 비선형 매핑 및 비중 산출
+        # =====================================================================
+        # 중립 구간의 턴오버를 줄이고, 10% ~ 70% 사이로 한국장 비중을 제한합니다.
+        raw_ratio = 0.6 / (1.0 + math.exp(-2.5 * regional_score))
+        korea_ratio = round(float(0.1 + raw_ratio), 3)
+        
+        # 나머지는 기축통화국 안전망인 미국장에 배분
+        us_ratio = round(1.0 - korea_ratio, 3)
+        
+        return {
+            "regional_score": round(float(regional_score), 3),
+            "smh_score": round(float(smh_score), 3), # 리포트 확인용 추가
+            "macro_tanh_score": round(float(macro_score), 3), # 리포트 확인용 추가
+            "korea_equity_ratio": korea_ratio,
+            "us_equity_ratio": us_ratio
+        }
+    except Exception as e:
+        print(f"🚨 Regional Allocator Error: {e}")
+        # 에러 발생 시 한국장 비중을 최소 방어선(10%)에 가깝게 낮추는 보수적 세팅
+        return {
+            "regional_score": 0.0,
+            "smh_score": 0.0,
+            "macro_tanh_score": 0.0,
+            "korea_equity_ratio": 0.2, 
+            "us_equity_ratio": 0.8
+        }
 # AS-IS: def calculate_final_exposure(state: dict) -> float:
 # TO-BE: Dict 구조 구체화, 내부 변수 float 타입 명시
 def calculate_final_exposure(state: Dict[str, Any], k: float = 7.0) -> float:
@@ -351,9 +430,26 @@ def main() -> None:
             
             # 🌟 내일(다음 루프)을 위해 계산된 헤지 비율을 저장
             current_prev_hedge = fx_result["hedge_ratio"]
+                        
+            # 🌟 [3] Regional Allocator (국가 배분 - 신규)
+            # FX 엔진이 krw_score를 계산한 뒤에 호출하여 이를 재활용합니다.
+            regional_result = regional_allocation_engine(slice_df, state_json)
+            state_json.update(regional_result)
             
+            # [4] Total Equity Weight (총 위험자산 비중)
             final_exposure = calculate_final_exposure(state_json)
             state_json["final_equity_weight"] = final_exposure
+            
+            # 🌟 [5] Execution Manager (최종 체결 지시)
+            # 총 주식 비중을 한국과 미국 비중에 맞게 분배합니다.
+            target_weights = {
+                "US": final_exposure * regional_result["us_equity_ratio"],
+                "KR": final_exposure * regional_result["korea_equity_ratio"]
+            }
+            
+            # 결과 리포트 저장
+            state_json["target_weights_US"] = target_weights["US"]
+            state_json["target_weights_KR"] = target_weights["KR"]
             
             if state_json["shock_state"]:
                 state_json["action"] = "DEFCON_1 (SHOCK!)"
