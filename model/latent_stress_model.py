@@ -4,6 +4,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import RobustScaler
 from scipy.stats import norm, percentileofscore # 🌟 norm 추가
 from .base_model import QuantitativeModel
+from typing import Dict, Any, Optional
 
 class PCALatentStressModel(QuantitativeModel):
     def __init__(self, name="PCA_Fragility_AI", window=252, feature_builder=None):
@@ -21,68 +22,95 @@ class PCALatentStressModel(QuantitativeModel):
             "consumer_cyclical"  # 소비 활력 (복구)
         ]
 
-    def fit(self, data: pd.DataFrame):
-        self.is_fitted = True
+    # AS-IS: def fit(self, data: pd.DataFrame): self.is_fitted = True
+    # TO-BE: fit은 초기 모델 세팅용으로 update를 호출하도록 변경
+    def fit(self, data: pd.DataFrame) -> None:
+        self.update(data)
 
-    def predict(self, data: pd.DataFrame) -> dict:
-        default_resp = {"fragility_z_score": 0.0, "transition_risk": 0.5, "shock_state": False}
-        if not self.is_fitted: return default_resp
-
+    # 🌟 [신규 추가] 매일 실행되는 증분 학습 로직 (Rolling PCA)
+    def update(self, data: pd.DataFrame, candidate_mode: bool = False, candidate_name: Optional[str] = None) -> None:
+        """최신 데이터를 받아 최근 window(252일) 기준으로 PCA를 Rolling Retrain 합니다."""
         df_feat = self.feature_builder.process(data, is_training=False)
         stress_df = df_feat[self.feature_cols].dropna()
 
         if len(stress_df) < 50:
-            return default_resp
+            self.is_fitted = False
+            return
 
-        all_stress = stress_df.iloc[-self.window:]
-        train_stress = all_stress.iloc[:-1]
-        
+        # 최신 윈도우 추출
+        train_stress = stress_df.iloc[-self.window:]
+
         if len(train_stress) < 10:
-            return default_resp
+            self.is_fitted = False
+            return
             
+        # 1. Scaler & PCA 학습 (Training)
         self.scaler.fit(train_stress)
-        all_scaled = self.scaler.transform(all_stress)
-        self.pca.fit(all_scaled[:-1])
+        scaled_train = self.scaler.transform(train_stress)
+        self.pca.fit(scaled_train)
         
-        all_pc1 = self.pca.transform(all_scaled)[:, 0]
+        # 2. 전체 기간 PC1 변환
+        all_pc1 = self.pca.transform(scaled_train)[:, 0]
         
+        # 3. 튼튼한 이중 닻 (Double Anchor) 방향 교정 (캐싱)
         vix_idx = self.feature_cols.index("vix_term")
         credit_idx = self.feature_cols.index("credit_spread")
         
-        # 튼튼한 이중 닻 (Double Anchor) 방향 교정
-        corr_vix = np.corrcoef(all_scaled[:-1, vix_idx], all_pc1[:-1])[0, 1]
-        corr_credit = np.corrcoef(all_scaled[:-1, credit_idx], all_pc1[:-1])[0, 1]
-        if (corr_vix + corr_credit) < 0:
-            all_pc1 = -all_pc1
+        corr_vix = np.corrcoef(scaled_train[:, vix_idx], all_pc1)[0, 1]
+        corr_credit = np.corrcoef(scaled_train[:, credit_idx], all_pc1)[0, 1]
+        
+        # 음의 상관관계일 경우 PC1 부호 반전을 위한 multiplier 저장
+        self.sign_multiplier = -1.0 if (corr_vix + corr_credit) < 0 else 1.0
+        all_pc1 = all_pc1 * self.sign_multiplier
+        
+        # 4. 추론 시 Z-score 및 Velocity 계산을 위한 과거 기록 저장
+        self.pc1_history = pd.Series(all_pc1, index=train_stress.index)
+        self.is_fitted = True
+
+
+    # AS-IS: predict 안에서 매번 fit을 호출하는 비효율 발생
+    # TO-BE: predict는 오직 당일(최신) 데이터에 대한 Transform(추론)만 수행하여 O(1) 속도 보장
+    def predict(self, data: pd.DataFrame) -> Dict[str, Any]:
+        default_resp = {"fragility_z_score": 0.0, "transition_risk": 0.5, "shock_state": False}
+        if not self.is_fitted or self.pc1_history is None: 
+            return default_resp
+
+        # 추론은 최근 데이터(충격 감지용 여유분 포함 5일)만 피처 프로세싱
+        df_feat = self.feature_builder.process(data.iloc[-5:], is_training=False)
+        latest_feat = df_feat[self.feature_cols].dropna().iloc[-1:] # 오늘자 데이터
+
+        if latest_feat.empty:
+            return default_resp
+
+        # 1. 오늘 데이터 Transform (저장된 scaler, pca, sign_multiplier 사용)
+        latest_scaled = self.scaler.transform(latest_feat)
+        today_pc1 = self.pca.transform(latest_scaled)[0, 0] * self.sign_multiplier
 
         # ==========================================
         # 1. Fragility Level (수위 - 위치 에너지)
         # ==========================================
-        pc1_mean = np.mean(all_pc1[:-1])
-        pc1_std = np.std(all_pc1[:-1]) + 1e-6
-        fragility_z = (all_pc1[-1] - pc1_mean) / pc1_std
+        # update()에서 저장해둔 역사적 데이터의 평균/표준편차 활용
+        past_pc1 = self.pc1_history.values
+        pc1_mean = np.mean(past_pc1)
+        pc1_std = np.std(past_pc1) + 1e-6
+        fragility_z = (today_pc1 - pc1_mean) / pc1_std
 
         # ==========================================
         # 2. Transition Risk (Level + Velocity 블렌딩)
         # ==========================================
-        pc1_series = pd.Series(all_pc1)
-        velocity_series = pc1_series.diff(5).dropna()
+        # 임시로 과거 기록에 오늘 PC1을 이어붙여 속도(diff) 계산
+        temp_history = pd.concat([self.pc1_history, pd.Series([today_pc1])])
+        velocity_series = temp_history.diff(5).dropna()
         
         if len(velocity_series) < 10:
             transition_risk = 0.5
         else:
-            current_velocity = pc1_series.iloc[-1] - pc1_series.iloc[-6]
-            
-            # A. 가속도 위험 (0 ~ 1)
-            velocity_risk = percentileofscore(velocity_series, current_velocity) / 100.0
-            
-            # B. 절대 수위 위험 (0 ~ 1, Z-score의 누적분포함수 변환)
+            current_velocity = temp_history.iloc[-1] - temp_history.iloc[-6]
+            velocity_risk = percentileofscore(velocity_series.values, current_velocity) / 100.0
             level_risk = norm.cdf(fragility_z)
-            
-            # 🌟 C. 최종 붕괴 확률 (60% Level + 40% Velocity)
             transition_risk = (0.6 * level_risk) + (0.4 * velocity_risk)
             
-        # 충격 이벤트
+        # 충격 이벤트 로직 (기존 유지)
         try:
             gap_series = df_feat["gap_shock"].dropna()
             gap = gap_series.iloc[-1] if not gap_series.empty else 0.0

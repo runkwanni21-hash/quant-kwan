@@ -4,7 +4,7 @@ import os
 from abc import ABC, abstractmethod
 # AS-IS: 타입 힌팅 부재
 # TO-BE: 강력한 타입 힌팅을 위해 typing 모듈 추가
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 class BaseFeatureBuilder(ABC):
     """모든 피처 빌더(Feature Builder)가 반드시 지켜야 하는 규칙 (Interface)"""
@@ -37,6 +37,16 @@ class QuantitativeModel(ABC):
     # AS-IS: def fit(self, data: pd.DataFrame):
     # TO-BE: 반환형(None) 명시
     def fit(self, data: pd.DataFrame) -> None:
+        pass
+    
+    # AS-IS: def update(self, data: pd.DataFrame) -> None:
+    # TO-BE: 승급 심사를 위한 candidate_mode 파라미터 추가
+    @abstractmethod
+    def update(self, data: pd.DataFrame, candidate_mode: bool = False, candidate_name: Optional[str] = None) -> None:
+        """
+        매일 새로 수집된 데이터를 받아 기존 모델을 업데이트합니다.
+        candidate_mode=True일 경우 운영 모델을 덮어쓰지 않고 승급 심사용 모델로 분리 저장합니다.
+        """
         pass
         
     @abstractmethod
