@@ -225,6 +225,7 @@ class TeleQuantPipeline:
         watchlist_cfg: Any = None,
         macro_only: bool = False,
         relation_feed: Any = None,
+        prev_sector_sentiments: dict[str, dict] | None = None,
     ) -> tuple[str, Any]:
         """Build deterministic digest, optionally polish with Ollama."""
         from tele_quant.deterministic_report import apply_polish_guard, build_macro_digest
@@ -243,6 +244,7 @@ class TeleQuantPipeline:
             watchlist_cfg=watchlist_cfg,
             macro_only=macro_only,
             relation_feed=relation_feed,
+            prev_sector_sentiments=prev_sector_sentiments,
         )
         log.info("[digest] mode=%s deterministic=ok", self.settings.digest_mode)
 
@@ -682,6 +684,25 @@ class TeleQuantPipeline:
                     analysis = await self._run_analysis(kept, digest)
             else:
                 # fast or no_llm
+                _prev_sent: dict[str, dict] | None = None
+                try:
+                    _prev_rows = self.store.recent_sentiment_history(
+                        since=utc_now() - timedelta(hours=8), limit=50
+                    )
+                    if _prev_rows:
+                        _by_sector: dict[str, list[float]] = {}
+                        for _row in _prev_rows:
+                            _sec = _row.get("sector") or ""
+                            _sc_val = float(_row.get("sentiment_score") or 50.0)
+                            if _sec:
+                                _by_sector.setdefault(_sec, []).append(_sc_val)
+                        _prev_sent = {
+                            sec: {"score": sum(vals) / len(vals), "bullish": 0, "bearish": 0}
+                            for sec, vals in _by_sector.items()
+                        }
+                except Exception:
+                    pass
+
                 digest, ranked = await self._summarize_fast(
                     kept,
                     market_snapshot,
@@ -691,6 +712,7 @@ class TeleQuantPipeline:
                     watchlist_cfg=watchlist_cfg,
                     macro_only=macro_only,
                     relation_feed=relation_feed,
+                    prev_sector_sentiments=_prev_sent,
                 )
                 if not macro_only:
                     (
