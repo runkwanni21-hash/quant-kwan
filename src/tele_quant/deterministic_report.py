@@ -410,17 +410,56 @@ def build_macro_digest(
                 lines.append(nl)
         lines.append("")
 
-    # 0-C. 시장 심리 & FRED 매크로 지표
+    # 0-C. 시장 심리 & 실시간 매크로 지표
     if external_data:
         try:
-            from tele_quant.external_indicators import format_fear_greed_line, format_fred_lines
+            from tele_quant.external_indicators import (
+                format_energy_line,
+                format_exchange_rate_line,
+                format_fear_greed_line,
+                format_fred_lines,
+            )
 
             indicator_lines: list[str] = []
+
+            # 공포탐욕지수
             fg = external_data.get("fear_greed")
             if fg:
                 indicator_lines.append(f"공포탐욕지수: {format_fear_greed_line(fg)}")
+
+            # FRED / yfinance 매크로 (금리, DXY, VIX 등)
             fred = external_data.get("fred") or {}
             indicator_lines.extend(format_fred_lines(fred))
+
+            # ECOS 한국은행
+            ecos = external_data.get("ecos") or {}
+            if ecos:
+                try:
+                    from tele_quant.ecos_client import format_ecos_lines
+
+                    indicator_lines.extend(format_ecos_lines(ecos))
+                except Exception:
+                    pass
+
+            # EIA 에너지 가격
+            energy = external_data.get("energy") or {}
+            if energy:
+                e_line = format_energy_line(energy)
+                if e_line:
+                    indicator_lines.append(f"에너지: {e_line}")
+
+            # ECB 금리
+            ecb_rate = external_data.get("ecb_rate")
+            if ecb_rate is not None:
+                indicator_lines.append(f"ECB 예금금리: {ecb_rate:.2f}%")
+
+            # Frankfurter 환율 (yfinance 대비 cross-check)
+            fx_rates = external_data.get("exchange_rates") or {}
+            if fx_rates:
+                fx_line = format_exchange_rate_line(fx_rates)
+                if fx_line:
+                    indicator_lines.append(f"환율(실시간): {fx_line}")
+
             if indicator_lines:
                 lines.append("📊 시장 심리 & 실시간 지표")
                 for il in indicator_lines:

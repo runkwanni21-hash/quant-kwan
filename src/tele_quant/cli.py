@@ -1663,6 +1663,45 @@ def ops_doctor() -> None:
                 console.print("[dim]Fear&Greed: 최근 12h 기록 없음 (첫 실행 또는 비활성화)[/dim]")
         except Exception:
             pass
+    # EIA 에너지 API 키
+    eia_key = getattr(ext_settings, "eia_api_key", "")
+    if eia_key:
+        console.print("[green]EIA_API_KEY: 설정됨 (WTI/천연가스 실시간 가격)[/green]")
+    else:
+        console.print("[dim]EIA_API_KEY: 미설정 (에너지 가격 비활성화)[/dim]")
+
+    # ECOS 한국은행 API 키
+    ecos_key = getattr(ext_settings, "ecos_api_key", "")
+    if ecos_key:
+        console.print("[green]ECOS_API_KEY: 설정됨 (한국은행 기준금리/환율)[/green]")
+    else:
+        console.print(
+            "[dim]ECOS_API_KEY: 미설정 (한국은행 데이터 비활성화)\n"
+            "  .env.local에 ECOS_API_KEY=your_key 추가 — 무료: https://ecos.bok.or.kr[/dim]"
+        )
+
+    # RSS 뉴스
+    rss_ok = getattr(ext_settings, "rss_enabled", True)
+    console.print(
+        f"[{'green' if rss_ok else 'dim'}]RSS 뉴스: {'활성화' if rss_ok else '비활성화'}"
+        " (PR Newswire / GlobeNewswire / BusinessWire / Google News)[/{'green' if rss_ok else 'dim'}]"
+    )
+
+    # SEC EDGAR
+    sec_ok = getattr(ext_settings, "sec_enabled", True)
+    console.print(
+        f"[{'green' if sec_ok else 'dim'}]SEC EDGAR 8-K: {'활성화' if sec_ok else '비활성화'}"
+        " (미국 주식 직접증거)[/{'green' if sec_ok else 'dim'}]"
+    )
+
+    # ECB / Frankfurter
+    ecb_ok = getattr(ext_settings, "ecb_enabled", True)
+    fr_ok = getattr(ext_settings, "frankfurter_enabled", True)
+    console.print(
+        f"ECB 금리: {'[green]활성화[/green]' if ecb_ok else '[dim]비활성화[/dim]'}"
+        f"  Frankfurter 환율: {'[green]활성화[/green]' if fr_ok else '[dim]비활성화[/dim]'}"
+    )
+
     # pytrends 설치 여부
     try:
         import importlib

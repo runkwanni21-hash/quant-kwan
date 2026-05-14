@@ -101,6 +101,7 @@ class TeleQuantPipeline:
         self,
         gateway: TelegramGateway,
         lookback: float,
+        watchlist_cfg: Any = None,
     ) -> tuple[list[RawItem], RunStats]:
         stats = RunStats()
 
@@ -110,7 +111,29 @@ class TeleQuantPipeline:
         report_items = await fetch_naver_reports(self.settings, hours=max(lookback, 24))
         stats.report_items = len(report_items)
 
-        all_items = telegram_items + report_items
+        # RSS 영어 뉴스 수집 (PR Newswire / GlobeNewswire / BusinessWire / Google News)
+        rss_items: list[RawItem] = []
+        if getattr(self.settings, "rss_enabled", True):
+            try:
+                from tele_quant.rss_collector import fetch_all_rss
+
+                wl_syms: list[str] = []
+                if watchlist_cfg is not None:
+                    for _grp in watchlist_cfg.groups.values():
+                        wl_syms.extend(
+                            s for s in _grp.symbols if "." not in s and s.isalpha()
+                        )
+                rss_items = await asyncio.to_thread(
+                    fetch_all_rss,
+                    self.settings,
+                    wl_syms[:8],
+                    max(lookback, 24.0),
+                )
+                log.info("[pipeline] rss items: %d", len(rss_items))
+            except Exception as _rss_exc:
+                log.debug("[pipeline] rss fetch failed: %s", _rss_exc)
+
+        all_items = telegram_items + report_items + rss_items
         inserted = self.store.insert_items(all_items)
         stats.inserted_items = len(inserted)
 
@@ -867,14 +890,37 @@ class TeleQuantPipeline:
         _smart_result: Any = None
 
         async with TelegramGateway(self.settings) as gateway:
-            kept, stats = await self._collect_and_dedupe(gateway, lookback)
+            kept, stats = await self._collect_and_dedupe(
+                gateway, lookback, watchlist_cfg=watchlist_cfg
+            )
 
             market_snapshot = await asyncio.to_thread(fetch_market_snapshot, self.settings)
 
-            # 외부 지표 병렬 fetch (Fear&Greed + FRED)
+            # SEC EDGAR 8-K 공시: watchlist 미국 주식 최신 공시를 직접증거로 추가
+            if not macro_only and getattr(self.settings, "sec_enabled", True):
+                try:
+                    from tele_quant.sec_client import fetch_sec_8k_for_watchlist
+
+                    _sec_items = await asyncio.to_thread(
+                        fetch_sec_8k_for_watchlist, self.settings, watchlist_cfg
+                    )
+                    if _sec_items:
+                        _inserted_sec = self.store.insert_items(_sec_items)
+                        kept = kept + _inserted_sec
+                        log.info("[pipeline] sec 8-K inserted: %d items", len(_inserted_sec))
+                except Exception as _sec_exc:
+                    log.debug("[pipeline] sec fetch failed: %s", _sec_exc)
+
+            # 외부 지표 병렬 fetch (Fear&Greed + FRED + EIA + ECOS + ECB + Frankfurter)
             _external_data: dict[str, Any] = {}
             try:
-                from tele_quant.external_indicators import fetch_fear_greed, fetch_fred_series
+                from tele_quant.external_indicators import (
+                    fetch_ecb_deposit_rate,
+                    fetch_eia_energy,
+                    fetch_exchange_rates,
+                    fetch_fear_greed,
+                    fetch_fred_series,
+                )
 
                 _fg_enabled = getattr(self.settings, "fear_greed_enabled", True)
                 _fred_enabled = getattr(self.settings, "fred_enabled", True)
@@ -886,29 +932,68 @@ class TeleQuantPipeline:
                 ]
                 _fg_timeout = getattr(self.settings, "fear_greed_timeout_seconds", 10.0)
                 _fred_timeout = getattr(self.settings, "fred_timeout_seconds", 12.0)
+                _eia_key = getattr(self.settings, "eia_api_key", "")
+                _eia_timeout = getattr(self.settings, "eia_timeout_seconds", 10.0)
+                _ecb_timeout = getattr(self.settings, "ecb_timeout_seconds", 10.0)
+                _fr_timeout = getattr(self.settings, "frankfurter_timeout_seconds", 8.0)
 
-                _fetch_coros = []
+                _fetch_coros: list[Any] = []
+                _coro_keys: list[str] = []
+
                 if _fg_enabled:
-                    _fetch_coros.append(
-                        asyncio.to_thread(fetch_fear_greed, _fg_timeout)
-                    )
+                    _fetch_coros.append(asyncio.to_thread(fetch_fear_greed, _fg_timeout))
+                    _coro_keys.append("fear_greed")
                 if _fred_enabled and _fred_key and _fred_ids:
                     _fetch_coros.append(
                         asyncio.to_thread(fetch_fred_series, _fred_key, _fred_ids, _fred_timeout)
                     )
+                    _coro_keys.append("fred")
+                if getattr(self.settings, "eia_enabled", True) and _eia_key:
+                    _fetch_coros.append(
+                        asyncio.to_thread(fetch_eia_energy, _eia_key, _eia_timeout)
+                    )
+                    _coro_keys.append("energy")
+                if getattr(self.settings, "ecb_enabled", True):
+                    _fetch_coros.append(asyncio.to_thread(fetch_ecb_deposit_rate, _ecb_timeout))
+                    _coro_keys.append("ecb_rate")
+                if getattr(self.settings, "frankfurter_enabled", True):
+                    _fetch_coros.append(asyncio.to_thread(fetch_exchange_rates, "USD", "KRW,EUR,JPY,CNY,GBP", _fr_timeout))
+                    _coro_keys.append("exchange_rates")
 
                 if _fetch_coros:
                     _ind_results = await asyncio.gather(*_fetch_coros, return_exceptions=True)
-                    idx = 0
-                    if _fg_enabled:
-                        fg_val = _ind_results[idx]
-                        if isinstance(fg_val, dict):
-                            _external_data["fear_greed"] = fg_val
-                        idx += 1
-                    if _fred_enabled and _fred_key and _fred_ids:
-                        fred_val = _ind_results[idx]
-                        if isinstance(fred_val, dict):
-                            _external_data["fred"] = fred_val
+                    for _ck, _rv in zip(_coro_keys, _ind_results, strict=False):
+                        if isinstance(_rv, Exception):
+                            log.debug("[pipeline] %s fetch failed: %s", _ck, _rv)
+                        elif _rv is not None and _rv != {}:
+                            _external_data[_ck] = _rv
+
+                # ECOS 한국은행 (직렬 — API 키 있을 때만)
+                _ecos_key = getattr(self.settings, "ecos_api_key", "")
+                if getattr(self.settings, "ecos_enabled", True) and _ecos_key:
+                    try:
+                        from tele_quant.ecos_client import fetch_ecos_series
+
+                        _ecos_ids = [
+                            s.strip()
+                            for s in getattr(self.settings, "ecos_series", "").split(",")
+                            if s.strip()
+                        ]
+                        _ecos_series = [
+                            (sid, "D" if sid in ("722Y001", "731Y003") else "M", sid, "")
+                            for sid in _ecos_ids
+                        ]
+                        _ecos_result = await asyncio.to_thread(
+                            fetch_ecos_series,
+                            _ecos_key,
+                            _ecos_series,
+                            getattr(self.settings, "ecos_timeout_seconds", 12.0),
+                        )
+                        if _ecos_result:
+                            _external_data["ecos"] = _ecos_result
+                    except Exception as _ecos_exc:
+                        log.debug("[pipeline] ecos fetch failed: %s", _ecos_exc)
+
                 # ① yfinance → FRED 대체: API 키 없어도 ^TNX/DXY/VIX 표시
                 try:
                     from tele_quant.external_indicators import (

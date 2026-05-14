@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-SourceType = Literal["telegram", "naver_report", "market_snapshot"]
+SourceType = Literal["telegram", "naver_report", "market_snapshot", "rss_news", "sec_edgar"]
 
 
 def utc_now() -> datetime:

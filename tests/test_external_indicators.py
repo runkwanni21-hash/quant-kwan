@@ -526,3 +526,102 @@ def test_weekly_fear_greed_no_history_absent() -> None:
     wi = build_weekly_input(reports)
     summary = build_weekly_deterministic_summary(wi, fear_greed_history=None)
     assert "공포탐욕지수 추이" not in summary
+
+
+# ---------- EIA energy tests ----------
+
+def test_fetch_eia_energy_empty_key_returns_empty() -> None:
+    from tele_quant.external_indicators import fetch_eia_energy
+    result = fetch_eia_energy("")
+    assert result == {}
+
+
+def test_format_energy_line_both() -> None:
+    from tele_quant.external_indicators import format_energy_line
+    line = format_energy_line({"wti": 77.50, "ng": 2.15})
+    assert line is not None
+    assert "WTI" in line
+    assert "77.50" in line
+    assert "천연가스" in line
+    assert "2.150" in line
+
+
+def test_format_energy_line_wti_only() -> None:
+    from tele_quant.external_indicators import format_energy_line
+    line = format_energy_line({"wti": 80.0, "ng": None})
+    assert line is not None
+    assert "WTI" in line
+    assert "천연가스" not in line
+
+
+def test_format_energy_line_empty_returns_none() -> None:
+    from tele_quant.external_indicators import format_energy_line
+    assert format_energy_line({}) is None
+    assert format_energy_line({"wti": None, "ng": None}) is None
+
+
+@patch("tele_quant.external_indicators.httpx.Client")
+def test_fetch_eia_energy_wti(mock_client_class) -> None:
+    from unittest.mock import MagicMock
+
+    from tele_quant.external_indicators import fetch_eia_energy
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "response": {"data": [{"period": "2026-05-14", "value": 77.5}]}
+    }
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    mock_client.get.return_value = mock_resp
+    mock_client_class.return_value = mock_client
+
+    result = fetch_eia_energy("TESTKEY")
+    # Both wti and ng are queried; each mock call returns same response
+    assert result.get("wti") == pytest.approx(77.5)
+
+
+# ---------- ECB + Frankfurter tests ----------
+
+def test_fetch_ecb_deposit_rate_network_failure_returns_none() -> None:
+    """Network failure returns None gracefully."""
+    from tele_quant.external_indicators import fetch_ecb_deposit_rate
+    with patch("tele_quant.external_indicators.httpx.get", side_effect=Exception("timeout")):
+        result = fetch_ecb_deposit_rate()
+    assert result is None
+
+
+def test_fetch_exchange_rates_network_failure_returns_empty() -> None:
+    from tele_quant.external_indicators import fetch_exchange_rates
+    with patch("tele_quant.external_indicators.httpx.get", side_effect=Exception("timeout")):
+        result = fetch_exchange_rates()
+    assert result == {}
+
+
+@patch("tele_quant.external_indicators.httpx.get")
+def test_fetch_exchange_rates_success(mock_get) -> None:
+    from unittest.mock import MagicMock
+
+    from tele_quant.external_indicators import fetch_exchange_rates
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"rates": {"KRW": 1380.0, "EUR": 0.92, "JPY": 153.5}}
+    mock_get.return_value = mock_resp
+
+    result = fetch_exchange_rates()
+    assert result.get("KRW") == pytest.approx(1380.0)
+    assert result.get("EUR") == pytest.approx(0.92)
+
+
+def test_format_exchange_rate_line_with_rates() -> None:
+    from tele_quant.external_indicators import format_exchange_rate_line
+    line = format_exchange_rate_line({"KRW": 1380.0, "EUR": 0.92, "JPY": 153.5})
+    assert line is not None
+    assert "1,380" in line
+    assert "EUR" in line
+
+
+def test_format_exchange_rate_line_empty_returns_none() -> None:
+    from tele_quant.external_indicators import format_exchange_rate_line
+    assert format_exchange_rate_line({}) is None
+    assert format_exchange_rate_line({"GBP": None}) is None

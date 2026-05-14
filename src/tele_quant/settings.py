@@ -205,6 +205,48 @@ class Settings(BaseSettings):
     google_trends_timeout_seconds: float = 25.0
     google_trends_max_keywords: int = 5
 
+    # EIA 에너지 (미국 에너지부)
+    eia_enabled: bool = True
+    eia_api_key: str = ""
+    eia_timeout_seconds: float = 10.0
+
+    # ECB 유럽중앙은행
+    ecb_enabled: bool = True
+    ecb_timeout_seconds: float = 10.0
+
+    # Frankfurter 실시간 환율
+    frankfurter_enabled: bool = True
+    frankfurter_timeout_seconds: float = 8.0
+
+    # ECOS 한국은행 경제통계
+    ecos_enabled: bool = True
+    ecos_api_key: str = ""
+    ecos_series: str = "722Y001,731Y003,901Y009"
+    ecos_timeout_seconds: float = 12.0
+
+    # KOSIS 통계청
+    kosis_enabled: bool = False
+    kosis_api_key: str = ""
+
+    # RSS 뉴스 수집
+    rss_enabled: bool = True
+    google_news_rss_enabled: bool = True
+    google_news_rss_max_per_symbol: int = 5
+    google_news_rss_max_symbols: int = 4
+    prnewswire_rss_enabled: bool = True
+    globenewswire_rss_enabled: bool = True
+    businesswire_rss_enabled: bool = True
+    rss_max_items_per_source: int = 8
+    rss_timeout_seconds: float = 10.0
+
+    # SEC EDGAR 8-K 공시
+    sec_enabled: bool = True
+    sec_user_agent: str = "tele-quant/1.0 contact:tele-quant@example.com"
+    sec_8k_lookback_days: int = 3
+    sec_max_items_per_symbol: int = 2
+    sec_timeout_seconds: float = 10.0
+    sec_rate_limit_per_sec: int = 8
+
     # Relation feed (stock-relation-ai 공유 피드)
     relation_feed_enabled: bool = True
     relation_feed_dir: str = "/home/kwanni/projects/quant_spillover/shared_relation_feed"
