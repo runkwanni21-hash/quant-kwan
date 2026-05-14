@@ -258,6 +258,7 @@ class LivePairSignal:
     rule_note: str = ""
     used_cache: bool = False
     event_count: int = 0
+    target_price_at_signal: float | None = None
 
 
 # ── Config Loaders ───────────────────────────────────────────────────────────
@@ -1011,6 +1012,7 @@ def compute_signals(
                     rule_note=rule.note,
                     used_cache=used_cache,
                     event_count=event_count,
+                    target_price_at_signal=tgt_price.close,
                 )
             )
 

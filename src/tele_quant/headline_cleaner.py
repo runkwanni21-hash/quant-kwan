@@ -184,6 +184,115 @@ def extract_issue_sentence(text: str, fallback_title: str = "") -> str:
     return cleaned
 
 
+# ---- Final report cleaner (last-mile before Telegram send) ----
+
+# Lines that must be dropped entirely from the final report
+_FINAL_DROP_LINE_RES = [
+    re.compile(r"^Hana\s+Global\s+Guru\s+Eye", re.IGNORECASE),
+    re.compile(r"^유안타\s*리서치센터", re.IGNORECASE),
+    re.compile(r"^하나증권\s*해외주식분석", re.IGNORECASE),
+    re.compile(r"^키움증권\s*미국\s*주식", re.IGNORECASE),
+    re.compile(r"^연합인포맥스\s*$", re.IGNORECASE),
+    re.compile(r"^S&P\s*500\s*map", re.IGNORECASE),
+    re.compile(r"^ShowHashtag\b", re.IGNORECASE),
+    re.compile(r"^ShowBotCommand\b", re.IGNORECASE),
+    re.compile(r"^[-\*•·\s]*제목\s*:", re.IGNORECASE),
+    re.compile(r"^[-\*•·\s]*카테고리\s*:", re.IGNORECASE),
+    re.compile(r"증권사\s*/?\s*출처\s*:", re.IGNORECASE),  # Naver 메타 어디서든
+    re.compile(r"원문\s*/?\s*목록\s*텍스트\s*:", re.IGNORECASE),  # Naver 메타 어디서든
+    re.compile(r"^link\s*:\s*\S*\s*$", re.IGNORECASE),
+    re.compile(r"^href\s*=", re.IGNORECASE),
+    re.compile(r"tel:\s*\+?\d[\d\s\-]{4,}", re.IGNORECASE),
+    re.compile(r"☎️?\s*\d[\d\-\s]{4,14}"),
+    re.compile(r"\(0\d{1,2}[-–]\d{3,4}[-–]\d{4}\)"),  # noqa: RUF001
+    re.compile(r"^모닝\s*브리핑\s*$", re.IGNORECASE),
+    re.compile(r"^프리마켓\s*뉴스\s*$", re.IGNORECASE),
+    re.compile(r"^출처\s*:", re.IGNORECASE),
+]
+
+# Inline patterns to strip from lines (rather than drop the whole line)
+_FINAL_STRIP_INLINE_RES = [
+    re.compile(r"<a\s[^>]*>.*?</a>", re.IGNORECASE | re.DOTALL),
+    re.compile(r"<[^>]+>"),
+    re.compile(r"\*(?:연합인포맥스|뉴시스|뉴스1|머니투데이|이데일리)[^*]{0,20}\*", re.IGNORECASE),
+    re.compile(r"\s*[-–]\s*(?:\S+\s+외\s+)?\*[^*]{1,40}\*\s*$", re.IGNORECASE),  # noqa: RUF001
+    re.compile(r"ShowHashtag\S*", re.IGNORECASE),
+    re.compile(r"ShowBotCommand\S*", re.IGNORECASE),
+    re.compile(r"href=['\"][^'\"]*['\"]", re.IGNORECASE),
+    re.compile(r"tel:\+?\d[\d\s\-]{4,}", re.IGNORECASE),
+]
+
+# Broker-as-source prefix patterns that pollute digest lines
+_BROKER_SOURCE_LINE_RE = re.compile(
+    r"^(?:JP모건|JPMorgan|Goldman\s*Sachs?|골드만삭스?|모건스탠리|Morgan\s*Stanley|"
+    r"씨티|Citi(?:group)?|뱅크오브아메리카|BofA|Bank\s+of\s+America|"
+    r"Wedbush|HSBC|Piper\s+Sandler|Jefferies|DA\s+Davidson|"
+    r"하나증권|유안타|키움증권|메리츠|신한투자|KB증권|NH투자|삼성증권|"
+    r"대신증권|미래에셋|현대차증권|DB금융)\s*[):]\s*",
+    re.IGNORECASE,
+)
+
+
+def _final_drop_line(line: str) -> bool:
+    """Return True if the line should be dropped entirely from the final report."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    # Check header-only patterns (existing)
+    if is_broker_header_only(stripped):
+        return True
+    # Check new drop patterns
+    return any(p.search(stripped) for p in _FINAL_DROP_LINE_RES)
+
+
+def apply_final_report_cleaner(text: str) -> str:
+    """Last-mile cleaner applied to all text before Telegram send.
+
+    Drops lines with broker headers / noise / link/tel junk.
+    Strips inline HTML anchors, ShowHashtag, news-agency attributions.
+    Does NOT modify section headers (emoji lines like 1️⃣, ─── etc.).
+    """
+    if not text:
+        return text
+
+    result_lines: list[str] = []
+    for line in text.splitlines():
+        # Drop noise lines entirely
+        if _final_drop_line(line):
+            continue
+        # Strip inline noise
+        cleaned = line
+        for pat in _FINAL_STRIP_INLINE_RES:
+            cleaned = pat.sub("", cleaned)
+        # Strip broker-as-source prefix from non-section lines
+        stripped = cleaned.strip()
+        if stripped and not stripped.startswith(
+            ("─", "1️", "2️", "3️", "4️", "5️", "6️", "7️", "8️", "🧠", "🟢", "🔴", "🟡")
+        ):
+            m = _BROKER_SOURCE_LINE_RE.match(stripped)
+            if m:
+                remainder = stripped[m.end() :].strip()
+                if remainder:
+                    cleaned = (" " * (len(line) - len(line.lstrip()))) + remainder
+                else:
+                    continue  # drop broker-header-only line
+        result_lines.append(cleaned)
+
+    # Collapse 2+ consecutive blank lines into 1
+    collapsed: list[str] = []
+    blank_run = 0
+    for line in result_lines:
+        if not line.strip():
+            blank_run += 1
+            if blank_run <= 1:
+                collapsed.append(line)
+        else:
+            blank_run = 0
+            collapsed.append(line)
+
+    return "\n".join(collapsed).strip()
+
+
 def is_noise_sentence(text: str) -> bool:
     """Return True if the text contains noise that disqualifies it as investment evidence."""
     return any(p.search(text) for p in _NOISE_SENTENCE_RES)

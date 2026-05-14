@@ -264,6 +264,134 @@ def build_relation_signal_review_section(
     return "\n".join(lines)
 
 
+def build_long_short_signal_review_section(
+    store: Any,
+    since: datetime,
+    until: datetime | None = None,
+) -> str:
+    """80점 이상 첫 신호 LONG/SHORT 가격기반 성과 리뷰.
+
+    scenario_history에서 sent=1인 LONG/SHORT ≥80점 첫 신호를 읽어
+    signal_price vs 현재가 수익률을 계산한다.
+    """
+    now = datetime.now(UTC)
+    lines: list[str] = ["📈 80점 이상 첫 신호 성과 리뷰"]
+    lines.append("- 신호가: 첫 80점 이상 실제 전송 리포트 시점 종가")
+    lines.append("- 평가가: 주간 리포트 생성 시점 최신 가격")
+    lines.append("- 주의: 실제 매매 수익이 아니라 리서치 시스템의 사후 검증입니다.")
+    lines.append("")
+
+    for side_label, side_code in [("LONG", "LONG"), ("SHORT", "SHORT")]:
+        lines.append(f"▸ {side_label}")
+        try:
+            rows = store.load_signal_performance(
+                since=since, until=until, side=side_code, min_score=80.0, sent_only=True
+            )
+        except AttributeError:
+            # Older DB schema — load_signal_performance not available
+            rows = []
+
+        if not rows:
+            lines.append(f"  - 이번 주 {side_label} 80+ 첫 신호 없음")
+            lines.append("")
+            continue
+
+        review_price_cache: dict[str, float | None] = {}
+        evaluable: list[dict] = []
+        no_price: list[dict] = []
+
+        for row in rows:
+            signal_price = row.get("signal_price") or row.get("close_price_at_report")
+            if signal_price is None:
+                no_price.append(row)
+                continue
+            sym = row.get("symbol") or ""
+            market = "KR" if (sym or "").endswith((".KS", ".KQ")) else "US"
+            if sym not in review_price_cache:
+                review_price_cache[sym] = _fetch_review_price(sym, market)
+            review_price = review_price_cache[sym]
+            if review_price is None:
+                no_price.append(row)
+                continue
+            if side_code == "LONG":
+                ret_pct = (review_price - signal_price) / signal_price * 100
+                win = review_price > signal_price
+            else:
+                ret_pct = (signal_price - review_price) / signal_price * 100
+                win = review_price < signal_price
+            evaluable.append(
+                {**row, "_review_price": review_price, "_ret_pct": ret_pct, "_win": win}
+            )
+
+        total = len(rows)
+        eval_n = len(evaluable)
+        lines.append(f"  - 첫 신호 수: {total}개")
+        lines.append(f"  - 평가 가능: {eval_n}개")
+        if no_price:
+            lines.append(f"  - 가격 확인 불가: {len(no_price)}개")
+
+        if evaluable:
+            wins = [e for e in evaluable if e["_win"]]
+            avg_ret = sum(e["_ret_pct"] for e in evaluable) / eval_n
+            best = max(evaluable, key=lambda x: x["_ret_pct"])
+            worst = min(evaluable, key=lambda x: x["_ret_pct"])
+            lines.append(f"  - 평균 가상 수익률: {avg_ret:+.1f}%")
+            lines.append(f"  - 승률: {len(wins)}/{eval_n} ({len(wins) / eval_n * 100:.0f}%)")
+            best_name = best.get("name") or best.get("symbol", "?")
+            worst_name = worst.get("name") or worst.get("symbol", "?")
+            lines.append(f"  - 최고: {best_name} {best['_ret_pct']:+.1f}%")
+            lines.append(f"  - 최악: {worst_name} {worst['_ret_pct']:+.1f}%")
+
+            lines.append("")
+            for idx, e in enumerate(evaluable[:6], 1):
+                sym = e.get("symbol", "?")
+                name = e.get("name") or sym
+                score = e.get("score", 0)
+                market = "KR" if sym.endswith((".KS", ".KQ")) else "US"
+                created_at = e.get("created_at")
+                s_price = e.get("signal_price") or e.get("close_price_at_report")
+                r_price = e["_review_price"]
+                ret_pct = e["_ret_pct"]
+                win = e["_win"]
+                if side_code == "LONG":
+                    icon = "✅ 상승 적중" if win else "❌ 부진"
+                else:
+                    icon = "✅ 약세 적중" if win else "❌ 부진"
+                rsi_4h = e.get("rsi_4h")
+                obv_4h = e.get("obv_4h") or ""
+                bb_4h = e.get("bollinger_4h") or ""
+                lines.append(f"  {idx}. {name} / {sym}")
+                lines.append(f"     - 방향: {side_label}")
+                if created_at:
+                    lines.append(f"     - 첫 80점 이상: {_fmt_kst_datetime(created_at)}")
+                lines.append(f"     - 당시 점수: {score:.0f}점")
+                if s_price is not None:
+                    lines.append(f"     - 당시 기준가: {_fmt_price(s_price, market)}")
+                if r_price is not None:
+                    lines.append(f"     - 평가 기준가: {_fmt_price(r_price, market)}")
+                if s_price is not None and r_price is not None:
+                    lines.append(f"     - 보유 가정 기간: {_fmt_hold_period(created_at, now)}")
+                    label = "가상 수익률" if side_code == "LONG" else "가상 숏 수익률"
+                    lines.append(f"     - {label}: {ret_pct:+.1f}%")
+                if rsi_4h is not None:
+                    tech_parts = [f"RSI4H {rsi_4h:.1f}"]
+                    if obv_4h:
+                        tech_parts.append(f"OBV {obv_4h}")
+                    if bb_4h:
+                        tech_parts.append(f"BB {bb_4h}")
+                    lines.append(f"     - 당시 4H 기술: {' / '.join(tech_parts)}")
+                lines.append(f"     - 결과: {icon}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+# Broker symbols that frequently appear as false-positive stock candidates
+# (broker as source/analyst, not as investment target)
+_BROKER_FALSE_POSITIVE_SYMBOLS: frozenset[str] = frozenset(
+    {"GS", "JPM", "MS", "C", "BAC", "DB", "UBS", "CS"}
+)
+
 # Regex to extract "N. Name / SYMBOL" from analysis sections
 _SCENARIO_LINE_RE = re.compile(r"^\d+\.\s+\S*\s+(.+?)\s*/\s*(\S+)")
 # Regex to extract score from "점수: 82/100" lines
@@ -551,12 +679,16 @@ def build_weekly_input(
     digests: list[str] = []
     analyses: list[str] = []
 
+    from tele_quant.headline_cleaner import apply_final_report_cleaner
+
     for report in reports:
-        combined = report.digest
-        if report.analysis:
-            combined += "\n" + report.analysis
-            analyses.append(report.analysis)
-        digests.append(report.digest)
+        clean_digest = apply_final_report_cleaner(report.digest)
+        clean_analysis = apply_final_report_cleaner(report.analysis) if report.analysis else None
+        combined = clean_digest
+        if clean_analysis:
+            combined += "\n" + clean_analysis
+            analyses.append(clean_analysis)
+        digests.append(clean_digest)
 
         # Count macro keywords
         for kw in _MACRO_KEYWORDS:
@@ -623,6 +755,8 @@ def build_weekly_deterministic_summary(
     relation_feed_data: Any = None,
     relation_signal_review: str | None = None,
     pair_watch_review: str | None = None,
+    long_short_signal_review: str | None = None,  # deprecated — ignored if short_entries passed
+    short_entries: list[dict] | None = None,
 ) -> str:
     wi = weekly_input
 
@@ -695,27 +829,40 @@ def build_weekly_deterministic_summary(
         lines.append("- 집중 약세 섹터 미확인")
     lines.append("")
 
-    # 5. 반복 종목 (롱 + 숏 통합)
+    # 5. 반복 종목 (롱 + 숏 통합) — broker false-positive 제외
     lines.append("5. 반복 언급 종목")
     has_repeats = False
-    if wi.long_mentions:
+    clean_long_mentions = {
+        sym: cnt
+        for sym, cnt in wi.long_mentions.items()
+        if sym not in _BROKER_FALSE_POSITIVE_SYMBOLS
+    }
+    clean_short_mentions = {
+        sym: cnt
+        for sym, cnt in wi.short_mentions.items()
+        if sym not in _BROKER_FALSE_POSITIVE_SYMBOLS
+    }
+    clean_top_tickers = {
+        sym: cnt for sym, cnt in wi.top_tickers.items() if sym not in _BROKER_FALSE_POSITIVE_SYMBOLS
+    }
+    if clean_long_mentions:
         has_repeats = True
         lines.append("▸ 롱 관심")
-        top_longs = sorted(wi.long_mentions.items(), key=lambda x: -x[1])[:5]
+        top_longs = sorted(clean_long_mentions.items(), key=lambda x: -x[1])[:5]
         for sym, cnt in top_longs:
             name = wi.ticker_names.get(sym, sym)
             display = f"{name} / {sym}" if name != sym else sym
             lines.append(f"  - {display}: {cnt}회")
-    if wi.short_mentions:
+    if clean_short_mentions:
         has_repeats = True
         lines.append("▸ 숏/매도 경계")
-        top_shorts = sorted(wi.short_mentions.items(), key=lambda x: -x[1])[:5]
+        top_shorts = sorted(clean_short_mentions.items(), key=lambda x: -x[1])[:5]
         for sym, cnt in top_shorts:
             name = wi.ticker_names.get(sym, sym)
             display = f"{name} / {sym}" if name != sym else sym
             lines.append(f"  - {display}: {cnt}회")
-    if not has_repeats and wi.top_tickers:
-        top = sorted(wi.top_tickers.items(), key=lambda x: -x[1])[:5]
+    if not has_repeats and clean_top_tickers:
+        top = sorted(clean_top_tickers.items(), key=lambda x: -x[1])[:5]
         for sym, cnt in top:
             name = wi.ticker_names.get(sym, sym)
             display = f"{name} / {sym}" if name != sym else sym
@@ -724,16 +871,20 @@ def build_weekly_deterministic_summary(
         lines.append("- 반복 언급 종목 없음")
     lines.append("")
 
-    # 6. 📈 성과 리뷰: 80점 이상 첫 추천 기준 가상 수익률
-    lines.append("6. 📈 성과 리뷰: 80점 이상 첫 추천 기준 가상 수익률")
-    lines.append(
-        '- 평가 기준: 이번 주 4시간 리포트에서 처음으로 LONG 점수 80점 이상이 된 시점을 "첫 추천 시점"으로 기록'
-    )
-    lines.append("- 진입가 기준: 첫 추천 리포트 생성 시점의 종가/확인 가능한 최신 가격")
-    lines.append("- 평가가 기준: 주간 리포트 생성 시점에 확인 가능한 최신 가격")
-    lines.append("- 주의: 실제 매매 체결가가 아니라 리서치 시스템의 사후 검증용 가상 수익률")
-    perf = wi.performance_entries
+    # 6. 📈 80점 이상 첫 신호 성과 리뷰 (LONG + SHORT 통합)
+    lines.append("6. 📈 80점 이상 첫 신호 성과 리뷰")
+    lines.append("- 평가 기준: 실제 전송 리포트에서 처음 80점 이상이 된 시점")
+    lines.append("- 주의: 실제 매매가 아니라 리서치 사후 검증")
+    lines.append("")
+
     now_utc = datetime.now(UTC)
+
+    # ▸ LONG — from performance_entries (built by CLI from recent_scenarios)
+    lines.append("▸ LONG")
+    # Filter broker false-positives from perf entries
+    perf = [
+        e for e in wi.performance_entries if e.get("symbol") not in _BROKER_FALSE_POSITIVE_SYMBOLS
+    ]
     if perf:
         wins = [e for e in perf if e.get("win")]
         eval_count = len([e for e in perf if e.get("entry_price") and e.get("current_price")])
@@ -767,8 +918,6 @@ def build_weekly_deterministic_summary(
             source_label = "scenario_history"
 
         no_price_list = [e for e in perf if not e.get("entry_price")]
-        lines.append("")
-        lines.append("📊 80점 이상 첫 추천 성과 요약")
         lines.append(f"- 첫 추천 후보 수: {len(perf)}개")
         lines.append(f"- 평가 가능: {eval_count}개")
         if hold_days_list:
@@ -785,7 +934,6 @@ def build_weekly_deterministic_summary(
             lines.append(f"- 가격 확인 불가: {len(no_price_list)}개 제외")
 
         lines.append("")
-        lines.append("종목별:")
         for idx, e in enumerate(perf[:8], 1):
             sym = e.get("symbol", "?")
             name = e.get("name") or sym
@@ -822,33 +970,78 @@ def build_weekly_deterministic_summary(
             lines.append(f"   - 결과: {icon}")
             lines.append(f"   - 저장/파싱 방식: {source_tag}")
     else:
-        lines.append("- 이번 주 LONG ≥80 점 성과 데이터 없음")
-        if not wi.performance_entries:
-            diag = getattr(wi, "_perf_diag", None)
-            if diag:
-                for d in diag:
-                    lines.append(f"  진단: {d}")
-            else:
-                lines.append(
-                    "  진단: scenario_history 미저장, 가격 확인 실패, 또는 80점 이상 후보 없음"
-                )
+        lines.append("- 이번 주 LONG ≥80점 성과 데이터 없음")
+        diag = getattr(wi, "_perf_diag", None)
+        if diag:
+            for d in diag:
+                lines.append(f"  진단: {d}")
+        else:
+            lines.append(
+                "  진단: scenario_history 미저장, 가격 확인 실패, 또는 80점 이상 후보 없음"
+            )
     lines.append("")
 
-    # 7. 숏 사후 점검
-    lines.append("7. 숏 사후 점검")
-    if wi.short_mentions:
-        top_shorts = sorted(wi.short_mentions.items(), key=lambda x: -x[1])[:5]
-        lines.append(f"- 주간 숏/매도 경계 후보: {len(top_shorts)}종목 반복 언급")
-        for sym, cnt in top_shorts:
-            name = wi.ticker_names.get(sym, sym)
-            display = f"{name}/{sym}" if name != sym else sym
-            lines.append(f"  - {display} ({cnt}회 언급) — 현재 가격 확인 필요")
+    # ▸ SHORT — from short_entries (built by CLI) or fallback to mention-count
+    lines.append("▸ SHORT")
+    short_ents = [
+        e for e in (short_entries or []) if e.get("symbol") not in _BROKER_FALSE_POSITIVE_SYMBOLS
+    ]
+    if short_ents:
+        s_wins = [e for e in short_ents if e.get("win")]
+        s_eval = len([e for e in short_ents if e.get("entry_price") and e.get("current_price")])
+        s_avg = sum(e.get("return_pct", 0) for e in short_ents) / len(short_ents)
+        s_best = max(short_ents, key=lambda x: x.get("return_pct", 0))
+        s_worst = min(short_ents, key=lambda x: x.get("return_pct", 0))
+        lines.append(f"- 첫 신호 후보 수: {len(short_ents)}개")
+        lines.append(f"- 평가 가능: {s_eval}개")
+        lines.append(f"- 평균 가상 숏 수익률: {s_avg:+.1f}%")
+        lines.append(f"- 승률: {len(s_wins)}/{len(short_ents)}")
+        lines.append(
+            f"- 최고: {s_best.get('name') or s_best.get('symbol', '?')} {s_best.get('return_pct', 0):+.1f}%"
+        )
+        lines.append(
+            f"- 최악: {s_worst.get('name') or s_worst.get('symbol', '?')} {s_worst.get('return_pct', 0):+.1f}%"
+        )
+        lines.append("")
+        for idx, e in enumerate(short_ents[:5], 1):
+            sym = e.get("symbol", "?")
+            name = e.get("name") or sym
+            market = e.get("market") or ("KR" if sym.endswith((".KS", ".KQ")) else "US")
+            entry = e.get("entry_price")
+            current = e.get("current_price")
+            ret_pct = e.get("return_pct", 0)
+            first_rec = e.get("created_at")
+            icon = "✅ 약세 적중" if e.get("win") else "❌ 부진"
+            lines.append(f"{idx}. {name} / {sym}")
+            if first_rec:
+                lines.append(f"   - 첫 80점 이상: {_fmt_kst_datetime(first_rec)}")
+            if entry:
+                lines.append(f"   - 당시 기준가: {_fmt_price(entry, market)}")
+            if current:
+                lines.append(f"   - 평가 기준가: {_fmt_price(current, market)}")
+            if entry and current:
+                lines.append(f"   - 가상 숏 수익률: {ret_pct:+.1f}%")
+            lines.append(f"   - 결과: {icon}")
     else:
-        lines.append("- 이번 주 숏 후보 반복 언급 없음")
+        # Fallback: mention-count 기반
+        filtered_shorts = {
+            sym: cnt
+            for sym, cnt in clean_short_mentions.items()
+            if sym not in _BROKER_FALSE_POSITIVE_SYMBOLS
+        }
+        if filtered_shorts:
+            top_shorts = sorted(filtered_shorts.items(), key=lambda x: -x[1])[:5]
+            lines.append(f"- 주간 숏/매도 경계 후보: {len(top_shorts)}종목 반복 언급")
+            for sym, cnt in top_shorts:
+                name = wi.ticker_names.get(sym, sym)
+                display = f"{name}/{sym}" if name != sym else sym
+                lines.append(f"  - {display} ({cnt}회 언급) — 현재 가격 확인 필요")
+        else:
+            lines.append("- 이번 주 SHORT 80+ 첫 신호 없음")
     lines.append("")
 
-    # 8. 다음 주 시나리오
-    lines.append("8. 다음 주 시나리오")
+    # 7. 다음 주 시나리오
+    lines.append("7. 다음 주 시나리오")
 
     top_macro_kws = sorted(wi.macro_keywords.items(), key=lambda x: -x[1])[:3]
     macro_str = ", ".join(k for k, _ in top_macro_kws) if top_macro_kws else "매크로 변수"
@@ -862,8 +1055,8 @@ def build_weekly_deterministic_summary(
     lines.append("- 중립/관망 시나리오: 주요 지표 발표 전 관망 우세, 방향성 확인 후 진입 검토")
     lines.append("")
 
-    # 9. 체크포인트
-    lines.append("9. 다음 주 체크포인트")
+    # 8. 체크포인트
+    lines.append("8. 다음 주 체크포인트")
     checkpoints: list[str] = []
     for kw, label_kr in [
         ("FOMC", "FOMC 일정 및 의사록"),
@@ -887,36 +1080,42 @@ def build_weekly_deterministic_summary(
         lines.append(f"- {cp}")
     lines.append("")
 
-    # 10. 급등·급락 후행 후보 리뷰
-    lines.append("10. 📈 급등·급락 후행 후보 리뷰")
+    # 9. 급등·급락 후행 후보 리뷰 — stale feed는 상세 숨김
+    lines.append("9. 📈 급등·급락 후행 후보 리뷰")
     if relation_feed_data is not None:
         try:
             from tele_quant.relation_feed import RelationFeedData
 
             if isinstance(relation_feed_data, RelationFeedData) and relation_feed_data.available:
                 feed = relation_feed_data
-                summary = feed.summary
-                assert summary is not None
-                lines.append(f"- 이번 주 relation feed 기준일: {summary.asof_date}")
-                lines.append(
-                    f"- 신호: mover {len(feed.movers)}개 / lead-lag 후보 {len(feed.leadlag)}개"
-                )
-                if feed.leadlag:
-                    conf_counts: dict[str, int] = {}
-                    for r in feed.leadlag:
-                        conf_counts[r.confidence] = conf_counts.get(r.confidence, 0) + 1
-                    conf_str = ", ".join(f"{k}={v}" for k, v in sorted(conf_counts.items()))
-                    lines.append(f"- confidence 분포: {conf_str}")
-                    src_syms = list(dict.fromkeys(r.source_symbol for r in feed.leadlag))[:4]
-                    lines.append(f"- 주요 source: {', '.join(src_syms)}")
-                    tgt_syms = list(dict.fromkeys(r.target_symbol for r in feed.leadlag))[:4]
-                    lines.append(f"- 주요 target: {', '.join(tgt_syms)}")
-                    # 다음 주 반복 관찰 후보: target symbols unique list
-                    repeat_tgts = list(dict.fromkeys(r.target_symbol for r in feed.leadlag))[:5]
-                    lines.append(f"- 다음 주 반복 관찰 후보: {', '.join(repeat_tgts)}")
-                if summary.warnings:
-                    lines.append(f"- 데이터 주의: {', '.join(summary.warnings)}")
-                lines.append("- 통계적 후행 관찰 후보이며 실제 수익 보장 아님")
+                # Stale feed: 상세 목록 숨기고 한 줄만 표시
+                if feed.is_stale:
+                    feed_age = feed.feed_age_hours or 0
+                    lines.append(
+                        f"- 과거 relation feed는 {feed_age:.0f}시간 초과로 weekly 리뷰에서 제외했습니다."
+                    )
+                else:
+                    summary = feed.summary
+                    assert summary is not None
+                    lines.append(f"- 이번 주 relation feed 기준일: {summary.asof_date}")
+                    lines.append(
+                        f"- 신호: mover {len(feed.movers)}개 / lead-lag 후보 {len(feed.leadlag)}개"
+                    )
+                    if feed.leadlag:
+                        conf_counts: dict[str, int] = {}
+                        for r in feed.leadlag:
+                            conf_counts[r.confidence] = conf_counts.get(r.confidence, 0) + 1
+                        conf_str = ", ".join(f"{k}={v}" for k, v in sorted(conf_counts.items()))
+                        lines.append(f"- confidence 분포: {conf_str}")
+                        src_syms = list(dict.fromkeys(r.source_symbol for r in feed.leadlag))[:4]
+                        lines.append(f"- 주요 source: {', '.join(src_syms)}")
+                        tgt_syms = list(dict.fromkeys(r.target_symbol for r in feed.leadlag))[:4]
+                        lines.append(f"- 주요 target: {', '.join(tgt_syms)}")
+                        repeat_tgts = list(dict.fromkeys(r.target_symbol for r in feed.leadlag))[:5]
+                        lines.append(f"- 다음 주 반복 관찰 후보: {', '.join(repeat_tgts)}")
+                    if summary.warnings:
+                        lines.append(f"- 데이터 주의: {', '.join(summary.warnings)}")
+                    lines.append("- 통계적 후행 관찰 후보이며 실제 수익 보장 아님")
             else:
                 lines.append("- relation feed 없음 또는 로드 실패")
         except Exception as _wrf_exc:
@@ -929,9 +1128,9 @@ def build_weekly_deterministic_summary(
         lines.append(relation_signal_review)
     lines.append("")
 
-    # 11. 선행·후행 페어 관찰 성과 (pair watch weekly review)
+    # 10. 선행·후행 페어 관찰 성과 (pair watch weekly review)
     if pair_watch_review:
-        lines.append("11. " + pair_watch_review)
+        lines.append("10. " + pair_watch_review)
         lines.append("")
 
     lines += [

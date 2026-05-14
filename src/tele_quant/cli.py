@@ -561,12 +561,15 @@ def weekly(
                     # Sort ascending by created_at → oldest = first 80-point recommendation
                     rows_sorted = sorted(rows_for_sym, key=lambda r: r.get("created_at") or "")
                     first_row = rows_sorted[0]
-                    entry_price = first_row.get("close_price_at_report")
+                    entry_price = first_row.get("signal_price") or first_row.get(
+                        "close_price_at_report"
+                    )
                     if entry_price is None:
                         for r in rows_sorted:
-                            if r.get("close_price_at_report") is not None:
+                            ep = r.get("signal_price") or r.get("close_price_at_report")
+                            if ep is not None:
                                 first_row = r
-                                entry_price = r.get("close_price_at_report")
+                                entry_price = ep
                                 break
                     if entry_price is None:
                         continue
@@ -730,11 +733,68 @@ def weekly(
         except Exception as _pwr_exc:
             console.print(f"[yellow][weekly] pair_watch_review failed: {_pwr_exc}[/yellow]")
 
+        # SHORT ≥80 성과 — LONG과 같은 방식으로 빌드
+        short_entries: list[dict] = []
+        try:
+            import yfinance as yf
+
+            short_rows = store.recent_scenarios(since=since, side="SHORT", min_score=80)
+            short_sym_all: dict[str, list[dict]] = {}
+            for row in short_rows:
+                sym = row.get("symbol", "")
+                if sym:
+                    short_sym_all.setdefault(sym, []).append(row)
+
+            for sym, rows_for_sym in short_sym_all.items():
+                rows_sorted = sorted(rows_for_sym, key=lambda r: r.get("created_at") or "")
+                first_row = rows_sorted[0]
+                entry_price = first_row.get("signal_price") or first_row.get(
+                    "close_price_at_report"
+                )
+                if entry_price is None:
+                    for r in rows_sorted:
+                        ep = r.get("signal_price") or r.get("close_price_at_report")
+                        if ep is not None:
+                            first_row = r
+                            entry_price = ep
+                            break
+                if entry_price is None:
+                    continue
+                mkt = "KR" if sym.endswith((".KS", ".KQ")) else "US"
+                try:
+                    hist = yf.Ticker(sym).history(period="2d", auto_adjust=True)
+                    if hist.empty:
+                        continue
+                    current = float(hist["Close"].iloc[-1])
+                    # SHORT 수익률: 신호가 > 현재가 = 적중
+                    ret_pct = (entry_price - current) / entry_price * 100
+                    short_entries.append(
+                        {
+                            "symbol": sym,
+                            "name": first_row.get("name"),
+                            "score": first_row.get("score", 0),
+                            "entry_price": entry_price,
+                            "current_price": current,
+                            "return_pct": ret_pct,
+                            "win": ret_pct > 0,
+                            "created_at": first_row.get("created_at"),
+                            "market": mkt,
+                            "_source": "scenario_history",
+                        }
+                    )
+                except Exception:
+                    pass
+            if short_entries:
+                console.print(f"[weekly] short_entries={len(short_entries)}")
+        except Exception as _se_exc:
+            console.print(f"[yellow][weekly] short_entries build failed: {_se_exc}[/yellow]")
+
         summary = build_weekly_deterministic_summary(
             weekly_input,
             relation_feed_data=relation_feed_data,
             relation_signal_review=relation_signal_review,
             pair_watch_review=pair_watch_review,
+            short_entries=short_entries if short_entries else None,
         )
 
         if mode == "deep_polish":
@@ -1236,6 +1296,304 @@ def ollama_tags() -> None:
     asyncio.run(run())
 
 
+@app.command("ops-doctor")
+def ops_doctor() -> None:
+    """자동 실행 상태와 DB 최신성을 진단합니다.
+
+    Example: uv run tele-quant ops-doctor
+    """
+    import shutil
+    import subprocess
+    from datetime import timedelta
+    from pathlib import Path as _Path
+    from zoneinfo import ZoneInfo
+
+    from rich.table import Table
+
+    from tele_quant.db import Store
+    from tele_quant.models import utc_now
+
+    KST = ZoneInfo("Asia/Seoul")
+
+    def _kst(dt: object) -> str:
+        from datetime import datetime as _dt
+
+        if isinstance(dt, _dt):
+            return dt.astimezone(KST).strftime("%Y-%m-%d %H:%M KST")
+        return str(dt)
+
+    def _run(cmd: list[str]) -> tuple[str, int]:
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            return r.stdout.strip() + r.stderr.strip(), r.returncode
+        except Exception as exc:
+            return str(exc), -1
+
+    now_kst = _kst(utc_now())
+    console.print(f"\n[bold cyan]Tele Quant Ops Doctor[/bold cyan]  {now_kst}\n")
+
+    has_systemd = shutil.which("systemctl") is not None
+
+    # --- Timer status ---
+    timer_table = Table(title="systemd Timers")
+    timer_table.add_column("Timer")
+    timer_table.add_column("Active")
+    timer_table.add_column("Enabled")
+    timer_table.add_column("Next Trigger")
+    timer_table.add_column("Status")
+
+    _TIMERS = [
+        "tele-quant-weekday.timer",
+        "tele-quant-weekend-macro.timer",
+        "tele-quant-weekly.timer",
+    ]
+
+    timer_ok = True
+    for timer in _TIMERS:
+        if not has_systemd:
+            timer_table.add_row(timer, "N/A", "N/A", "N/A", "[yellow]WARN: systemd 없음[/yellow]")
+            timer_ok = False
+            continue
+        active_out, _ = _run(["systemctl", "--user", "is-active", timer])
+        enabled_out, _ = _run(["systemctl", "--user", "is-enabled", timer])
+        active = active_out.strip()
+        enabled = enabled_out.strip()
+        # Next trigger
+        next_out, _ = _run(
+            ["systemctl", "--user", "show", timer, "--property=NextElapseUSecRealtime"]
+        )
+        next_str = "알 수 없음"
+        for part in next_out.split("=", 1)[1:]:
+            val = part.strip()
+            if val and val != "0":
+                try:
+                    import datetime
+
+                    usec = int(val)
+                    dt_utc = datetime.datetime(
+                        1970, 1, 1, tzinfo=datetime.UTC
+                    ) + datetime.timedelta(microseconds=usec)
+                    next_str = _kst(dt_utc)
+                except Exception:
+                    next_str = val
+
+        if active == "active" and enabled == "enabled":
+            st = "[green]OK[/green]"
+        elif active != "active":
+            st = "[red]FAIL: inactive[/red]"
+            timer_ok = False
+        else:
+            st = "[yellow]WARN: not enabled[/yellow]"
+            timer_ok = False
+        timer_table.add_row(timer, active, enabled, next_str, st)
+
+    console.print(timer_table)
+
+    # --- Recent service log ---
+    if has_systemd:
+        svc_out, _ = _run(
+            ["journalctl", "--user", "-u", "tele-quant-weekday.service", "-n", "20", "--no-pager"]
+        )
+        if svc_out:
+            console.rule("[dim]최근 weekday service 로그 (20줄)[/dim]")
+            console.print(f"[dim]{svc_out[:2000]}[/dim]")
+
+    # --- DB diagnostics ---
+    settings = _settings()
+    db_path = settings.sqlite_path
+    db_exists = db_path.exists()
+
+    db_table = Table(title="DB 상태")
+    db_table.add_column("항목")
+    db_table.add_column("값")
+    db_table.add_column("판정")
+
+    db_table.add_row(
+        "SQLITE_PATH",
+        str(db_path),
+        "[green]exists[/green]" if db_exists else "[red]FAIL: 없음[/red]",
+    )
+
+    env_local = _Path(".env.local")
+    db_table.add_row(
+        ".env.local",
+        "존재함" if env_local.exists() else "없음",
+        "[green]OK[/green]" if env_local.exists() else "[yellow]WARN[/yellow]",
+    )
+
+    last_run_age_h: float | None = None
+    run_report_status = "[red]FAIL: 없음[/red]"
+    if db_exists:
+        try:
+            store = Store(db_path)
+            since = utc_now() - timedelta(hours=168)
+            reports = store.recent_run_reports(since=since, limit=5)
+            if reports:
+                last_rpt = reports[0]
+                last_at = last_rpt.created_at
+                age_h = (utc_now() - last_at).total_seconds() / 3600
+                last_run_age_h = age_h
+                age_label = f"{age_h:.1f}h"
+                if age_h <= 6:
+                    run_report_status = f"[green]OK ({age_label})[/green]"
+                elif age_h <= 12:
+                    run_report_status = f"[yellow]WARN ({age_label})[/yellow]"
+                else:
+                    run_report_status = f"[red]FAIL ({age_label})[/red]"
+                db_table.add_row("마지막 run_report", _kst(last_at), run_report_status)
+
+                # Recent 5
+                for i, rpt in enumerate(reports[:5], 1):
+                    db_table.add_row(
+                        f"  run_report #{i}",
+                        _kst(rpt.created_at),
+                        rpt.mode or "unknown",
+                    )
+            else:
+                db_table.add_row("마지막 run_report", "없음", "[red]FAIL[/red]")
+        except Exception as exc:
+            db_table.add_row("DB 연결", str(exc)[:60], "[red]ERROR[/red]")
+
+        # pair_watch_history latest
+        try:
+            store2 = Store(db_path)
+            pw_rows = store2.recent_pair_watch_signals(since=utc_now() - timedelta(hours=168))
+            if pw_rows:
+                from tele_quant.models import parse_dt
+
+                pw_last = max(r.get("created_at", "") for r in pw_rows)
+                pw_dt = parse_dt(pw_last)
+                pw_age = (utc_now() - pw_dt).total_seconds() / 3600 if pw_dt else 999
+                db_table.add_row(
+                    "pair_watch_history 최근",
+                    _kst(pw_dt) if pw_dt else "알 수 없음",
+                    f"[dim]{pw_age:.1f}h 전[/dim]",
+                )
+            else:
+                db_table.add_row("pair_watch_history 최근", "없음", "[dim]저장 없음[/dim]")
+        except Exception:
+            pass
+
+        # scenario_history latest + 이유 진단 + WARN if stale
+        _sc_age_h: float = 0.0
+        _sc_warn_reason: str = ""
+        try:
+            store3 = Store(db_path)
+            sc_rows = store3.recent_scenarios(since=utc_now() - timedelta(hours=168))
+            if sc_rows:
+                from tele_quant.models import parse_dt
+
+                sc_last = max(r.get("created_at", "") for r in sc_rows)
+                sc_dt = parse_dt(sc_last)
+                sc_age = (utc_now() - sc_dt).total_seconds() / 3600 if sc_dt else 999
+                _sc_age_h = sc_age
+                sent_rows = [r for r in sc_rows if r.get("sent") == 1]
+                sent_high = [r for r in sent_rows if r.get("score", 0) >= 80]
+                sc_note = f"{sc_age:.1f}h 전 (전체 {len(sc_rows)}개"
+                if sent_rows:
+                    sc_note += f", sent={len(sent_rows)}"
+                if sent_high:
+                    sc_note += f", 80+ sent={len(sent_high)}"
+                sc_note += ")"
+
+                # 판정: sent=1 & 80+ 있으면 OK, 오래됐으면 WARN 이유 표시
+                run_rows_24h = store3.recent_run_reports(since=utc_now() - timedelta(hours=24))
+                sent_runs_24h = [
+                    r for r in run_rows_24h if (getattr(r, "stats", None) or {}).get("sent")
+                ]
+                if sc_age > 24:
+                    if not sent_runs_24h:
+                        sc_status = "[dim]OK — no-send/no_llm preview만 실행됨[/dim]"
+                    elif not sent_high:
+                        _sc_warn_reason = "80점 이상 후보 없음 (sent 실행 있음)"
+                        sc_status = f"[yellow]WARN: {sc_age:.0f}h — {_sc_warn_reason}[/yellow]"
+                    else:
+                        sc_status = f"[dim]{sc_note}[/dim]"
+                else:
+                    sc_status = f"[green]OK ({sc_age:.1f}h)[/green]"
+
+                db_table.add_row(
+                    "scenario_history 최근",
+                    _kst(sc_dt) if sc_dt else "알 수 없음",
+                    sc_status,
+                )
+            else:
+                # 이유 진단: 왜 비어 있는가?
+                run_rows_24h = store3.recent_run_reports(since=utc_now() - timedelta(hours=24))
+                sent_runs = [
+                    r for r in run_rows_24h if (getattr(r, "stats", None) or {}).get("sent")
+                ]
+                if not sent_runs:
+                    sc_reason = "no-send 모드만 실행됨 (send=false)"
+                    sc_status_empty = f"[dim]{sc_reason}[/dim]"
+                else:
+                    sc_reason = "80점 이상 후보 없음 (sent 실행은 있음)"
+                    _sc_warn_reason = sc_reason
+                    sc_status_empty = f"[yellow]WARN: {sc_reason}[/yellow]"
+                db_table.add_row("scenario_history 최근", "없음", sc_status_empty)
+        except Exception:
+            pass
+
+    console.print(db_table)
+
+    # --- Recommendations ---
+    console.rule("[dim]진단 결과 및 권장 조치[/dim]")
+    recs: list[str] = []
+
+    if not timer_ok:
+        recs.append(
+            "[red]FAIL: timer가 inactive 또는 disabled[/red]\n"
+            "  권장 조치:\n"
+            "    mkdir -p ~/.config/systemd/user\n"
+            "    cp systemd/tele-quant-weekday.service ~/.config/systemd/user/\n"
+            "    cp systemd/tele-quant-weekday.timer ~/.config/systemd/user/\n"
+            "    cp systemd/tele-quant-weekend-macro.service ~/.config/systemd/user/\n"
+            "    cp systemd/tele-quant-weekend-macro.timer ~/.config/systemd/user/\n"
+            "    cp systemd/tele-quant-weekly.service ~/.config/systemd/user/\n"
+            "    cp systemd/tele-quant-weekly.timer ~/.config/systemd/user/\n"
+            "    systemctl --user daemon-reload\n"
+            "    systemctl --user enable --now tele-quant-weekday.timer\n"
+            "    systemctl --user enable --now tele-quant-weekend-macro.timer\n"
+            "    systemctl --user enable --now tele-quant-weekly.timer"
+        )
+
+    if last_run_age_h is not None and last_run_age_h > 12:
+        recs.append(
+            "[red]FAIL: 마지막 run_report가 12시간 초과[/red]\n"
+            "  수동 실행: DIGEST_MODE=no_llm uv run tele-quant once --no-send\n"
+            "  WSL이 꺼져 있었다면 systemd timer missed run 가능성 있음\n"
+            "  → WSL을 켜두거나 Persistent=true 확인"
+        )
+    elif last_run_age_h is not None and last_run_age_h > 6:
+        recs.append(
+            "[yellow]WARN: 마지막 run_report가 6~12시간 전[/yellow]\n"
+            "  정상 범위이나 4H 주기 대비 약간 늦음. timer 상태 확인 권장"
+        )
+
+    # scenario_history WARN — sent=True 리포트 있지만 80점 이상 후보 없음이 5일+ 지속
+    if _sc_warn_reason and _sc_age_h > 120:
+        recs.append(
+            f"[yellow]WARN: scenario_history {_sc_age_h:.0f}h ({_sc_warn_reason})[/yellow]\n"
+            "  5일 이상 LONG/SHORT 80점 이상 신호 없음 — direct evidence gate 과도 가능성\n"
+            "  진단: uv run tele-quant lint-report --hours 24"
+        )
+
+    if not recs:
+        console.print("[green]이상 없음 — 자동 실행 정상[/green]")
+    else:
+        for rec in recs:
+            console.print(rec)
+
+    console.print()
+    console.print("[dim]⚠ WSL/Ubuntu가 꺼져 있으면 systemd user timer도 실행되지 않습니다.[/dim]")
+    console.print(
+        "[dim]  Persistent=true는 missed run을 보완하지만, WSL이 시작되어야 동작합니다.[/dim]"
+    )
+    console.print(
+        "[dim]  7시 리포트를 반드시 받으려면 WSL을 켜두거나 Windows Task Scheduler로 WSL을 깨워야 합니다.[/dim]"
+    )
+
+
 @app.command("lint-report")
 def lint_report(
     hours: Annotated[
@@ -1254,7 +1612,11 @@ def lint_report(
     from rich.markup import escape
 
     from tele_quant.db import Store
-    from tele_quant.headline_cleaner import is_broker_header_only, is_low_quality_headline
+    from tele_quant.headline_cleaner import (
+        apply_final_report_cleaner,
+        is_broker_header_only,
+        is_low_quality_headline,
+    )
     from tele_quant.models import utc_now
 
     def _read_report_field(row: object, name: str, default: str = "") -> str:
@@ -1269,22 +1631,32 @@ def lint_report(
         _re.compile(
             r"\b(?:Hana\s+Global\s+Guru\s+Eye|유안타\s*리서치센터|"
             r"하나증권\s*해외주식분석|키움증권\s*미국\s*주식\s*박기현|"
-            r"연합인포맥스|ShowHashtag|S&P\s*500\s*map)\b",
+            r"연합인포맥스|ShowHashtag|S&P\s*500\s*map|"
+            r"모닝\s*브리핑|프리마켓\s*뉴스|ShowBotCommand)\b",
             _re.IGNORECASE,
         ),
+    ]
+    # Expanded forbidden patterns: additional noise patterns from Telegram export
+    _EXTRA_NOISE_RES = [
+        _re.compile(r"\btel:\s*\+?\d", _re.IGNORECASE),
+        _re.compile(r"\bhref\s*=", _re.IGNORECASE),
+        _re.compile(r"제목\s*:", _re.IGNORECASE),
+        _re.compile(r"카테고리\s*:", _re.IGNORECASE),
+        _re.compile(r"증권사\s*/?\s*출처\s*:", _re.IGNORECASE),
+        _re.compile(r"원문\s*/?\s*목록\s*텍스트\s*:", _re.IGNORECASE),
     ]
     # Broker false-positive: broker name appearing as stock candidate (not as source)
     # These appear when broker name leaks into LONG/SHORT section header/reasons
     _BROKER_AS_CANDIDATE_RE = _re.compile(
         r"(?:JPMorgan\s*(?:Chase)?|Goldman\s*Sachs|Morgan\s*Stanley|"
-        r"JP모건|골드만삭스|모건스탠리|씨티|뱅크오브아메리카|BofA|Wedbush|"
+        r"JP모건|제이피모건|골드만삭스|모건스탠리|씨티|뱅크오브아메리카|BofA|Wedbush|"
         r"Piper\s+Sandler|Jefferies|HSBC)\s*/\s*(?:JPM|GS|MS|C|BAC|DB)",
         _re.IGNORECASE,
     )
     # Broker name raw leak in digest/analysis (report body should not name brokers directly)
     _BROKER_NAME_LEAK_RE = _re.compile(
         r"\b(?:JPMorgan(?:\s+Chase)?|Goldman\s+Sachs|Morgan\s+Stanley|"
-        r"JP모건|골드만삭스|모건스탠리|뱅크오브아메리카|BofA|"
+        r"JP모건|제이피모건|골드만삭스|모건스탠리|뱅크오브아메리카|BofA|"
         r"Wedbush|Piper\s+Sandler|Jefferies)\b",
         _re.IGNORECASE,
     )
@@ -1305,8 +1677,42 @@ def lint_report(
     since = utc_now() - timedelta(hours=hours)
     reports = store.recent_run_reports(since=since, limit=limit)
 
+    global_issues: list[str] = []
+
+    # DB freshness check
+    all_recent = store.recent_run_reports(since=utc_now() - timedelta(hours=12), limit=1)
+    if not all_recent:
+        global_issues.append(
+            "[red]FAIL: 최근 12시간 run_report 없음[/red] — timer 실패 또는 WSL 재시작 필요"
+        )
+
+    # pair_watch_history check
+    pw_rows = store.recent_pair_watch_signals(since=utc_now() - timedelta(hours=24))
+    if not pw_rows:
+        global_issues.append("[yellow]WARN: 최근 24시간 pair_watch_history 저장 없음[/yellow]")
+
+    # scenario_history check (most recent) with reason diagnosis
+    sc_rows_recent = store.recent_scenarios(since=utc_now() - timedelta(hours=24))
+    if not sc_rows_recent:
+        run_rows_sent = store.recent_run_reports(since=utc_now() - timedelta(hours=24))
+        sent_runs = [r for r in run_rows_sent if (getattr(r, "stats", None) or {}).get("sent")]
+        if not sent_runs:
+            sc_reason = "no-send 모드만 실행됨 — 실제 전송 시에만 저장"
+        else:
+            sc_reason = "80점 이상 후보 없음 (sent 실행은 있음)"
+        global_issues.append(
+            f"[yellow]WARN: 최근 24시간 scenario_history 저장 없음[/yellow] ({sc_reason})"
+        )
+
+    if global_issues:
+        console.rule("[bold red]DB 상태 경보[/bold red]")
+        for gi in global_issues:
+            console.print(f"  {gi}")
+
     if not reports:
         console.print(f"[yellow]검사할 리포트 없음 (최근 {hours}h)[/yellow]")
+        if global_issues:
+            raise SystemExit(1)
         return
 
     console.print(f"[bold]lint-report: {len(reports)}개 리포트 검사[/bold] (최근 {hours}h)")
@@ -1318,10 +1724,15 @@ def lint_report(
 
     total_issues = 0
     for row in reports:
-        digest = _read_report_field(row, "digest") or _read_report_field(row, "digest_text")
-        analysis = _read_report_field(row, "analysis") or _read_report_field(row, "analysis_text")
+        digest_raw = _read_report_field(row, "digest") or _read_report_field(row, "digest_text")
+        analysis_raw = _read_report_field(row, "analysis") or _read_report_field(
+            row, "analysis_text"
+        )
         created_raw = _read_report_field(row, "created_at")
         created = created_raw[:16] if created_raw else "unknown"
+        # Apply cleaner before checking: only patterns that BYPASS the cleaner are real bugs
+        digest = apply_final_report_cleaner(digest_raw)
+        analysis = apply_final_report_cleaner(analysis_raw)
         full_text = digest + "\n" + analysis
 
         row_issues: list[str] = []
@@ -1389,11 +1800,54 @@ def lint_report(
                         "[red]SHORT 게이트 위반:[/red] 상승 추세 + OBV 상승인데 숏 후보 표시"
                     )
 
+        # 8. Extra noise patterns (제목:, 카테고리:, tel:, href=, etc.)
+        for npat in _EXTRA_NOISE_RES:
+            m_ex = npat.search(full_text)
+            if m_ex:
+                ctx_s = max(0, m_ex.start() - 10)
+                ctx_e = min(len(full_text), m_ex.end() + 30)
+                snippet = full_text[ctx_s:ctx_e].replace("\n", " ").strip()
+                row_issues.append(f"[yellow]확장 노이즈:[/yellow] {escape(snippet[:80])}")
+                break
+
         if row_issues:
             total_issues += 1
             console.rule(f"[bold]{created}[/bold]")
             for issue in row_issues[:12]:
                 console.print(f"  {issue}")
+
+    # Candidate scoring diagnosis — no candidates above min score 상황 진단
+    console.rule("[dim]후보 점수 진단[/dim]")
+    all_sc = store.recent_scenarios(since=since)
+    sc_all_count = len(all_sc)
+    sc_above_50 = sum(1 for r in all_sc if (r.get("score") or 0) >= 50)
+    sc_above_80 = sum(1 for r in all_sc if (r.get("score") or 0) >= 80)
+    sc_max_score = max((r.get("score") or 0) for r in all_sc) if all_sc else 0
+    console.print(f"  기간 내 전체 후보: {sc_all_count}개")
+    console.print(f"  점수 ≥50: {sc_above_50}개 / 점수 ≥80: {sc_above_80}개")
+    console.print(f"  최고 점수: {sc_max_score:.0f}점")
+    if sc_all_count > 0 and sc_above_50 == 0:
+        console.print(
+            "  [yellow]WARN: 50점 이상 후보 없음 — direct evidence gate 과도 가능성[/yellow]"
+        )
+        # 분류 이유 추정
+        no_price = sum(
+            1
+            for r in all_sc
+            if r.get("signal_price") is None and r.get("close_price_at_report") is None
+        )
+        low_evidence = sum(1 for r in all_sc if (r.get("direct_evidence_count") or 0) == 0)
+        if low_evidence > 0:
+            console.print(
+                f"  → direct_evidence_count=0인 후보: {low_evidence}개"
+                " (broker/header 제거로 직접 근거 없는 후보)"
+            )
+        if no_price > 0:
+            console.print(f"  → 가격 없는 후보: {no_price}개")
+    elif sc_above_50 == 0 and sc_all_count == 0:
+        console.print("  [dim]해당 기간 scenario_history 저장 없음[/dim]")
+    else:
+        console.print("  [green]후보 점수 분포 정상[/green]")
 
     # Scenario history coverage check
     console.rule("[dim]scenario_history 커버리지[/dim]")
@@ -1414,8 +1868,32 @@ def lint_report(
     else:
         console.print("  [green]scenario_history OK[/green]")
 
+    # Relation feed staleness check
+    console.rule("[dim]relation feed 상태[/dim]")
+    try:
+        from tele_quant.relation_feed import load_relation_feed
+
+        rf = load_relation_feed(settings)
+        if not rf.available:
+            console.print("  [dim]relation feed: 없음[/dim]")
+        elif rf.is_stale:
+            age_h = rf.feed_age_hours or 0
+            console.print(
+                f"  [yellow]WARN: relation feed stale ({age_h:.0f}h 전)[/yellow] — 섹션 숨김 적용됨"
+            )
+        else:
+            console.print(
+                f"  [green]relation feed: OK (movers={len(rf.movers)} leadlag={len(rf.leadlag)})[/green]"
+            )
+    except Exception as _rf_exc:
+        console.print(f"  [dim]relation feed 확인 실패: {_rf_exc}[/dim]")
+
+    has_failures = total_issues > 0 or bool(global_issues)
+
     if total_issues == 0:
         console.print("[green]품질 이슈 없음 (문제 없음)[/green]")
     else:
         console.print(f"[bold red]{total_issues}/{len(reports)} 리포트에 품질 이슈[/bold red]")
+
+    if has_failures:
         raise SystemExit(1)

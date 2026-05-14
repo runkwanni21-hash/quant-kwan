@@ -134,7 +134,27 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE mover_chain_history ADD COLUMN direction TEXT",
     "ALTER TABLE mover_chain_history ADD COLUMN live_status TEXT",
     "ALTER TABLE mover_chain_history ADD COLUMN note TEXT",
+    # scenario_history 확장 (4H/3D 기술지표 + sent 플래그)
+    "ALTER TABLE scenario_history ADD COLUMN sent INTEGER DEFAULT 0",
+    "ALTER TABLE scenario_history ADD COLUMN rsi_4h REAL",
+    "ALTER TABLE scenario_history ADD COLUMN obv_4h TEXT",
+    "ALTER TABLE scenario_history ADD COLUMN bollinger_4h TEXT",
+    "ALTER TABLE scenario_history ADD COLUMN rsi_3d REAL",
+    "ALTER TABLE scenario_history ADD COLUMN obv_3d TEXT",
+    "ALTER TABLE scenario_history ADD COLUMN bollinger_3d TEXT",
+    "ALTER TABLE scenario_history ADD COLUMN direct_evidence_count INTEGER",
+    "ALTER TABLE scenario_history ADD COLUMN signal_price_basis TEXT",
+    "ALTER TABLE scenario_history ADD COLUMN evidence_summary TEXT",
+    # signal_price: close_price_at_report의 정식 alias — 성과 평가 가격 컬럼명 통일
+    "ALTER TABLE scenario_history ADD COLUMN signal_price REAL",
 ]
+
+# 기존 DB 백필: signal_price 컬럼 추가 후 close_price_at_report 값 복사
+_BACKFILL_SQL = (
+    "UPDATE scenario_history "
+    "SET signal_price = close_price_at_report "
+    "WHERE signal_price IS NULL AND close_price_at_report IS NOT NULL"
+)
 
 
 def _is_refill_note_db(note: str) -> bool:
@@ -174,6 +194,9 @@ class Store:
             for _sql in _COLUMN_MIGRATIONS:
                 with contextlib.suppress(sqlite3.OperationalError):
                     conn.execute(_sql)
+            # Backfill signal_price from close_price_at_report for legacy rows
+            with contextlib.suppress(sqlite3.OperationalError):
+                conn.execute(_BACKFILL_SQL)
             conn.commit()
 
     def insert_items(self, items: Iterable[RawItem]) -> list[RawItem]:
@@ -306,18 +329,28 @@ class Store:
         mode: str = "",
         close_map: dict[str, float] | None = None,
         sector_map: dict[str, str] | None = None,
+        sent: bool = False,
     ) -> None:
+        """Save scenarios to scenario_history.
+
+        Only stores records when sent=True (real sent reports) so that
+        no-send preview runs don't pollute the weekly performance review.
+        Pass sent=True only when the report was actually sent to Telegram.
+        """
         if not scenarios:
+            return
+        # Gate: skip saving for preview/no-send runs — they don't count for performance
+        if not sent:
             return
         now = utc_now().isoformat()
         close_map = close_map or {}
         sector_map = sector_map or {}
 
-        # Prefetch prices for LONG scenarios missing from close_map (fallback for weekly perf)
+        # Prefetch prices for LONG/SHORT scenarios missing from close_map
         for s in scenarios:
             symbol = getattr(s, "symbol", "")
             side = getattr(s, "side", "WATCH")
-            if side == "LONG" and symbol and close_map.get(symbol) is None:
+            if side in ("LONG", "SHORT") and symbol and close_map.get(symbol) is None:
                 market = getattr(s, "market", "") or (
                     "KR" if symbol.endswith((".KS", ".KQ")) else "US"
                 )
@@ -328,12 +361,15 @@ class Store:
         with self.connect() as conn:
             for s in scenarios:
                 symbol = getattr(s, "symbol", "")
+                price_val = close_map.get(symbol)
                 conn.execute(
                     """
                     INSERT INTO scenario_history
                     (created_at, report_id, symbol, name, side, score, confidence,
-                     entry_zone, stop_loss, target, close_price_at_report, sector, source_mode)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     entry_zone, stop_loss, target, close_price_at_report, sector, source_mode,
+                     sent, rsi_4h, obv_4h, bollinger_4h, rsi_3d, obv_3d, bollinger_3d,
+                     direct_evidence_count, signal_price_basis, evidence_summary, signal_price)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         now,
@@ -346,9 +382,20 @@ class Store:
                         getattr(s, "entry_zone", None),
                         getattr(s, "stop_loss", None),
                         getattr(s, "take_profit", None),
-                        close_map.get(symbol),
+                        price_val,
                         sector_map.get(symbol),
                         mode or None,
+                        1 if sent else 0,
+                        getattr(s, "rsi_4h", None),
+                        getattr(s, "obv_4h", None) or None,
+                        getattr(s, "bollinger_4h", None) or None,
+                        getattr(s, "rsi_3d", None),
+                        getattr(s, "obv_3d", None) or None,
+                        getattr(s, "bollinger_3d", None) or None,
+                        getattr(s, "direct_evidence_count", None),
+                        getattr(s, "signal_price_basis", None) or None,
+                        getattr(s, "evidence_summary", None) or None,
+                        price_val,  # signal_price = close_price_at_report alias
                     ),
                 )
             conn.commit()
@@ -377,6 +424,48 @@ class Store:
         with self.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    def load_signal_performance(
+        self,
+        since: datetime,
+        until: datetime | None = None,
+        side: str | None = None,
+        min_score: float = 80.0,
+        sent_only: bool = True,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Load scenario_history rows for weekly LONG/SHORT performance review.
+
+        Returns first crossing per (symbol, side) within the window — same symbol
+        appearing multiple times counts only once (first 80+ crossing is the signal).
+        """
+        clauses = ["created_at >= ?", "score >= ?"]
+        params: list[Any] = [since.isoformat(), min_score]
+        if until is not None:
+            clauses.append("created_at <= ?")
+            params.append(until.isoformat())
+        if side:
+            clauses.append("side = ?")
+            params.append(side)
+        if sent_only:
+            clauses.append("sent = 1")
+        params.append(limit)
+        sql = (
+            f"SELECT * FROM scenario_history WHERE {' AND '.join(clauses)}"
+            " ORDER BY created_at ASC LIMIT ?"
+        )
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+
+        # Deduplicate: keep first crossing per (symbol, side)
+        seen: set[tuple[str, str]] = set()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            key = (str(row["symbol"]), str(row["side"]))
+            if key not in seen:
+                seen.add(key)
+                result.append(dict(row))
+        return result
 
     def save_mover_chain(self, relation_feed: Any, report_id: int | None = None) -> int:
         """Save lead-lag rows from relation feed. Returns count of inserted rows.
@@ -511,7 +600,10 @@ class Store:
             conn.commit()
 
     def save_pair_watch_signals(self, signals: list[Any]) -> int:
-        """Persist LivePairSignal list to pair_watch_history. Returns inserted count."""
+        """Persist LivePairSignal list to pair_watch_history. Returns inserted count.
+
+        Uses target_price_at_signal from each signal object (populated by compute_signals).
+        """
         if not signals:
             return 0
         now = utc_now().isoformat()
@@ -544,7 +636,7 @@ class Store:
                             getattr(sig, "target_sector", None),
                             getattr(sig, "target_return_4h", None)
                             or getattr(sig, "target_return_1d", None),
-                            None,  # target_price_at_signal fetched separately if needed
+                            getattr(sig, "target_price_at_signal", None),
                             getattr(sig, "expected_direction", "UP"),
                             getattr(sig, "pair_score", None),
                             getattr(sig, "confidence", None),

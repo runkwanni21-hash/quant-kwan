@@ -86,8 +86,8 @@ def test_performance_section_win_rate() -> None:
             "win": False,
         },
         {
-            "symbol": "C",
-            "name": "C",
+            "symbol": "NVDA",
+            "name": "NVIDIA",
             "score": 88,
             "entry_price": 100,
             "current_price": 110,
@@ -100,15 +100,17 @@ def test_performance_section_win_rate() -> None:
     assert "2/3" in summary  # win rate
 
 
-def test_section_7_short_postmortem_present() -> None:
-    """Section 7 숏 사후 점검 must always appear."""
+def test_section_6_unified_perf_review_present() -> None:
+    """Section 6 통합 성과 리뷰(LONG + SHORT 구조)가 항상 표시되어야 한다."""
     wi = build_weekly_input([_bare_report()])
     summary = build_weekly_deterministic_summary(wi)
-    assert "숏 사후 점검" in summary
+    assert "6." in summary
+    assert "▸ LONG" in summary
+    assert "▸ SHORT" in summary
 
 
 def test_9_section_structure() -> None:
-    """All 9 sections must be present in the output."""
+    """Sections 1-9 must be present in the output (6=unified perf, 7=scenario, 8=checkpoint, 9=relation)."""
     wi = build_weekly_input([_bare_report()])
     summary = build_weekly_deterministic_summary(wi)
     expected_sections = [
@@ -271,11 +273,12 @@ def test_source_tag_fallback() -> None:
     assert "analysis_text fallback" in summary
 
 
-def test_summary_table_present() -> None:
-    """'📊 80점 이상 첫 추천 성과 요약' table header must appear."""
+def test_summary_long_section_present() -> None:
+    """Section 6 ▸ LONG subsection must appear with entry data."""
     wi = build_weekly_input([_bare_report()], performance_entries=[_kr_entry()])
     summary = build_weekly_deterministic_summary(wi)
-    assert "📊 80점 이상 첫 추천 성과 요약" in summary
+    assert "▸ LONG" in summary
+    assert "첫 추천 후보 수" in summary
 
 
 def test_no_entry_price_shows_confirmation_needed() -> None:

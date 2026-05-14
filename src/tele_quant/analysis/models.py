@@ -115,3 +115,15 @@ class TradeScenario:
     beginner_hint: str = ""
     intraday_4h_summary: str = ""
     relation_feed_note: str = ""
+    # 4H 기술지표 (intraday snapshot에서 추출, scenario_history 저장용)
+    rsi_4h: float | None = None
+    obv_4h: str = ""
+    bollinger_4h: str = ""
+    # 3D 기술지표 (daily technical snapshot에서 추출)
+    rsi_3d: float | None = None
+    obv_3d: str = ""
+    bollinger_3d: str = ""
+    # Evidence 품질
+    direct_evidence_count: int = 0
+    evidence_summary: str = ""
+    signal_price_basis: str = "yfinance"

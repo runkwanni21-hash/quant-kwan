@@ -115,6 +115,7 @@ _BROKER_TICKERS: frozenset[str] = frozenset(
         "CS",
         # Korean broker name aliases
         "JP모건",
+        "제이피모건",
         "골드만삭스",
         "골드만",
         "모건스탠리",
@@ -124,16 +125,37 @@ _BROKER_TICKERS: frozenset[str] = frozenset(
         "Goldman Sachs",
         "Goldman",
         "Morgan Stanley",
+        "JPMorgan Chase",
         "JP Morgan",
         "JPMorgan",
         "Citigroup",
         # Additional brokers (appear as source tags but not traded as stocks in these msgs)
         "BofA",
+        "Bank of America",
         "Wedbush",
         "HSBC",
         "Citi",
         "Piper Sandler",
         "Piper",
+        "Jefferies",
+        "DA Davidson",
+        "Raymond James",
+        "Barclays",
+        "UBS",
+        "Credit Suisse",
+        "Deutsche Bank",
+        "Wells Fargo",
+        "RBC",
+        "Truist",
+        "Oppenheimer",
+        "Baird",
+        "Needham",
+        "Susquehanna",
+        "Bernstein",
+        "Mizuho",
+        "SMBC Nikko",
+        "KeyBanc",
+        "Stifel",
     ]
 )
 _BROKER_SUFFIX_RE = re.compile(r"^[)\]]\s*|^\s*외\b|^:\s*")
@@ -282,12 +304,16 @@ def _is_broker_prefix_match(text: str, alias: str, idx: int) -> bool:
 
 
 def _is_broker_attribution(text: str, alias: str, idx: int) -> bool:
-    """Enhanced check: True if alias is broker source attribution, not a stock subject.
+    """True if alias is a broker/source attribution, not a stock subject.
 
-    Catches:
-    - "JPM) ..." / "GS: ..." / "Goldman 외" (standard suffix)
-    - "Goldman Sachs 시장 코멘트..." (start-of-text + attribution topic)
-    Does NOT block self-news like "Goldman Sachs Q1 EPS beat" or "JPMorgan 주가 상승".
+    For broker tickers, context must contain SELF-NEWS keywords (EPS, 실적, 주가, etc.)
+    to be treated as stock subject. Any other context is treated as broker attribution.
+
+    Examples:
+    - "JPM) 전자부품 섹터" → True (broker prefix with suffix ")")
+    - "Goldman Sachs: AI 데이터센터" → True (no self-news)
+    - "Goldman Sachs Q1 EPS beat" → False (has self-news "EPS")
+    - "JP모건 주가 급등" → False (has self-news "주가 급등")
     """
     if alias not in _BROKER_TICKERS:
         return False
@@ -299,19 +325,10 @@ def _is_broker_attribution(text: str, alias: str, idx: int) -> bool:
     if _BROKER_SUFFIX_RE.match(suffix):
         return True
 
-    # Broker name at very start (≤3 chars in) + space + attribution topic, no self-news
-    if idx <= 3 and suffix and suffix[0] == " ":
-        context_after = text[suffix_start : suffix_start + 80]
-        if _BROKER_AS_SOURCE_RE.search(context_after):
-            return True
-        # Block start-of-text broker + general content only if no self-news keywords
-        if not _BROKER_SELF_NEWS_RE.search(context_after):
-            # Extra guard: only block if next word is NOT a stock ticker / price / number
-            next_word = context_after.strip()[:10]
-            if not re.match(r"^[A-Z]{2,5}[\s/\(]|^\d+[\s원달러]", next_word):
-                return True
-
-    return False
+    # For ALL broker tickers: require self-news keywords to treat as stock subject
+    context_after = text[suffix_start : suffix_start + 100]
+    # Return False only for genuine self-news (broker's own earnings/price)
+    return not bool(_BROKER_SELF_NEWS_RE.search(context_after))
 
 
 def extract_candidates_with_book(

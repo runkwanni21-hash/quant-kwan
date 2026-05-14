@@ -8,6 +8,7 @@ from typing import Any
 
 from tele_quant.db import Store
 from tele_quant.dedupe import Deduper
+from tele_quant.headline_cleaner import apply_final_report_cleaner
 from tele_quant.models import RawItem, RunStats, utc_now
 from tele_quant.ollama_client import OllamaClient
 from tele_quant.reports.naver import fetch_naver_reports
@@ -523,6 +524,18 @@ class TeleQuantPipeline:
                     if rf_note:
                         scenario.relation_feed_note = rf_note
 
+                    # Evidence 품질 정보 저장
+                    scenario.direct_evidence_count = getattr(candidate, "direct_evidence_count", 0)
+                    catalysts = getattr(candidate, "catalysts", [])
+                    if catalysts:
+                        scenario.evidence_summary = catalysts[0][:100]
+
+                    # 3D 기술지표 (daily snapshot에서)
+                    if technical and technical.close is not None:
+                        scenario.rsi_3d = technical.rsi14
+                        scenario.obv_3d = technical.obv_trend
+                        scenario.bollinger_3d = technical.bb_position
+
                     # 4H intraday technical
                     if self.settings.intraday_tech_enabled:
                         try:
@@ -536,6 +549,9 @@ class TeleQuantPipeline:
                             )
                             if snap is not None:
                                 scenario.intraday_4h_summary = format_4h_section(snap)
+                                scenario.rsi_4h = snap.rsi14
+                                scenario.obv_4h = snap.obv_trend
+                                scenario.bollinger_4h = snap.bb_position
                         except Exception:
                             pass
 
@@ -717,6 +733,11 @@ class TeleQuantPipeline:
                     await sender.send(analysis)
                 stats.sent = True
 
+            # Clean digest/analysis before DB storage so lint-report and weekly see clean text
+            digest = apply_final_report_cleaner(digest)
+            if analysis:
+                analysis = apply_final_report_cleaner(analysis)
+
             self.store.save_digest(digest, period_hours=lookback, stats=stats.as_dict())
             report_id = self.store.save_run_report(
                 digest, analysis, lookback, digest_mode, stats.as_dict()
@@ -728,6 +749,7 @@ class TeleQuantPipeline:
                     mode=digest_mode,
                     close_map=saved_close_map,
                     sector_map=saved_sector_map,
+                    sent=send,
                 )
             if relation_feed is not None:
                 try:

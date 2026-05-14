@@ -146,10 +146,14 @@ def test_lint_detects_broker_name_leak():
 
 
 def test_lint_detects_metadata_leak():
-    """link: / 카테고리: 메타데이터 잔류를 감지한다."""
-    report = _make_run_report(digest="link: https://example.com\nNVDA 호재")
+    """cleaner가 처리 못한 인라인 메타데이터 잔류를 감지한다.
+
+    cleaner는 행 시작 패턴(^제목:)만 드롭하므로, 행 중간의 제목: 패턴은
+    lint-report의 _EXTRA_NOISE_RES가 잡아야 한다.
+    """
+    report = _make_run_report(digest="NVDA 상승 관련 제목: 이상한 텍스트 잔류")
     out = _run_lint_with_reports([report])
-    assert "메타데이터" in out or "link" in out
+    assert "메타데이터" in out or "제목" in out
 
 
 def test_lint_clean_report_no_issues():

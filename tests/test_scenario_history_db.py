@@ -33,7 +33,7 @@ def test_save_scenarios_empty_no_error(store: Store) -> None:
 
 def test_save_scenarios_basic(store: Store) -> None:
     sc = _Scenario("NVDA", "NVIDIA", side="LONG", score=82.0)
-    store.save_scenarios(report_id=1, scenarios=[sc])
+    store.save_scenarios(report_id=1, scenarios=[sc], sent=True)
     rows = store.recent_scenarios(since=utc_now() - timedelta(hours=1))
     assert len(rows) == 1
     assert rows[0]["symbol"] == "NVDA"
@@ -41,16 +41,24 @@ def test_save_scenarios_basic(store: Store) -> None:
     assert abs(rows[0]["score"] - 82.0) < 0.001
 
 
+def test_save_scenarios_no_sent_skips_save(store: Store) -> None:
+    """sent=False (preview) 시 scenario_history에 저장하지 않는다."""
+    sc = _Scenario("NVDA", "NVIDIA", side="LONG", score=82.0)
+    store.save_scenarios(report_id=1, scenarios=[sc], sent=False)
+    rows = store.recent_scenarios(since=utc_now() - timedelta(hours=1))
+    assert len(rows) == 0
+
+
 def test_save_scenarios_with_close_map(store: Store) -> None:
     sc = _Scenario("AAPL", "Apple", side="LONG", score=88.0)
-    store.save_scenarios(1, [sc], close_map={"AAPL": 185.50})
+    store.save_scenarios(1, [sc], close_map={"AAPL": 185.50}, sent=True)
     rows = store.recent_scenarios(since=utc_now() - timedelta(hours=1))
     assert rows[0]["close_price_at_report"] == pytest.approx(185.50, abs=0.01)
 
 
 def test_save_scenarios_with_sector_map(store: Store) -> None:
     sc = _Scenario("NVDA", side="LONG", score=90.0)
-    store.save_scenarios(1, [sc], sector_map={"NVDA": "반도체"})
+    store.save_scenarios(1, [sc], sector_map={"NVDA": "반도체"}, sent=True)
     rows = store.recent_scenarios(since=utc_now() - timedelta(hours=1))
     assert rows[0]["sector"] == "반도체"
 
@@ -61,7 +69,7 @@ def test_recent_scenarios_side_filter(store: Store) -> None:
         _Scenario("XOM", side="SHORT", score=70.0),
         _Scenario("GOOG", side="WATCH", score=60.0),
     ]
-    store.save_scenarios(1, scenarios)
+    store.save_scenarios(1, scenarios, sent=True)
     longs = store.recent_scenarios(since=utc_now() - timedelta(hours=1), side="LONG")
     assert len(longs) == 1
     assert longs[0]["symbol"] == "NVDA"
@@ -72,7 +80,7 @@ def test_recent_scenarios_min_score_filter(store: Store) -> None:
         _Scenario("NVDA", side="LONG", score=85.0),
         _Scenario("AMD", side="LONG", score=60.0),
     ]
-    store.save_scenarios(1, scenarios)
+    store.save_scenarios(1, scenarios, sent=True)
     high = store.recent_scenarios(since=utc_now() - timedelta(hours=1), side="LONG", min_score=80)
     assert len(high) == 1
     assert high[0]["symbol"] == "NVDA"
@@ -80,7 +88,7 @@ def test_recent_scenarios_min_score_filter(store: Store) -> None:
 
 def test_recent_scenarios_limit(store: Store) -> None:
     scenarios = [_Scenario(f"SYM{i}", side="LONG", score=80.0) for i in range(10)]
-    store.save_scenarios(1, scenarios)
+    store.save_scenarios(1, scenarios, sent=True)
     limited = store.recent_scenarios(since=utc_now() - timedelta(hours=1), limit=3)
     assert len(limited) <= 3
 
@@ -100,7 +108,7 @@ def test_save_run_report_ids_increment(store: Store) -> None:
 def test_save_scenarios_links_report_id(store: Store) -> None:
     rid = store.save_run_report("digest", None, 4.0, "fast", {})
     sc = _Scenario("NVDA", side="LONG", score=85.0)
-    store.save_scenarios(rid, [sc])
+    store.save_scenarios(rid, [sc], sent=True)
     rows = store.recent_scenarios(since=utc_now() - timedelta(hours=1))
     assert rows[0]["report_id"] == rid
 

@@ -161,6 +161,15 @@ class Settings(BaseSettings):
     report_hide_raw_links: bool = True
     report_hide_broker_headers: bool = True
 
+    # 4H 브리핑 섹션별 최대 항목 수 (compact 모드)
+    report_max_macro_items: int = 5
+    report_max_tech_items: int = 5
+    report_max_bio_items: int = 4
+    report_max_policy_items: int = 4
+    report_max_bullish_tickers: int = 6
+    report_max_bearish_tickers: int = 4
+    report_max_pair_watch: int = 4
+
     # Watchlist
     watchlist_enabled: bool = True
     watchlist_path: str = "config/watchlist.yml"
