@@ -473,10 +473,10 @@ class TeleQuantPipeline:
         start_time: float,
         watchlist_cfg: Any = None,
         relation_feed: Any = None,
-    ) -> tuple[str | None, list[Any], dict[str, float], dict[str, str]]:
+    ) -> tuple[str | None, list[Any], dict[str, float], dict[str, str], list[dict]]:
         """Python-only analysis without LLM extraction. Returns (report, scenarios, close_map, sector_map)."""
         if not self.settings.analysis_enabled:
-            return None, [], {}, {}
+            return None, [], {}, {}, []
 
         try:
             from tele_quant.analysis.extractor import fast_extract_candidates
@@ -562,6 +562,7 @@ class TeleQuantPipeline:
 
             scenarios = []
             close_map: dict[str, float] = {}
+            _tech_scan_rows: list[dict] = []  # 점수 미달 포함 전체 기술 스캔용
             for candidate in top:
                 df = ohlcv.get(candidate.symbol)
                 technical = compute_technical(candidate.symbol, df)
@@ -618,6 +619,19 @@ class TeleQuantPipeline:
                     card.final_score,
                     card.grade,
                 )
+
+                # 항상 tech scan 데이터 수집 (점수 미달 후보 포함)
+                _tech_scan_rows.append({
+                    "symbol": candidate.symbol,
+                    "name": getattr(candidate, "name", None) or candidate.symbol,
+                    "sentiment": getattr(candidate, "sentiment", "neutral"),
+                    "score": card.final_score,
+                    "catalysts": list(getattr(candidate, "catalysts", []))[:3],
+                    "risks": list(getattr(candidate, "risks", []))[:2],
+                    "snap_4h": snap_4h,
+                    "technical": technical,
+                })
+
                 if card.final_score >= self.settings.analysis_min_score_to_send:
                     # watchlist 정보
                     is_wl = False
@@ -695,7 +709,9 @@ class TeleQuantPipeline:
                     "[analysis-fast] no candidates above min score %.0f",
                     self.settings.analysis_min_score_to_send,
                 )
-                return None, [], close_map, _sector_map
+                # tech scan rows 반환 (점수 미달이어도 기술 스캔 섹션에 활용)
+                _tech_scan_rows.sort(key=lambda r: -r["score"])
+                return None, [], close_map, _sector_map, _tech_scan_rows
 
             # Apply report limits
             longs = [s for s in scenarios if s.side == "LONG"][: self.settings.report_max_longs]
@@ -839,11 +855,12 @@ class TeleQuantPipeline:
                     except Exception as exc:
                         log.warning("[analysis-fast] polish failed: %s → deterministic kept", exc)
 
-            return report, limited_scenarios, close_map, _sector_map
+            _tech_scan_rows.sort(key=lambda r: -r["score"])
+            return report, limited_scenarios, close_map, _sector_map, _tech_scan_rows
 
         except Exception as exc:
             log.exception("[analysis-fast] pipeline failed: %s", exc)
-            return None, [], {}, {}
+            return None, [], {}, {}, []
 
     # ------------------------------------------------------------------
     # Public run methods
@@ -1094,6 +1111,7 @@ class TeleQuantPipeline:
                         saved_scenarios,
                         saved_close_map,
                         saved_sector_map,
+                        _tech_scan_rows,
                     ) = await self._run_analysis_fast(
                         kept,
                         ranked,
@@ -1106,6 +1124,17 @@ class TeleQuantPipeline:
                         from tele_quant.trade_phrase_cleaner import clean_report
 
                         analysis = clean_report(analysis)
+
+                    # 시나리오 없을 때 → 기술 스캔 섹션을 digest에 주입
+                    if not analysis and _tech_scan_rows:
+                        try:
+                            from tele_quant.deterministic_report import build_tech_scan_section
+
+                            _ts_section = build_tech_scan_section(_tech_scan_rows)
+                            if _ts_section:
+                                digest = digest + "\n\n" + _ts_section
+                        except Exception as _ts_exc:
+                            log.debug("[pipeline] tech_scan section failed: %s", _ts_exc)
 
             # Live pair watch — run regardless of macro_only, append to digest
             pair_watch_section, pair_watch_signals = await asyncio.to_thread(

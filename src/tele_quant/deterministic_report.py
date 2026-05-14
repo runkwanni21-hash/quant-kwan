@@ -816,6 +816,96 @@ def apply_polish_guard(original: str, polished: str) -> str:
     return polished
 
 
+def build_tech_scan_section(tech_scan_rows: list[dict], max_stocks: int = 6) -> str:
+    """주목 종목 기술 스캔 섹션 생성.
+
+    시나리오 임계점 미달이어도 호재·악재 언급 종목의 4H/3D RSI·OBV·BB를 표시.
+    """
+    if not tech_scan_rows:
+        return ""
+
+    # positive → negative 순, 각 최대 4/3개
+    positives = [r for r in tech_scan_rows if r.get("sentiment") in ("positive",)][:4]
+    negatives = [r for r in tech_scan_rows if r.get("sentiment") in ("negative",)][:3]
+    rows = (positives + negatives)[:max_stocks]
+    if not rows:
+        rows = tech_scan_rows[:max_stocks]
+
+    lines: list[str] = ["📈 주목 종목 기술 스캔"]
+    lines.append("(직접증거 게이트 미달 — 관찰 참고용, 매수·매도 지시 아님)")
+
+    for row in rows:
+        sym: str = row.get("symbol", "")
+        name: str = row.get("name", sym)
+        sentiment: str = row.get("sentiment", "neutral")
+        score: float = row.get("score", 0.0)
+        catalysts: list[str] = row.get("catalysts", [])
+        risks: list[str] = row.get("risks", [])
+        snap = row.get("snap_4h")
+        tech = row.get("technical")
+
+        is_kr = sym.endswith(".KS") or sym.endswith(".KQ")
+        _fmt_price = (lambda v: f"{v:,.0f}") if is_kr else (lambda v: f"{v:.2f}")
+
+        icon = "🟢" if sentiment == "positive" else ("🔴" if sentiment == "negative" else "⚪")
+        lines.append(f"\n{icon} {name} ({sym})  점수 {score:.0f}")
+
+        # 4H봉
+        if snap is not None:
+            rsi_s = f"RSI {snap.rsi14:.1f}" if snap.rsi14 is not None else "RSI N/A"
+            obv_s = f"OBV {snap.obv_trend}" if snap.obv_trend else ""
+            if snap.bb_upper is not None and snap.bb_middle is not None and snap.bb_lower is not None:
+                bb_s = (
+                    f"BB {snap.bb_position}"
+                    f" (상{_fmt_price(snap.bb_upper)}/중{_fmt_price(snap.bb_middle)}/하{_fmt_price(snap.bb_lower)})"
+                )
+            else:
+                bb_s = f"BB {snap.bb_position}" if snap.bb_position else ""
+            parts_4h = [p for p in [rsi_s, bb_s, obv_s] if p]
+            lines.append(f"   4H봉: {' / '.join(parts_4h)}")
+
+            # 해석 힌트
+            hint = ""
+            if snap.rsi14 is not None:
+                if snap.rsi14 >= 70 and snap.bb_position == "상단돌파":
+                    hint = "단기 과열 — 눌림 대기"
+                elif snap.rsi14 <= 35:
+                    hint = "과매도 구간 — 반등 가능성 주시"
+                elif snap.rsi14 >= 55 and snap.obv_trend == "상승" and snap.bb_position in ("중단~상단", "상단돌파"):
+                    hint = "모멘텀 유효 — 중단 지지 확인"
+                elif snap.obv_trend == "하락" and snap.bb_position in ("하단~중단", "하단이탈"):
+                    hint = "수급 약화 + BB 하단권 — 관망"
+            if hint:
+                lines.append(f"   해석: {hint}")
+        else:
+            lines.append("   4H봉: 데이터 없음")
+
+        # 3일봉
+        if tech is not None and tech.close is not None:
+            rsi3_s = f"RSI {tech.rsi14:.1f}" if tech.rsi14 is not None else "RSI N/A"
+            obv3_s = f"OBV {tech.obv_trend}" if tech.obv_trend not in ("데이터 부족", "") else ""
+            bb3_s = ""
+            if tech.bb_upper is not None and tech.bb_middle is not None and tech.bb_lower is not None:
+                bb3_s = (
+                    f"BB {tech.bb_position}"
+                    f" (상{_fmt_price(tech.bb_upper)}/중{_fmt_price(tech.bb_middle)}/하{_fmt_price(tech.bb_lower)})"
+                )
+            elif tech.bb_position not in ("데이터 부족", ""):
+                bb3_s = f"BB {tech.bb_position}"
+            close_s = f"종가 {_fmt_price(tech.close)}"
+            parts_3d = [p for p in [close_s, rsi3_s, bb3_s, obv3_s] if p]
+            lines.append(f"   3일봉: {' / '.join(parts_3d)}")
+
+        # 촉매 / 리스크
+        if catalysts:
+            lines.append(f"   촉매: {catalysts[0][:80]}")
+        if risks and sentiment == "negative":
+            lines.append(f"   위험: {risks[0][:80]}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def build_long_short_report(
     scenarios: list[TradeScenario],
     ranked_pack: RankedEvidencePack | None,
