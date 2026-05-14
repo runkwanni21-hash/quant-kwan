@@ -95,13 +95,53 @@ uv run tele-quant loop
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp systemd/tele-quant.service ~/.config/systemd/user/
-cp systemd/tele-quant.timer ~/.config/systemd/user/
+
+# 평일 4시간 자동 리포트
+cp systemd/tele-quant-weekday.service ~/.config/systemd/user/
+cp systemd/tele-quant-weekday.timer ~/.config/systemd/user/
+
+# 주말 매크로 전용 리포트
+cp systemd/tele-quant-weekend-macro.service ~/.config/systemd/user/
+cp systemd/tele-quant-weekend-macro.timer ~/.config/systemd/user/
+
+# 주간 총정리 리포트 (일요일 23시)
+cp systemd/tele-quant-weekly.service ~/.config/systemd/user/
+cp systemd/tele-quant-weekly.timer ~/.config/systemd/user/
+
 systemctl --user daemon-reload
-systemctl --user enable --now tele-quant.timer
+systemctl --user enable --now tele-quant-weekday.timer
+systemctl --user enable --now tele-quant-weekend-macro.timer
+systemctl --user enable --now tele-quant-weekly.timer
+
+# 등록 확인
+systemctl --user list-timers | grep tele-quant
 ```
 
-> **WSL 주의:** 자동 리포트는 WSL/Ubuntu가 실행 중이어야 동작합니다. systemd timer에는 `Persistent=true`를 적용해 missed run을 보완합니다. 단, WSL 자체가 꺼져 있으면 systemd도 동작하지 않으므로 WSL을 상시 실행 상태로 유지하세요.
+> **WSL/systemd 중요 사항:**
+> - WSL/Ubuntu가 **꺼져 있으면** systemd user timer도 실행되지 않습니다.
+> - `Persistent=true`는 WSL이 재시작된 후 missed run을 보완하지만, **WSL 자체가 실행되어야** 동작합니다.
+> - 7시 리포트를 반드시 받으려면 WSL을 켜두거나, **Windows Task Scheduler**로 WSL을 깨우는 스크립트를 등록하세요.
+> - 자동 실행 진단: `uv run tele-quant ops-doctor`
+
+### 자동 실행 복구 명령
+
+timer가 갑자기 멈췄을 때:
+
+```bash
+# 1. 진단
+uv run tele-quant ops-doctor
+
+# 2. timer 재시작
+systemctl --user restart tele-quant-weekday.timer
+systemctl --user restart tele-quant-weekend-macro.timer
+systemctl --user restart tele-quant-weekly.timer
+
+# 3. 수동 1회 실행 (send 없이 확인)
+DIGEST_MODE=no_llm uv run tele-quant once --no-send
+
+# 4. 품질 검사
+uv run tele-quant lint-report --hours 24
+```
 
 ---
 

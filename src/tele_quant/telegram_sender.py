@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from tele_quant.headline_cleaner import apply_final_report_cleaner
 from tele_quant.settings import Settings
 from tele_quant.telegram_client import TelegramGateway
 from tele_quant.textutil import chunk_message, mask_bot_token, sanitize_for_telegram
@@ -18,6 +19,7 @@ class TelegramSender:
         self.gateway = gateway
 
     async def send(self, text: str) -> None:
+        text = apply_final_report_cleaner(text)
         text = sanitize_for_telegram(text)
         chunks = chunk_message(text)
         failed = 0
