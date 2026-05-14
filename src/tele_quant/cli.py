@@ -1754,6 +1754,53 @@ def ops_doctor() -> None:
         for rec in recs:
             console.print(rec)
 
+    # Relation feed staleness
+    console.rule("[dim]relation feed 상태[/dim]")
+    try:
+        from tele_quant.relation_feed import load_relation_feed
+
+        rf = load_relation_feed(settings)
+        if not rf.available:
+            console.print("  [dim]relation feed: 없음[/dim]")
+        elif rf.is_stale:
+            age_h = rf.feed_age_hours or 0
+            console.print(
+                f"  [yellow]WARN: relation feed stale ({age_h:.0f}h 전)[/yellow] — 섹션 숨김 적용됨"
+            )
+        else:
+            console.print(
+                f"  [green]relation feed: OK (movers={len(rf.movers)} leadlag={len(rf.leadlag)})[/green]"
+            )
+    except Exception as _rf_exc:
+        console.print(f"  [dim]relation feed 확인 실패: {_rf_exc}[/dim]")
+
+    # Alias book summary
+    console.rule("[dim]alias book 상태[/dim]")
+    try:
+        from tele_quant.alias_audit import run_audit as _alias_run_audit
+        from tele_quant.analysis.aliases import load_alias_config as _load_ac
+
+        _book = _load_ac()
+        _total_syms = len(_book.all_symbols)
+        _audit_entries = _alias_run_audit()
+        _high_cnt = sum(1 for e in _audit_entries if e.severity == "HIGH")
+        _med_cnt = sum(1 for e in _audit_entries if e.severity == "MEDIUM")
+        if _high_cnt > 0:
+            console.print(
+                f"  [red]WARN: alias HIGH 이슈 {_high_cnt}건[/red]"
+                f" (총 {_total_syms}개 심볼)"
+                " — alias-audit 명령으로 확인"
+            )
+        elif _med_cnt > 10:
+            console.print(
+                f"  [yellow]alias MEDIUM 이슈 {_med_cnt}건[/yellow]"
+                f" (총 {_total_syms}개 심볼)"
+            )
+        else:
+            console.print(f"  [green]alias book OK: {_total_syms}개 심볼, HIGH 이슈 없음[/green]")
+    except Exception as _al_exc:
+        console.print(f"  [dim]alias book 확인 실패: {_al_exc}[/dim]")
+
     console.print()
     console.print("[dim]⚠ WSL/Ubuntu가 꺼져 있으면 systemd user timer도 실행되지 않습니다.[/dim]")
     console.print(
