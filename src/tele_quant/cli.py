@@ -1870,11 +1870,14 @@ def lint_report(
         r"Piper\s+Sandler|Jefferies|HSBC)\s*/\s*(?:JPM|GS|MS|C|BAC|DB)",
         _re.IGNORECASE,
     )
-    # Broker name raw leak in digest/analysis (report body should not name brokers directly)
+    # Broker name raw leak in digest/analysis (report body should not name brokers directly).
+    # Exclude legitimate stock listings: "Morgan Stanley (MS)" or broker prefix "JP모건)" patterns.
     _BROKER_NAME_LEAK_RE = _re.compile(
         r"\b(?:JPMorgan(?:\s+Chase)?|Goldman\s+Sachs|Morgan\s+Stanley|"
         r"JP모건|제이피모건|골드만삭스|모건스탠리|뱅크오브아메리카|BofA|"
-        r"Wedbush|Piper\s+Sandler|Jefferies)\b",
+        r"Wedbush|Piper\s+Sandler|Jefferies)"
+        r"(?!\s*\([A-Z]{1,5}\))"  # NOT followed by "(TICKER)" — that's a legitimate stock listing
+        r"(?!\))",                 # NOT followed by ")" — that's a broker-prefix tag (already handled)
         _re.IGNORECASE,
     )
     _FORBIDDEN_WORDS = [

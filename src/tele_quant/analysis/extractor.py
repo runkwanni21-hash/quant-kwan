@@ -508,6 +508,8 @@ def extract_candidates_with_book(
                     lo = max(0, idx - 80)
                     hi = min(len(text), idx + len(alias) + 80)
                     ctx = text[lo:hi]
+                    # Strip broker prefix if it leaked into the start of the context window
+                    ctx = _BROKER_PREFIX_LINE_RE.sub(lambda bm: bm.group(1).lstrip(), ctx)
                     if not _is_noise_context(ctx):
                         raw_contexts.append(ctx)
 
