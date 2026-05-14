@@ -75,8 +75,8 @@ class PCALatentStressModel(QuantitativeModel):
         if not self.is_fitted or self.pc1_history is None: 
             return default_resp
 
-        # 추론은 최근 데이터(충격 감지용 여유분 포함 5일)만 피처 프로세싱
-        df_feat = self.feature_builder.process(data.iloc[-5:], is_training=False)
+        # 🌟 FIX: 모멘텀(pct_change 20) 계산을 위해 최소 21일 이상의 과거 데이터가 필요하므로 30일치를 넘깁니다.
+        df_feat = self.feature_builder.process(data.iloc[-30:], is_training=False)
         latest_feat = df_feat[self.feature_cols].dropna().iloc[-1:] # 오늘자 데이터
 
         if latest_feat.empty:
