@@ -21,6 +21,9 @@ class IntradayTechnicalSnapshot:
     rsi14: float | None = None
     obv_trend: str = "데이터 부족"
     bb_position: str = "데이터 부족"
+    bb_upper: float | None = None
+    bb_middle: float | None = None
+    bb_lower: float | None = None
     volume_ratio_20: float | None = None
     candle_label: str = "보통"
     support: float | None = None
@@ -56,24 +59,34 @@ def _obv_trend(close: pd.Series, volume: pd.Series) -> str:
     return "보합"
 
 
-def _bb_position(close: pd.Series, period: int = 20, mult: float = 2.0) -> str:
+def _bb_bands(
+    close: pd.Series, period: int = 20, mult: float = 2.0
+) -> tuple[str, float | None, float | None, float | None]:
+    """Return (position_label, upper, middle, lower) for Bollinger Bands."""
     if len(close) < period:
-        return "데이터 부족"
+        return "데이터 부족", None, None, None
     sma = close.rolling(period).mean()
     std = close.rolling(period).std()
-    upper = (sma + mult * std).iloc[-1]
-    lower = (sma - mult * std).iloc[-1]
-    mid = sma.iloc[-1]
-    if pd.isna(upper) or pd.isna(lower):
-        return "데이터 부족"
+    upper_val = (sma + mult * std).iloc[-1]
+    lower_val = (sma - mult * std).iloc[-1]
+    mid_val = sma.iloc[-1]
+    if pd.isna(upper_val) or pd.isna(lower_val):
+        return "데이터 부족", None, None, None
+    u, m, lo = float(upper_val), float(mid_val), float(lower_val)
     last = float(close.iloc[-1])
-    if last > upper:
-        return "상단돌파"
-    if last > mid:
-        return "중단~상단"
-    if last > lower:
-        return "하단~중단"
-    return "하단이탈"
+    if last > u:
+        label = "상단돌파"
+    elif last > m:
+        label = "중단~상단"
+    elif last > lo:
+        label = "하단~중단"
+    else:
+        label = "하단이탈"
+    return label, u, m, lo
+
+
+def _bb_position(close: pd.Series, period: int = 20, mult: float = 2.0) -> str:
+    return _bb_bands(close, period, mult)[0]
 
 
 def _candle_label(last_row: pd.Series) -> str:
@@ -103,7 +116,7 @@ def compute_4h_snapshot(symbol: str, df_4h: pd.DataFrame) -> IntradayTechnicalSn
 
     rsi = _rsi(close)
     obv = _obv_trend(close, volume)
-    bb = _bb_position(close)
+    bb, bb_u, bb_m, bb_l = _bb_bands(close)
 
     vol_ratio: float | None = None
     if len(volume) >= 21:
@@ -140,6 +153,9 @@ def compute_4h_snapshot(symbol: str, df_4h: pd.DataFrame) -> IntradayTechnicalSn
         rsi14=rsi,
         obv_trend=obv,
         bb_position=bb,
+        bb_upper=bb_u,
+        bb_middle=bb_m,
+        bb_lower=bb_l,
         volume_ratio_20=vol_ratio,
         candle_label=candle,
         support=support,
@@ -217,7 +233,19 @@ def format_4h_section(snap: IntradayTechnicalSnapshot) -> str:
     lines: list[str] = []
     rsi_str = f"RSI {snap.rsi14:.1f}" if snap.rsi14 is not None else "RSI 미확인(캔들부족)"
     vol_str = f"거래량 {snap.volume_ratio_20:.1f}배" if snap.volume_ratio_20 is not None else ""
-    parts = [rsi_str, f"볼린저 {snap.bb_position}", f"OBV {snap.obv_trend}"]
+    is_kr = snap.symbol.endswith(".KS") or snap.symbol.endswith(".KQ")
+
+    def _fmt(v: float) -> str:
+        return f"{v:,.0f}" if is_kr else f"{v:.2f}"
+
+    if snap.bb_upper is not None and snap.bb_lower is not None and snap.bb_middle is not None:
+        bb_str = (
+            f"BB {snap.bb_position} "
+            f"(상{_fmt(snap.bb_upper)}/중{_fmt(snap.bb_middle)}/하{_fmt(snap.bb_lower)})"
+        )
+    else:
+        bb_str = f"볼린저 {snap.bb_position}"
+    parts = [rsi_str, bb_str, f"OBV {snap.obv_trend}"]
     if vol_str:
         parts.append(vol_str)
     lines.append(f"4시간봉: {' / '.join(parts)}")

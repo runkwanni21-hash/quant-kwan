@@ -433,15 +433,30 @@ def build_scenario(
         def _fmt(v: float) -> str:
             return f"{v:,.0f}" if is_kr else f"{v:.2f}"
 
-        entry_low = support * 0.99
-        entry_high = min(close * 1.01, resistance * 0.97)
-        stop = support - atr
-        target = resistance
-
-        entry_zone = f"{_fmt(entry_low)}~{_fmt(entry_high)} 눌림 확인 후 분할 접근"
-        stop_loss = f"{_fmt(stop)} 하향 이탈 시 리스크 관리"
-        take_profit = f"{_fmt(target)} 저항 구간 관심"
-        invalidation = f"{_fmt(stop)} 종가 하향이탈 시 시나리오 무효화"
+        # Use Bollinger Bands when available (daily): middle=entry, upper=target, lower=stop
+        bb_mid = technical.bb_middle
+        bb_up = technical.bb_upper
+        bb_lo = technical.bb_lower
+        if bb_mid is not None and bb_up is not None and bb_lo is not None:
+            entry_low = bb_lo * 1.005
+            entry_high = bb_mid
+            stop = bb_lo * 0.985
+            target = bb_up
+            entry_zone = (
+                f"{_fmt(entry_low)}~{_fmt(entry_high)} (BB 중단 이하 눌림 진입)"
+            )
+            stop_loss = f"{_fmt(stop)} (BB 하단 이탈 시 손절)"
+            take_profit = f"{_fmt(target)} (BB 상단 저항 목표)"
+            invalidation = f"{_fmt(stop)} 종가 하향이탈 시 시나리오 무효화"
+        else:
+            entry_low = support * 0.99
+            entry_high = min(close * 1.01, resistance * 0.97)
+            stop = support - atr
+            target = resistance
+            entry_zone = f"{_fmt(entry_low)}~{_fmt(entry_high)} 눌림 확인 후 분할 접근"
+            stop_loss = f"{_fmt(stop)} 하향 이탈 시 리스크 관리"
+            take_profit = f"{_fmt(target)} 저항 구간 관심"
+            invalidation = f"{_fmt(stop)} 종가 하향이탈 시 시나리오 무효화"
 
         parts = [f"종가 {_fmt(close)}", f"추세: {technical.trend_label}"]
         if technical.rsi14 is not None:
@@ -480,7 +495,13 @@ def build_scenario(
         if technical.obv_trend not in ("데이터 부족", ""):
             chart_lines.append(f"OBV: {technical.obv_trend}")
         if technical.bb_position not in ("데이터 부족", ""):
-            chart_lines.append(f"볼린저: {technical.bb_position}")
+            if technical.bb_upper is not None and technical.bb_lower is not None:
+                _fmtc = (lambda v: f"{v:,.0f}") if candidate.symbol.endswith((".KS", ".KQ")) else (lambda v: f"{v:.2f}")
+                chart_lines.append(
+                    f"볼린저 {technical.bb_position}: 상{_fmtc(technical.bb_upper)}/중{_fmtc(technical.bb_middle)}/하{_fmtc(technical.bb_lower)}"
+                )
+            else:
+                chart_lines.append(f"볼린저: {technical.bb_position}")
         if technical.candle_label not in ("보통", ""):
             chart_lines.append(f"캔들: {technical.candle_label}")
         if technical.volume_ratio_20d is not None:

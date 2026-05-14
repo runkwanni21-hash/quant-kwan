@@ -1702,6 +1702,28 @@ def ops_doctor() -> None:
         f"  Frankfurter 환율: {'[green]활성화[/green]' if fr_ok else '[dim]비활성화[/dim]'}"
     )
 
+    # OpenDART
+    dart_ok = getattr(ext_settings, "opendart_enabled", True)
+    dart_key = bool(getattr(ext_settings, "opendart_api_key", ""))
+    if dart_ok and dart_key:
+        console.print("[green]OpenDART: 활성화 + API 키 설정됨 (한국 공시)[/green]")
+    elif dart_ok:
+        console.print("[yellow]OpenDART: 활성화 — API 키 미설정 (OPENDART_API_KEY 필요)[/yellow]")
+        recs.append("[yellow]WARN OpenDART: OPENDART_API_KEY 설정 시 한국 공시 수집 가능[/yellow]")
+    else:
+        console.print("[dim]OpenDART: 비활성화[/dim]")
+
+    # Finnhub
+    fh_ok = getattr(ext_settings, "finnhub_enabled", True)
+    fh_key = bool(getattr(ext_settings, "finnhub_api_key", ""))
+    if fh_ok and fh_key:
+        console.print("[green]Finnhub: 활성화 + API 키 설정됨 (미국 뉴스 + 경제 캘린더)[/green]")
+    elif fh_ok:
+        console.print("[yellow]Finnhub: 활성화 — API 키 미설정 (FINNHUB_API_KEY 필요)[/yellow]")
+        recs.append("[yellow]WARN Finnhub: FINNHUB_API_KEY 설정 시 미국 뉴스 + 경제 캘린더 활성화[/yellow]")
+    else:
+        console.print("[dim]Finnhub: 비활성화[/dim]")
+
     # pytrends 설치 여부
     try:
         import importlib

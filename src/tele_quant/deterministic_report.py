@@ -368,6 +368,7 @@ def build_macro_digest(
     prev_sector_sentiments: dict[str, dict] | None = None,
     market_narrative: str = "",
     external_data: dict[str, Any] | None = None,
+    settings: Any = None,
 ) -> str:
     """4시간 투자 브리핑 형태의 deterministic digest를 생성한다."""
 
@@ -464,6 +465,19 @@ def build_macro_digest(
                 lines.append("📊 시장 심리 & 실시간 지표")
                 for il in indicator_lines:
                     lines.append(f"- {il}")
+                lines.append("")
+        except Exception:
+            pass
+
+    # 0-D. 경제 캘린더 (향후 주요 일정)
+    if settings is not None:
+        try:
+            from tele_quant.economic_calendar import build_calendar_section
+
+            _lookahead = getattr(settings, "economic_calendar_lookahead_days", 14)
+            _cal_section = build_calendar_section(settings, lookahead_days=_lookahead)
+            if _cal_section:
+                lines.append(_cal_section)
                 lines.append("")
         except Exception:
             pass

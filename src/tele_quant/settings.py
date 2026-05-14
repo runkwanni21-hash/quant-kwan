@@ -247,6 +247,26 @@ class Settings(BaseSettings):
     sec_timeout_seconds: float = 10.0
     sec_rate_limit_per_sec: int = 8
 
+    # OpenDART (한국 공시)
+    opendart_enabled: bool = True
+    opendart_api_key: str = ""
+    opendart_lookback_days: int = 3
+    opendart_max_per_symbol: int = 3
+    opendart_timeout_seconds: float = 10.0
+    opendart_rate_limit_per_sec: int = 5
+
+    # Finnhub (미국 주식 뉴스 + 경제 캘린더)
+    finnhub_enabled: bool = True
+    finnhub_api_key: str = ""
+    finnhub_lookback_days: int = 2
+    finnhub_max_per_symbol: int = 5
+    finnhub_max_symbols: int = 8
+    finnhub_timeout_seconds: float = 10.0
+    finnhub_rate_limit_per_sec: int = 10
+
+    # 경제 캘린더
+    economic_calendar_lookahead_days: int = 14
+
     # Relation feed (stock-relation-ai 공유 피드)
     relation_feed_enabled: bool = True
     relation_feed_dir: str = "/home/kwanni/projects/quant_spillover/shared_relation_feed"

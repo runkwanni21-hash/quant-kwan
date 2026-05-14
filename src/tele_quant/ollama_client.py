@@ -642,10 +642,10 @@ class OllamaClient:
             return empty
 
     async def generate_stock_plain_summary(self, scenario: Any, side: str = "long") -> str:
-        """종목별 초보자용 한국어 서술 설명 생성 (2-3문장).
+        """퀀트 투자 전문가 관점의 종목 분석 요약 생성 (3-4문장).
 
-        side="long"  : 왜 주목받는지 + 무엇을 조심해야 하는지
-        side="short" : 왜 약세/위험한지 + 반전 가능 조건
+        side="long"  : 기술적 근거 + 진입/목표/손절 가격 + 촉매 해석
+        side="short" : 약세 근거 + 리스크 관리 + 반전 조건
         실패하면 빈 문자열 반환.
         """
         name = getattr(scenario, "name", None) or getattr(scenario, "symbol", "")
@@ -655,52 +655,89 @@ class OllamaClient:
         reasons_up = getattr(scenario, "reasons_up", []) or []
         reasons_down = getattr(scenario, "reasons_down", []) or []
         risk_notes = getattr(scenario, "risk_notes", []) or []
-        tech_summary = getattr(scenario, "technical_summary", "") or ""
-        intraday = getattr(scenario, "intraday_4h_summary", "") or ""
+        entry_zone = getattr(scenario, "entry_zone", "") or ""
+        stop_loss = getattr(scenario, "stop_loss", "") or ""
+        take_profit = getattr(scenario, "take_profit", "") or ""
 
-        tech_str = intraday.splitlines()[0] if intraday else tech_summary[:60]
+        # 4H 지표
+        rsi_4h = getattr(scenario, "rsi_4h", None)
+        obv_4h = getattr(scenario, "obv_4h", "") or ""
+        bb_4h = getattr(scenario, "bollinger_4h", "") or ""
+        bb_u4h = getattr(scenario, "bb_upper_4h", None)
+        bb_m4h = getattr(scenario, "bb_middle_4h", None)
+        bb_l4h = getattr(scenario, "bb_lower_4h", None)
+
+        # 3D(일봉) 지표
+        rsi_3d = getattr(scenario, "rsi_3d", None)
+        obv_3d = getattr(scenario, "obv_3d", "") or ""
+        bb_3d = getattr(scenario, "bollinger_3d", "") or ""
+
+        is_kr = symbol.endswith(".KS") or symbol.endswith(".KQ")
+
+        def _fp(v: float) -> str:
+            return f"{v:,.0f}" if is_kr else f"{v:.2f}"
+
+        rsi_4h_str = f"RSI {rsi_4h:.1f}" if rsi_4h is not None else "RSI N/A"
+        rsi_3d_str = f"RSI {rsi_3d:.1f}" if rsi_3d is not None else "RSI N/A"
+        bb_4h_price = ""
+        if bb_u4h is not None and bb_m4h is not None and bb_l4h is not None:
+            bb_4h_price = f" (상{_fp(bb_u4h)}/중{_fp(bb_m4h)}/하{_fp(bb_l4h)})"
+
+        tech_block = (
+            f"4시간봉: {rsi_4h_str} | OBV {obv_4h or 'N/A'} | BB {bb_4h or 'N/A'}{bb_4h_price}\n"
+            f"3일봉: {rsi_3d_str} | OBV {obv_3d or 'N/A'} | BB {bb_3d or 'N/A'}"
+        )
 
         if side == "short":
-            reasons_str = ", ".join(reasons_down[:2]) if reasons_down else "악재 신호 포착"
+            catalyst = ", ".join(reasons_down[:2]) if reasons_down else "하락 신호 포착"
             risk_str = risk_notes[0][:80] if risk_notes else "추세 반전 가능성"
             context = (
-                f"종목: {name} ({symbol})\n"
+                f"# {symbol} ({name}) — 약세 시나리오\n"
                 f"점수: {score:.0f}/100 ({grade})\n"
-                f"약세 이유: {reasons_str}\n"
-                f"기술적 상황: {tech_str}\n"
-                f"반전 조건(무효화): {risk_str}"
+                f"{tech_block}\n"
+                f"진입: {entry_zone}\n"
+                f"손절: {stop_loss}\n"
+                f"약세 근거: {catalyst}\n"
+                f"무효화 조건: {risk_str}"
             )
-            prompt = (
-                "아래 종목 분석 데이터를 주식을 잘 모르는 초보 투자자에게 설명하는 2~3문장을 작성하세요.\n"
-                "왜 이 종목이 지금 약세·조정 우려를 받는지, 어떤 상황이 되면 위험 신호가 해소되는지 중심으로.\n"
-                "전문 용어는 쉬운 말로. 투자를 확정 권유하지 마세요.\n\n"
+            system_msg = "당신은 퀀트 투자 전문가입니다. /no_think"
+            user_msg = (
+                "아래 종목 데이터를 바탕으로 퀀트 투자자 관점에서 3~4문장으로 분석하세요.\n"
+                "RSI·OBV·볼린저밴드 수치를 구체적으로 언급하고, 약세 근거와 포지션 관리 방법을 설명하세요.\n"
+                "매수/매도를 확정 권유하지 마세요. 가격 레벨을 구체적으로 언급하세요.\n\n"
                 + context
             )
         else:
-            reasons_str = ", ".join(reasons_up[:2]) if reasons_up else "뉴스 언급 증가"
+            catalyst = ", ".join(reasons_up[:2]) if reasons_up else "뉴스 언급 증가"
             risk_str = risk_notes[0][:80] if risk_notes else "없음"
             context = (
-                f"종목: {name} ({symbol})\n"
+                f"# {symbol} ({name}) — 강세 시나리오\n"
                 f"점수: {score:.0f}/100 ({grade})\n"
-                f"주목 이유: {reasons_str}\n"
-                f"기술적 상황: {tech_str}\n"
-                f"주요 리스크: {risk_str}"
+                f"{tech_block}\n"
+                f"진입: {entry_zone}\n"
+                f"목표: {take_profit}\n"
+                f"손절: {stop_loss}\n"
+                f"촉매: {catalyst}\n"
+                f"리스크: {risk_str}"
             )
-            prompt = (
-                "아래 종목 분석 데이터를 주식을 잘 모르는 초보 투자자에게 설명하는 2~3문장을 작성하세요.\n"
-                "왜 이 종목이 지금 주목받는지, 어떤 것을 조심해야 하는지 중심으로.\n"
-                "전문 용어(RSI, MACD 등)는 쉬운 말로 풀어서. 투자를 확정 권유하지 마세요.\n\n"
+            system_msg = "당신은 퀀트 투자 전문가입니다. /no_think"
+            user_msg = (
+                "아래 종목 데이터를 바탕으로 퀀트 투자자 관점에서 3~4문장으로 분석하세요.\n"
+                "4시간봉·3일봉의 RSI·OBV·볼린저밴드 수치를 구체적으로 언급하고, "
+                "기술적 근거와 진입·목표·손절 가격 레벨을 설명하세요.\n"
+                "촉매(뉴스/이벤트)와 기술 신호를 연결하여 서술하세요. "
+                "매수/매도를 확정 권유하지 마세요.\n\n"
                 + context
             )
         timeout = getattr(self.settings, "ollama_stock_summary_timeout_seconds", 90.0)
         payload: dict[str, Any] = {
             "model": self.settings.ollama_chat_model,
             "messages": [
-                {"role": "system", "content": "한국어 주식 초보자 안내 전문가. /no_think"},
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": user_msg},
             ],
             "stream": False,
-            "options": {"temperature": 0.2, "num_ctx": 4096},
+            "options": {"temperature": 0.15, "num_ctx": 4096},
         }
         _FORBIDDEN_RE = re.compile(
             r"무조건\s*매수|반드시\s*상승|확정\s*수익|Buy\s*Now", re.IGNORECASE
@@ -715,7 +752,7 @@ class OllamaClient:
             result = (data.get("message", {}).get("content", "") or "").strip()
             if _FORBIDDEN_RE.search(result):
                 return ""
-            return result[:400] if len(result) > 30 else ""
+            return result[:600] if len(result) > 30 else ""
         except Exception as exc:
             log.warning("[ollama] generate_stock_plain_summary failed: %s", type(exc).__name__)
             return ""

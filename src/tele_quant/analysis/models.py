@@ -168,6 +168,9 @@ class TradeScenario:
     rsi_4h: float | None = None
     obv_4h: str = ""
     bollinger_4h: str = ""
+    bb_upper_4h: float | None = None
+    bb_middle_4h: float | None = None
+    bb_lower_4h: float | None = None
     # 3D 기술지표 (daily technical snapshot에서 추출)
     rsi_3d: float | None = None
     obv_3d: str = ""

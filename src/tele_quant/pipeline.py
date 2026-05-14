@@ -345,6 +345,7 @@ class TeleQuantPipeline:
             prev_sector_sentiments=prev_sector_sentiments,
             market_narrative=market_narrative,
             external_data=external_data,
+            settings=self.settings,
         )
         log.info("[digest] mode=%s deterministic=ok", self.settings.digest_mode)
 
@@ -681,6 +682,9 @@ class TeleQuantPipeline:
                             scenario.rsi_4h = snap_4h.rsi14
                             scenario.obv_4h = snap_4h.obv_trend
                             scenario.bollinger_4h = snap_4h.bb_position
+                            scenario.bb_upper_4h = snap_4h.bb_upper
+                            scenario.bb_middle_4h = snap_4h.bb_middle
+                            scenario.bb_lower_4h = snap_4h.bb_lower
                         except Exception:
                             pass
 
@@ -910,6 +914,36 @@ class TeleQuantPipeline:
                         log.info("[pipeline] sec 8-K inserted: %d items", len(_inserted_sec))
                 except Exception as _sec_exc:
                     log.debug("[pipeline] sec fetch failed: %s", _sec_exc)
+
+            # OpenDART 한국 공시
+            if not macro_only and getattr(self.settings, "opendart_enabled", True):
+                try:
+                    from tele_quant.opendart_client import fetch_dart_for_watchlist
+
+                    _dart_items = await asyncio.to_thread(
+                        fetch_dart_for_watchlist, self.settings, watchlist_cfg
+                    )
+                    if _dart_items:
+                        _inserted_dart = self.store.insert_items(_dart_items)
+                        kept = kept + _inserted_dart
+                        log.info("[pipeline] opendart inserted: %d items", len(_inserted_dart))
+                except Exception as _dart_exc:
+                    log.debug("[pipeline] opendart fetch failed: %s", _dart_exc)
+
+            # Finnhub 미국 주식 뉴스
+            if not macro_only and getattr(self.settings, "finnhub_enabled", True):
+                try:
+                    from tele_quant.finnhub_client import fetch_finnhub_for_watchlist
+
+                    _fh_items = await asyncio.to_thread(
+                        fetch_finnhub_for_watchlist, self.settings, watchlist_cfg
+                    )
+                    if _fh_items:
+                        _inserted_fh = self.store.insert_items(_fh_items)
+                        kept = kept + _inserted_fh
+                        log.info("[pipeline] finnhub inserted: %d items", len(_inserted_fh))
+                except Exception as _fh_exc:
+                    log.debug("[pipeline] finnhub fetch failed: %s", _fh_exc)
 
             # 외부 지표 병렬 fetch (Fear&Greed + FRED + EIA + ECOS + ECB + Frankfurter)
             _external_data: dict[str, Any] = {}
