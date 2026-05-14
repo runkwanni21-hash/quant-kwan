@@ -2,28 +2,22 @@ import pandas as pd
 import joblib
 import os
 from abc import ABC, abstractmethod
+# AS-IS: 타입 힌팅 부재
+# TO-BE: 강력한 타입 힌팅을 위해 typing 모듈 추가
+from typing import Dict, Any
 
 class BaseFeatureBuilder(ABC):
-    """
-    모든 피처 빌더(Feature Builder)가 반드시 지켜야 하는 규칙 (Interface)
-    """
+    """모든 피처 빌더(Feature Builder)가 반드시 지켜야 하는 규칙 (Interface)"""
     
     @abstractmethod
     def build_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """순수 피처(X)를 생성하는 로직을 구현해야 합니다."""
         pass
 
     @abstractmethod
     def build_labels(self, df: pd.DataFrame) -> pd.DataFrame:
-        """정답지(y, Target)를 생성하는 로직을 구현해야 합니다."""
         pass
 
     def process(self, df: pd.DataFrame, is_training: bool = False) -> pd.DataFrame:
-        """
-        [템플릿 메서드] 
-        데이터를 받아 피처를 만들고, 학습 모드일 때만 정답지를 추가합니다.
-        자식 클래스는 이 함수를 덮어쓰지 않고 그대로 사용합니다.
-        """
         out = self.build_features(df)
         if is_training:
             out = self.build_labels(out)
@@ -31,31 +25,35 @@ class BaseFeatureBuilder(ABC):
 
 
 class QuantitativeModel(ABC):
-    """
-    모든 퀀트 AI 모델(LGBM, PCA 등)이 반드시 지켜야 하는 규칙 (Interface)
-    """
-    def __init__(self, name: str):
+    """모든 퀀트 AI 모델이 반드시 지켜야 하는 규칙 (Interface)"""
+    
+    # AS-IS: def __init__(self, name: str):
+    # TO-BE: 생성자의 반환형(None) 명시
+    def __init__(self, name: str) -> None:
         self.name = name
         self.is_fitted = False
         
     @abstractmethod
-    def fit(self, data: pd.DataFrame):
-        """데이터를 받아 모델을 학습시키는 로직을 구현해야 합니다."""
+    # AS-IS: def fit(self, data: pd.DataFrame):
+    # TO-BE: 반환형(None) 명시
+    def fit(self, data: pd.DataFrame) -> None:
         pass
         
     @abstractmethod
-    def predict(self, data: pd.DataFrame) -> dict:
-        """데이터를 받아 확률, 점수 등의 예측 결과를 딕셔너리로 반환해야 합니다."""
+    # AS-IS: def predict(self, data: pd.DataFrame) -> dict:
+    # TO-BE: 구체화된 Dict 구조 명시
+    def predict(self, data: pd.DataFrame) -> Dict[str, Any]:
         pass
         
     @abstractmethod
-    def get_signal(self):
-        """최종적으로 황제(Emperor)에게 전달할 상태/신호를 반환해야 합니다."""
+    # AS-IS: def get_signal(self):
+    # TO-BE: Manager가 기대하는 숫자형(float) 타입으로 반환형 명시
+    def get_signal(self) -> float:
         pass
     
-    # 🌟 [추가] 모델 추출 (Save)
-    def save(self, folder_path: str = "checkpoints"):
-        """학습된 모델 객체 전체를 파일로 저장합니다."""
+    # AS-IS: def save(self, folder_path: str = "checkpoints"):
+    # TO-BE: 반환형 명시
+    def save(self, folder_path: str = "checkpoints") -> None:
         if not self.is_fitted:
             print(f"⚠️ [{self.name}] 모델이 학습되지 않아 저장할 수 없습니다.")
             return
@@ -67,10 +65,10 @@ class QuantitativeModel(ABC):
         joblib.dump(self, file_path)
         print(f"💾 [{self.name}] 모델이 성공적으로 추출되었습니다: {file_path}")
 
-    # 🌟 [추가] 모델 로딩 (Load)
     @classmethod
-    def load(cls, file_path: str):
-        """저장된 모델 파일을 읽어와 인스턴스를 복원합니다."""
+    # AS-IS: def load(cls, file_path: str):
+    # TO-BE: 반환형을 자기 자신 클래스(QuantitativeModel)로 명시
+    def load(cls, file_path: str) -> 'QuantitativeModel':
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"🚨 모델 파일을 찾을 수 없습니다: {file_path}")
             

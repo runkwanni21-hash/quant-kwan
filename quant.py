@@ -3,40 +3,50 @@ import pandas as pd
 import json
 import warnings
 import math
-import os # 🌟 파일 존재 여부를 확인하기 위해 추가
+import os 
+from typing import List, Dict, Any # AS-IS: 누락됨 -> TO-BE: 추가
 warnings.filterwarnings("ignore")
 
+# (기존 import 문 유지...)
 from model.feature_builder import AdvancedMacroRegimeBuilder, LatentStressFeatureBuilder
 from model.lightgbm_model import LightGBMMultiRegimeModel
 from model.latent_stress_model import PCALatentStressModel
 
-def download_multi_data(tickers, start="2012-01-01"):
+# AS-IS: def download_multi_data(tickers, start="2012-01-01"):
+# TO-BE: tickers 리스트 타입 명시, 반환 타입(pd.DataFrame) 명시
+def download_multi_data(tickers: List[str], start: str = "2012-01-01") -> pd.DataFrame:
     print(f"데이터 다운로드 중: {tickers}...")
     df = yf.download(tickers, start=start, progress=False, auto_adjust=False)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [f"{col[0]}_{col[1]}" for col in df.columns]
     return df
 
-def fx_overlay_engine(df_slice: pd.DataFrame, state: dict) -> dict:
+# AS-IS: def fx_overlay_engine(df_slice: pd.DataFrame, state: dict) -> dict:
+# TO-BE: Dict의 내부 요소 타입(Any) 명시, 내부 변수 스칼라 타입 힌트 추가
+def fx_overlay_engine(df_slice: pd.DataFrame, state: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        dxy_mom_20d = df_slice["Close_DX-Y.NYB"].pct_change(20).iloc[-1]
-        dxy_vel_5d = df_slice["Close_DX-Y.NYB"].pct_change(5).iloc[-1]
-        dxy_mixed = (dxy_mom_20d * 0.7) + (dxy_vel_5d * 0.3)
-        dxy_score = max(min(dxy_mixed / 0.03, 1.0), -1.0) 
+        # AS-IS: 변수 타입 암시적 -> TO-BE: float 명시적 선언
+        dxy_mom_20d: float = df_slice["Close_DX-Y.NYB"].pct_change(20).iloc[-1]
+        dxy_vel_5d: float = df_slice["Close_DX-Y.NYB"].pct_change(5).iloc[-1]
+        dxy_mixed: float = (dxy_mom_20d * 0.7) + (dxy_vel_5d * 0.3)
+        dxy_score: float = max(min(dxy_mixed / 0.03, 1.0), -1.0) 
 
-        ewy_spy_ratio = df_slice["Close_EWY"] / df_slice["Close_SPY"]
-        ewy_mom_20d = ewy_spy_ratio.pct_change(20).iloc[-1]
-        ewy_vel_5d = ewy_spy_ratio.pct_change(5).iloc[-1]
-        ewy_mixed = (ewy_mom_20d * 0.7) + (ewy_vel_5d * 0.3)
-        ewy_score = max(min(ewy_mixed / 0.05, 1.0), -1.0) 
+        ewy_spy_ratio: pd.Series = df_slice["Close_EWY"] / df_slice["Close_SPY"]
+        ewy_mom_20d: float = ewy_spy_ratio.pct_change(20).iloc[-1]
+        ewy_vel_5d: float = ewy_spy_ratio.pct_change(5).iloc[-1]
+        ewy_mixed: float = (ewy_mom_20d * 0.7) + (ewy_vel_5d * 0.3)
+        ewy_score: float = max(min(ewy_mixed / 0.05, 1.0), -1.0) 
 
-        transition = state.get("transition_risk", 0.5)
-        macro_fx_pressure = (ewy_score * 0.6) - (dxy_score * 0.4)
-        panic_zone = max(transition - 0.55, 0.0)
-        panic_penalty = (panic_zone ** 2) * 4.0 
+        transition: float = float(state.get("transition_risk", 0.5))
+        macro_fx_pressure: float = (ewy_score * 0.6) - (dxy_score * 0.4)
+        panic_zone: float = max(transition - 0.55, 0.0)
+        panic_penalty: float = (panic_zone ** 2) * 4.0 
         
-        krw_strength_score = macro_fx_pressure - panic_penalty
-        final_score = max(min(krw_strength_score, 1.0), -1.0)
+        krw_strength_score: float = macro_fx_pressure - panic_penalty
+        final_score: float = max(min(krw_strength_score, 1.0), -1.0)
+        
+        bias: str = ""
+        hedge_ratio: float = 0.0
         
         if final_score > 0.7:
             bias = "STRONG_KRW (100% 환헤지 - 원화 강세 랠리)"
@@ -62,37 +72,41 @@ def fx_overlay_engine(df_slice: pd.DataFrame, state: dict) -> dict:
     except Exception:
         return {"krw_score": 0.0, "fx_bias": "NEUTRAL (Data Error)", "hedge_ratio": 0.0}
 
-def calculate_final_exposure(state: dict) -> float:
-    pred_return = state.get("expected_return", 0.0)
-    fragility_z = state.get("fragility_z_score", 0.0)
-    transition_risk = state.get("transition_risk", 0.5)
+# AS-IS: def calculate_final_exposure(state: dict) -> float:
+# TO-BE: Dict 구조 구체화, 내부 변수 float 타입 명시
+def calculate_final_exposure(state: Dict[str, Any]) -> float:
+    pred_return: float = float(state.get("expected_return", 0.0))
+    fragility_z: float = float(state.get("fragility_z_score", 0.0))
+    transition_risk: float = float(state.get("transition_risk", 0.5))
     
-    k = 10.0 
-    base_weight = 1.0 / (1.0 + math.exp(-k * pred_return))
+    k: float = 10.0 
+    base_weight: float = 1.0 / (1.0 + math.exp(-k * pred_return))
     
-    stress_penalty = max(0.0, min(fragility_z / 3.0, 0.7))
-    transition_penalty = transition_risk * 0.5
+    stress_penalty: float = max(0.0, min(fragility_z / 3.0, 0.7))
+    transition_penalty: float = transition_risk * 0.5
     
-    final_weight = base_weight * (1.0 - stress_penalty) * (1.0 - transition_penalty)
+    final_weight: float = base_weight * (1.0 - stress_penalty) * (1.0 - transition_penalty)
     return round(max(0.0, min(final_weight, 1.0)), 3)
 
-
-def main():
+def main() -> None:
     print("=== Institutional Multi-Layer Allocator (w/ FX Overlay) ===\n")
     
-    tickers = [
+    # AS-IS: tickers = [...]
+    # TO-BE: 명시적인 문자열 리스트로 타입 지정
+    tickers: List[str] = [
         "SPY", "QQQ", "EWY", "RSP", "^TNX", "^IRX", "DX-Y.NYB", 
         "HYG", "LQD", "GLD", "USO", "^VIX", "^VIX3M", "KRW=X",
         "IEF", "SMH", "XLY", "XLP"
     ]
-    df = download_multi_data(tickers, start="2012-01-01")
-    total_len = len(df)
+    df: pd.DataFrame = download_multi_data(tickers, start="2012-01-01")
+    total_len: int = len(df)
     
-    # 🌟 모델 파일 경로 지정
-    macro_model_path = "models/v1/Macro_AI.pkg"
-    stress_model_path = "models/v1/Fragility_AI.pkg"
+    macro_model_path: str = "models/v1/Macro_AI.pkg"
+    stress_model_path: str = "models/v1/Fragility_AI.pkg"
     
-    results = []
+    # AS-IS: results = []
+    # TO-BE: 결과를 담는 리스트의 내부 딕셔너리 구조 명시
+    results: List[Dict[str, Any]] = []
 
     # =========================================================
     # 분기 1: 저장된 모델이 존재할 경우 (🚀 초고속 실전 추론 모드)
