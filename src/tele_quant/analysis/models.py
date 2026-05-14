@@ -4,6 +4,44 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class SmartReaderResult:
+    """Ollama smart_read() 의 구조화 출력. 4H 텔레그램 전처리 결과."""
+
+    macro_summary: str = ""
+    key_events: list[str] = field(default_factory=list)
+    bullish_items: list[dict] = field(default_factory=list)   # [{name, reason, importance}]
+    bearish_items: list[dict] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    raw_item_count: int = 0
+    filtered_noise: int = 0
+
+    def as_narrative_text(self) -> str:
+        """digest의 '📰 AI가 읽은 4시간 뉴스' 섹션용 텍스트."""
+        parts: list[str] = []
+        if self.macro_summary:
+            parts.append(self.macro_summary)
+        if self.key_events:
+            parts.append("핵심 이슈: " + " / ".join(self.key_events[:4]))
+        if self.bullish_items:
+            names = ", ".join(
+                f"{b.get('name','?')}({b.get('reason','')[:20]})" for b in self.bullish_items[:3]
+            )
+            parts.append(f"주목 호재: {names}")
+        if self.bearish_items:
+            names = ", ".join(
+                f"{b.get('name','?')}({b.get('reason','')[:20]})" for b in self.bearish_items[:2]
+            )
+            parts.append(f"주의 악재: {names}")
+        if self.risks:
+            parts.append("리스크: " + " / ".join(self.risks[:2]))
+        return "\n".join(parts)
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.macro_summary or self.key_events or self.bullish_items)
+
+
+@dataclass
 class StockCandidate:
     symbol: str
     name: str | None

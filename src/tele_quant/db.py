@@ -140,6 +140,21 @@ CREATE TABLE IF NOT EXISTS sentiment_history (
 
 CREATE INDEX IF NOT EXISTS idx_sentiment_history_created_at ON sentiment_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_sentiment_history_sector ON sentiment_history(sector);
+
+CREATE TABLE IF NOT EXISTS narrative_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    report_id INTEGER,
+    hours REAL NOT NULL DEFAULT 4.0,
+    macro_summary TEXT NOT NULL DEFAULT '',
+    key_events_json TEXT NOT NULL DEFAULT '[]',
+    bullish_json TEXT NOT NULL DEFAULT '[]',
+    bearish_json TEXT NOT NULL DEFAULT '[]',
+    risks_json TEXT NOT NULL DEFAULT '[]',
+    raw_item_count INTEGER NOT NULL DEFAULT 0,
+    filtered_noise INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_narrative_history_created_at ON narrative_history(created_at);
 """
 
 # Columns added after initial schema — applied via ALTER TABLE in _init
@@ -539,6 +554,62 @@ class Store:
         with self.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    def save_narrative(
+        self,
+        result: Any,  # SmartReaderResult
+        report_id: int | None = None,
+        hours: float = 4.0,
+    ) -> None:
+        """Ollama smart_read 결과를 narrative_history에 저장."""
+        import json as _json
+
+        now = utc_now().isoformat()
+        with self.connect() as conn:
+            conn.execute(
+                """INSERT INTO narrative_history
+                   (created_at, report_id, hours,
+                    macro_summary, key_events_json, bullish_json, bearish_json,
+                    risks_json, raw_item_count, filtered_noise)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    now,
+                    report_id,
+                    hours,
+                    getattr(result, "macro_summary", "") or "",
+                    _json.dumps(getattr(result, "key_events", []) or [], ensure_ascii=False),
+                    _json.dumps(getattr(result, "bullish_items", []) or [], ensure_ascii=False),
+                    _json.dumps(getattr(result, "bearish_items", []) or [], ensure_ascii=False),
+                    _json.dumps(getattr(result, "risks", []) or [], ensure_ascii=False),
+                    getattr(result, "raw_item_count", 0),
+                    getattr(result, "filtered_noise", 0),
+                ),
+            )
+
+    def recent_narratives(
+        self,
+        since: datetime,
+        limit: int = 40,
+    ) -> list[dict[str, Any]]:
+        """최근 narrative_history 조회. 주간 리포트 등에서 사용."""
+        import json as _json
+
+        sql = (
+            "SELECT * FROM narrative_history WHERE created_at >= ?"
+            " ORDER BY created_at DESC LIMIT ?"
+        )
+        with self.connect() as conn:
+            rows = conn.execute(sql, [since.isoformat(), limit]).fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            for col in ("key_events_json", "bullish_json", "bearish_json", "risks_json"):
+                try:
+                    d[col] = _json.loads(d.get(col) or "[]")
+                except Exception:
+                    d[col] = []
+            result.append(d)
+        return result
 
     def save_mover_chain(self, relation_feed: Any, report_id: int | None = None) -> int:
         """Save lead-lag rows from relation feed. Returns count of inserted rows.

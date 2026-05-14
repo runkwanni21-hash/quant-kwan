@@ -757,6 +757,7 @@ def build_weekly_deterministic_summary(
     pair_watch_review: str | None = None,
     long_short_signal_review: str | None = None,  # deprecated — ignored if short_entries passed
     short_entries: list[dict] | None = None,
+    narratives: list[dict] | None = None,
 ) -> str:
     wi = weekly_input
 
@@ -1131,6 +1132,43 @@ def build_weekly_deterministic_summary(
     # 10. 선행·후행 페어 관찰 성과 (pair watch weekly review)
     if pair_watch_review:
         lines.append("10. " + pair_watch_review)
+        lines.append("")
+
+    # 11. 이번 주 AI 독해 요약 (narrative_history에서 로드)
+    if narratives:
+        lines.append("11. 📰 이번 주 AI 독해 요약")
+        # Collect unique macro summaries (most recent first)
+        seen_macro: set[str] = set()
+        macro_shown = 0
+        for nar in narratives[:10]:
+            macro = (nar.get("macro_summary") or "").strip()
+            if macro and macro not in seen_macro:
+                seen_macro.add(macro)
+                lines.append(f"- {macro[:120]}")
+                macro_shown += 1
+                if macro_shown >= 3:
+                    break
+        # Aggregate bullish/bearish across narratives
+        bullish_counter: dict[str, int] = {}
+        bearish_counter: dict[str, int] = {}
+        for nar in narratives:
+            for b in nar.get("bullish_json") or []:
+                name = b.get("name", "") if isinstance(b, dict) else str(b)
+                if name:
+                    bullish_counter[name] = bullish_counter.get(name, 0) + 1
+            for b in nar.get("bearish_json") or []:
+                name = b.get("name", "") if isinstance(b, dict) else str(b)
+                if name:
+                    bearish_counter[name] = bearish_counter.get(name, 0) + 1
+        if bullish_counter:
+            top_bull = sorted(bullish_counter.items(), key=lambda x: -x[1])[:4]
+            lines.append("▸ 주간 반복 호재 종목: " + ", ".join(f"{n}({c}회)" for n, c in top_bull))
+        if bearish_counter:
+            top_bear = sorted(bearish_counter.items(), key=lambda x: -x[1])[:3]
+            lines.append("▸ 주간 반복 악재 종목: " + ", ".join(f"{n}({c}회)" for n, c in top_bear))
+        if not macro_shown and not bullish_counter:
+            lines.append("- 이번 주 AI 독해 기록 없음")
+        lines.append(f"- (AI 독해 {len(narratives)}회 기록 기반)")
         lines.append("")
 
     lines += [

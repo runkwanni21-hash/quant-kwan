@@ -86,3 +86,74 @@ def test_stats_none_stored() -> None:
     since = datetime.now(UTC) - timedelta(days=1)
     reports = store.recent_run_reports(since=since)
     assert reports[0].stats == {}
+
+
+# --- narrative_history tests ---
+
+def _make_smart_result(macro: str = "테스트 매크로") -> object:
+    from tele_quant.analysis.models import SmartReaderResult
+
+    return SmartReaderResult(
+        macro_summary=macro,
+        key_events=["이벤트1", "이벤트2"],
+        bullish_items=[{"name": "삼성전자", "reason": "반도체 수요 증가", "importance": 3}],
+        bearish_items=[{"name": "TSLA", "reason": "가격 인하", "importance": 2}],
+        risks=["금리 인상 리스크"],
+        raw_item_count=100,
+        filtered_noise=20,
+    )
+
+
+def test_save_narrative_roundtrip() -> None:
+    store, _ = _make_store()
+    sr = _make_smart_result()
+    store.save_narrative(sr, report_id=None, hours=4.0)
+    since = datetime.now(UTC) - timedelta(days=1)
+    rows = store.recent_narratives(since=since)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["macro_summary"] == "테스트 매크로"
+    assert row["key_events_json"] == ["이벤트1", "이벤트2"]
+    assert len(row["bullish_json"]) == 1
+    assert row["bullish_json"][0]["name"] == "삼성전자"
+    assert row["raw_item_count"] == 100
+    assert row["filtered_noise"] == 20
+
+
+def test_save_narrative_with_report_id() -> None:
+    store, _ = _make_store()
+    report_id = store.save_run_report("요약", None, 4.0, "fast", None)
+    sr = _make_smart_result("매크로 요약")
+    store.save_narrative(sr, report_id=report_id, hours=4.0)
+    since = datetime.now(UTC) - timedelta(days=1)
+    rows = store.recent_narratives(since=since)
+    assert rows[0]["report_id"] == report_id
+
+
+def test_recent_narratives_time_filter() -> None:
+    store, _ = _make_store()
+    sr = _make_smart_result()
+    store.save_narrative(sr, report_id=None, hours=4.0)
+    # Query from future → no results
+    since = datetime.now(UTC) + timedelta(hours=1)
+    rows = store.recent_narratives(since=since)
+    assert rows == []
+
+
+def test_recent_narratives_limit() -> None:
+    store, _ = _make_store()
+    for i in range(5):
+        sr = _make_smart_result(f"매크로{i}")
+        store.save_narrative(sr, report_id=None, hours=4.0)
+    since = datetime.now(UTC) - timedelta(days=1)
+    rows = store.recent_narratives(since=since, limit=3)
+    assert len(rows) == 3
+
+
+def test_recent_narratives_desc_order() -> None:
+    store, _ = _make_store()
+    store.save_narrative(_make_smart_result("첫번째"), report_id=None, hours=4.0)
+    store.save_narrative(_make_smart_result("두번째"), report_id=None, hours=4.0)
+    since = datetime.now(UTC) - timedelta(days=1)
+    rows = store.recent_narratives(since=since)
+    assert rows[0]["macro_summary"] == "두번째"

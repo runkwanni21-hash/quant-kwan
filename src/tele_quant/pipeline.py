@@ -226,7 +226,7 @@ class TeleQuantPipeline:
         macro_only: bool = False,
         relation_feed: Any = None,
         prev_sector_sentiments: dict[str, dict] | None = None,
-    ) -> tuple[str, Any]:
+    ) -> tuple[str, Any, Any]:
         """Build deterministic digest, optionally polish with Ollama."""
         from tele_quant.deterministic_report import apply_polish_guard, build_macro_digest
         from tele_quant.evidence import build_evidence_clusters
@@ -237,23 +237,32 @@ class TeleQuantPipeline:
 
         ranked = rank_evidence_clusters(clusters, self.settings)
 
-        # ① 4H LLM 전처리 패스: 텔레그램 수집 데이터에서 핵심 이슈 추출
+        # ① 4H LLM 전처리 패스: smart_read — 시간 분산 샘플링 + 구조화 JSON
+        smart_result: Any = None
         market_narrative = ""
         if self.settings.digest_mode == "fast" and kept:
             elapsed = time.monotonic() - start_time
-            if self.settings.run_max_seconds - elapsed > 90:
+            narrative_timeout = getattr(
+                self.settings, "ollama_narrative_timeout_seconds", 300.0
+            )
+            if self.settings.run_max_seconds - elapsed > narrative_timeout + 30:
                 try:
-                    market_narrative = await asyncio.wait_for(
-                        self.ollama.extract_market_narrative(kept, hours),
-                        timeout=80,
+                    smart_result = await asyncio.wait_for(
+                        self.ollama.smart_read(kept, hours),
+                        timeout=narrative_timeout,
                     )
-                    log.info(
-                        "[digest] market_narrative extracted (%d chars)", len(market_narrative)
-                    )
+                    if smart_result is not None and not getattr(smart_result, "is_empty", True):
+                        market_narrative = smart_result.as_narrative_text()
+                        log.info(
+                            "[digest] smart_read ok: %d chars, bullish=%d bearish=%d",
+                            len(market_narrative),
+                            len(getattr(smart_result, "bullish_items", [])),
+                            len(getattr(smart_result, "bearish_items", [])),
+                        )
                 except TimeoutError:
-                    log.warning("[digest] market_narrative timeout → skipped")
+                    log.warning("[digest] smart_read timeout → skipped")
                 except Exception as exc:
-                    log.warning("[digest] market_narrative failed: %s", type(exc).__name__)
+                    log.warning("[digest] smart_read failed: %s", type(exc).__name__)
 
         digest = build_macro_digest(
             ranked,
@@ -285,7 +294,7 @@ class TeleQuantPipeline:
                 except Exception as exc:
                     log.warning("[digest] polish failed: %s → deterministic kept", exc)
 
-        return digest, ranked
+        return digest, ranked, smart_result
 
     def _load_price_store(self) -> Any:
         """Load PriceHistoryStore from CSV. Returns None if disabled or file missing."""
@@ -607,7 +616,9 @@ class TeleQuantPipeline:
                             break
                         sc.plain_summary = await asyncio.wait_for(
                             self.ollama.generate_stock_plain_summary(sc),
-                            timeout=50,
+                            timeout=getattr(
+                                self.settings, "ollama_stock_summary_timeout_seconds", 90.0
+                            ),
                         )
                         log.info(
                             "[analysis-fast] plain_summary %s (%d chars)",
@@ -719,6 +730,7 @@ class TeleQuantPipeline:
         saved_sector_map: dict[str, str] = {}
         analysis: str | None = None
         ranked: Any = None
+        _smart_result: Any = None
 
         async with TelegramGateway(self.settings) as gateway:
             kept, stats = await self._collect_and_dedupe(gateway, lookback)
@@ -750,7 +762,7 @@ class TeleQuantPipeline:
                 except Exception:
                     pass
 
-                digest, ranked = await self._summarize_fast(
+                digest, ranked, _smart_result = await self._summarize_fast(
                     kept,
                     market_snapshot,
                     stats,
@@ -835,6 +847,13 @@ class TeleQuantPipeline:
                         log.info("[pipeline] pair_watch saved: %d signals", saved_pw)
                 except Exception as _pw_exc:
                     log.debug("[pipeline] pair_watch save failed: %s", _pw_exc)
+            # Save 4H AI narrative to DB for weekly reuse
+            if _smart_result is not None and not getattr(_smart_result, "is_empty", True):
+                try:
+                    self.store.save_narrative(_smart_result, report_id=report_id, hours=lookback)
+                    log.info("[pipeline] narrative_history saved")
+                except Exception as _nr_exc:
+                    log.debug("[pipeline] narrative_history save failed: %s", _nr_exc)
             # Save per-sector sentiment history for trend tracking
             if ranked is not None:
                 try:

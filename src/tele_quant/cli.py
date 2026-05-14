@@ -789,12 +789,22 @@ def weekly(
         except Exception as _se_exc:
             console.print(f"[yellow][weekly] short_entries build failed: {_se_exc}[/yellow]")
 
+        # Load AI narrative history for weekly section
+        weekly_narratives: list[dict] | None = None
+        try:
+            weekly_narratives = store.recent_narratives(since=since, limit=40)
+            if weekly_narratives:
+                console.print(f"[weekly] narrative_history: {len(weekly_narratives)} records")
+        except Exception as _wn_exc:
+            console.print(f"[yellow][weekly] narrative load failed: {_wn_exc}[/yellow]")
+
         summary = build_weekly_deterministic_summary(
             weekly_input,
             relation_feed_data=relation_feed_data,
             relation_signal_review=relation_signal_review,
             pair_watch_review=pair_watch_review,
             short_entries=short_entries if short_entries else None,
+            narratives=weekly_narratives,
         )
 
         if mode == "deep_polish":

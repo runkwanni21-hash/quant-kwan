@@ -230,3 +230,129 @@ def test_weekly_cli_import() -> None:
     from tele_quant.cli import weekly
 
     assert callable(weekly)
+
+
+def test_narratives_section_shown() -> None:
+    """narrative_history 데이터가 있으면 11. AI 독해 요약 섹션이 표시된다."""
+    reports = _make_reports(2)
+    wi = build_weekly_input(reports)
+    narratives = [
+        {
+            "macro_summary": "달러 강세 + 미국채 금리 상승 흐름 지속",
+            "key_events_json": ["FOMC 의사록 매파적"],
+            "bullish_json": [{"name": "삼성전자", "reason": "HBM 수주", "importance": 3}],
+            "bearish_json": [{"name": "에코프로", "reason": "리튬 가격 하락", "importance": 2}],
+            "risks_json": ["관세 리스크"],
+            "raw_item_count": 80,
+            "filtered_noise": 15,
+        }
+    ]
+    summary = build_weekly_deterministic_summary(wi, narratives=narratives)
+    assert "AI 독해 요약" in summary
+    assert "달러 강세" in summary
+
+
+def test_narratives_section_deduped() -> None:
+    """중복 macro_summary는 한 번만 표시된다."""
+    reports = _make_reports(1)
+    wi = build_weekly_input(reports)
+    same = "동일한 매크로 요약 문장"
+    narratives = [
+        {
+            "macro_summary": same,
+            "key_events_json": [],
+            "bullish_json": [],
+            "bearish_json": [],
+            "risks_json": [],
+            "raw_item_count": 10,
+            "filtered_noise": 0,
+        }
+        for _ in range(3)
+    ]
+    summary = build_weekly_deterministic_summary(wi, narratives=narratives)
+    # Only appears once
+    assert summary.count(same) == 1
+
+
+def test_narratives_bullish_aggregated() -> None:
+    """bullish_json이 복수 narrative에서 집계된다."""
+    reports = _make_reports(1)
+    wi = build_weekly_input(reports)
+    narratives = [
+        {
+            "macro_summary": f"매크로{i}",
+            "key_events_json": [],
+            "bullish_json": [{"name": "삼성전자", "reason": "HBM", "importance": 3}],
+            "bearish_json": [],
+            "risks_json": [],
+            "raw_item_count": 50,
+            "filtered_noise": 5,
+        }
+        for i in range(3)
+    ]
+    summary = build_weekly_deterministic_summary(wi, narratives=narratives)
+    assert "삼성전자" in summary
+    # 3회 언급 표시
+    assert "3회" in summary
+
+
+def test_no_narratives_section_absent() -> None:
+    """narratives=None이면 AI 독해 섹션이 없다."""
+    reports = _make_reports(1)
+    wi = build_weekly_input(reports)
+    summary = build_weekly_deterministic_summary(wi, narratives=None)
+    assert "AI 독해 요약" not in summary
+
+
+# --- SmartReaderResult tests ---
+
+def test_smart_reader_result_as_narrative_text() -> None:
+    from tele_quant.analysis.models import SmartReaderResult
+
+    sr = SmartReaderResult(
+        macro_summary="달러 약세 전환 신호",
+        key_events=["CPI 발표 예상치 하회", "FOMC 비둘기파 발언"],
+        bullish_items=[{"name": "NVDA", "reason": "AI 수요 급증", "importance": 3}],
+        bearish_items=[{"name": "TSLA", "reason": "가격 인하", "importance": 2}],
+        risks=["관세 불확실성"],
+    )
+    text = sr.as_narrative_text()
+    assert "달러 약세" in text
+    assert "CPI 발표" in text
+    assert "NVDA" in text
+    assert "TSLA" in text
+    assert "관세" in text
+
+
+def test_smart_reader_result_is_empty_true() -> None:
+    from tele_quant.analysis.models import SmartReaderResult
+
+    sr = SmartReaderResult()
+    assert sr.is_empty is True
+
+
+def test_smart_reader_result_is_empty_false_macro() -> None:
+    from tele_quant.analysis.models import SmartReaderResult
+
+    sr = SmartReaderResult(macro_summary="매크로 요약")
+    assert sr.is_empty is False
+
+
+def test_smart_reader_result_is_empty_false_bullish() -> None:
+    from tele_quant.analysis.models import SmartReaderResult
+
+    sr = SmartReaderResult(bullish_items=[{"name": "삼성전자", "reason": "HBM", "importance": 3}])
+    assert sr.is_empty is False
+
+
+def test_smart_reader_result_key_events_truncated_in_text() -> None:
+    from tele_quant.analysis.models import SmartReaderResult
+
+    sr = SmartReaderResult(
+        macro_summary="요약",
+        key_events=["이벤트1", "이벤트2", "이벤트3", "이벤트4", "이벤트5"],
+    )
+    text = sr.as_narrative_text()
+    # as_narrative_text only shows first 4
+    assert "이벤트5" not in text
+    assert "이벤트4" in text

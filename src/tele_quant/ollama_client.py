@@ -487,58 +487,158 @@ class OllamaClient:
     # Polish-only entry points (fast / no_llm modes)
     # ------------------------------------------------------------------
 
-    async def extract_market_narrative(
-        self, items: list[RawItem], hours: float
-    ) -> str:
-        """4H 수집 텔레그램 데이터에서 핵심 이슈와 시장 흐름을 초보자 언어로 추출.
+    @staticmethod
+    def _sample_items_temporal(items: list[RawItem], n: int) -> list[RawItem]:
+        """4H 전체를 균등하게 커버하는 시간 분산 샘플링."""
+        if len(items) <= n:
+            return list(items)
+        step = len(items) / n
+        return [items[int(i * step)] for i in range(n)]
 
-        fast mode 전처리 패스. 실패하면 빈 문자열 반환.
+    async def smart_read(
+        self, items: list[RawItem], hours: float
+    ) -> Any:  # SmartReaderResult
+        """4H 텔레그램 전처리 패스: 시간 분산 샘플링 → 구조화 JSON 추출.
+
+        - 거시경제 요약
+        - 핵심 이벤트 (중복 제거)
+        - 종목별 호재/악재 (importance 1-5)
+        - 리스크 요인
+        실패하면 빈 SmartReaderResult 반환.
         """
+        from tele_quant.analysis.models import SmartReaderResult
+
+        empty = SmartReaderResult(raw_item_count=len(items))
         if not items:
-            return ""
-        sample = items[:60]
-        texts = "\n".join(
-            f"- {(i.text or '').strip()[:200]}"
+            return empty
+
+        max_n = getattr(self.settings, "narrative_max_items", 80)
+        sample = self._sample_items_temporal(items, max_n)
+
+        # URL / 광고성 텍스트 제거
+        import re as _re
+        _url_re = _re.compile(r"https?://\S+|t\.me/\S+", _re.IGNORECASE)
+        texts_raw = [
+            _url_re.sub("", (i.text or "")).strip()[:200]
             for i in sample
             if (i.text or "").strip()
-        )[:4000]
-        if not texts.strip():
-            return ""
+        ]
+        if not texts_raw:
+            return empty
+
+        texts_block = "\n".join(f"[{idx+1}] {t}" for idx, t in enumerate(texts_raw))[:5000]
+
+        schema: dict[str, Any] = {
+            "type": "object",
+            "properties": {
+                "macro_summary": {"type": "string"},
+                "key_events": {"type": "array", "items": {"type": "string"}},
+                "bullish_stocks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "reason": {"type": "string"},
+                            "importance": {"type": "integer"},
+                        },
+                        "required": ["name", "reason", "importance"],
+                    },
+                },
+                "bearish_stocks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "reason": {"type": "string"},
+                            "importance": {"type": "integer"},
+                        },
+                        "required": ["name", "reason", "importance"],
+                    },
+                },
+                "risks": {"type": "array", "items": {"type": "string"}},
+                "noise_filtered_count": {"type": "integer"},
+            },
+            "required": [
+                "macro_summary", "key_events",
+                "bullish_stocks", "bearish_stocks",
+                "risks", "noise_filtered_count",
+            ],
+        }
 
         prompt = (
-            f"다음은 최근 {int(hours)}시간 동안 수집된 주식·금융 텔레그램 메시지 샘플입니다.\n\n"
-            f"{texts}\n\n"
-            "초보 투자자가 바로 이해할 수 있게 아래 형식으로 한국어 3~5문장으로 요약하세요.\n"
-            "1. 이 시간에 가장 중요한 이슈 1~2개\n"
-            "2. 주목받는 섹터 또는 종목 (있으면)\n"
-            "3. 조심해야 할 리스크 (있으면)\n\n"
-            "규칙: 확정적 매수/매도 표현 금지. 공개 사실만. URL 포함 금지. 짧고 명확하게."
+            f"다음은 최근 {int(hours)}시간 동안 수집된 주식·금융 텔레그램 메시지 {len(texts_raw)}건입니다.\n"
+            "시간 순서로 분산 샘플링된 메시지입니다.\n\n"
+            f"{texts_block}\n\n"
+            "위 메시지들을 분석하여 JSON으로 응답하세요:\n"
+            "- macro_summary: 거시경제(금리/환율/유가/고용) 핵심 흐름 1~2문장\n"
+            "- key_events: 중복 제거된 핵심 이벤트 최대 5개 (짧게)\n"
+            "- bullish_stocks: 호재 종목 최대 5개, importance 1~5 (5가 가장 중요)\n"
+            "- bearish_stocks: 악재 종목 최대 3개, importance 1~5\n"
+            "- risks: 투자 리스크 요인 최대 3개\n"
+            "- noise_filtered_count: 홍보·중복·무관 메시지로 제외한 건수 추정\n\n"
+            "규칙: 확정적 매수/매도 표현 금지. 사실만. JSON만 응답."
         )
         payload: dict[str, Any] = {
             "model": self.settings.ollama_chat_model,
             "messages": [
-                {"role": "system", "content": "한국어 금융 뉴스 요약가. /no_think"},
+                {"role": "system", "content": "한국어 금융 데이터 분석가. JSON만 응답. /no_think"},
                 {"role": "user", "content": prompt},
             ],
             "stream": False,
-            "options": {"temperature": 0.15, "num_ctx": 6144},
+            "format": schema,
+            "options": {
+                "temperature": 0.1,
+                "num_ctx": getattr(self.settings, "ollama_num_ctx", 8192),
+            },
         }
+        timeout = getattr(self.settings, "ollama_narrative_timeout_seconds", 300.0)
         try:
             async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=30, read=90, write=60, pool=30)
+                timeout=httpx.Timeout(connect=30, read=timeout, write=120, pool=30)
             ) as client:
                 resp = await client.post(f"{self.base_url}/api/chat", json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-            result = (data.get("message", {}).get("content", "") or "").strip()
-            # 금지 표현 검열
-            from tele_quant.deterministic_report import apply_polish_guard
+            raw = (data.get("message", {}).get("content", "") or "").strip()
+            parsed = self._loads_json(raw)
+            if not parsed:
+                log.warning("[ollama] smart_read: JSON parse failed")
+                return empty
 
-            result = apply_polish_guard(result, result)  # self-check (tickers preserved)
-            return result if len(result) > 30 else ""
+            # 금지 표현 필터
+            _FORBIDDEN_RE = re.compile(
+                r"무조건\s*매수|반드시\s*상승|확정\s*수익|Buy\s*Now", re.IGNORECASE
+            )
+            macro_summary = str(parsed.get("macro_summary") or "")
+            if _FORBIDDEN_RE.search(macro_summary):
+                macro_summary = ""
+
+            bullish = [
+                b for b in (parsed.get("bullish_stocks") or [])
+                if isinstance(b, dict) and b.get("name") and not _FORBIDDEN_RE.search(str(b))
+            ]
+            bearish = [
+                b for b in (parsed.get("bearish_stocks") or [])
+                if isinstance(b, dict) and b.get("name") and not _FORBIDDEN_RE.search(str(b))
+            ]
+            # importance 기준 정렬
+            bullish.sort(key=lambda x: -int(x.get("importance") or 1))
+            bearish.sort(key=lambda x: -int(x.get("importance") or 1))
+
+            return SmartReaderResult(
+                macro_summary=macro_summary,
+                key_events=[str(e) for e in (parsed.get("key_events") or [])[:5]],
+                bullish_items=bullish[:5],
+                bearish_items=bearish[:3],
+                risks=[str(r) for r in (parsed.get("risks") or [])[:3]],
+                raw_item_count=len(items),
+                filtered_noise=int(parsed.get("noise_filtered_count") or 0),
+            )
         except Exception as exc:
-            log.warning("[ollama] extract_market_narrative failed: %s", type(exc).__name__)
-            return ""
+            log.warning("[ollama] smart_read failed: %s", type(exc).__name__)
+            return empty
 
     async def generate_stock_plain_summary(self, scenario: Any) -> str:
         """종목별 초보자용 한국어 서술 설명 생성 (2-3문장).
@@ -572,6 +672,7 @@ class OllamaClient:
             "전문 용어(RSI, MACD 등)는 쉬운 말로 풀어서. 투자를 확정 권유하지 마세요.\n\n"
             + context
         )
+        timeout = getattr(self.settings, "ollama_stock_summary_timeout_seconds", 90.0)
         payload: dict[str, Any] = {
             "model": self.settings.ollama_chat_model,
             "messages": [
@@ -581,14 +682,19 @@ class OllamaClient:
             "stream": False,
             "options": {"temperature": 0.2, "num_ctx": 4096},
         }
+        _FORBIDDEN_RE = re.compile(
+            r"무조건\s*매수|반드시\s*상승|확정\s*수익|Buy\s*Now", re.IGNORECASE
+        )
         try:
             async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=30, read=60, write=30, pool=30)
+                timeout=httpx.Timeout(connect=30, read=timeout, write=60, pool=30)
             ) as client:
                 resp = await client.post(f"{self.base_url}/api/chat", json=payload)
                 resp.raise_for_status()
                 data = resp.json()
             result = (data.get("message", {}).get("content", "") or "").strip()
+            if _FORBIDDEN_RE.search(result):
+                return ""
             return result[:400] if len(result) > 30 else ""
         except Exception as exc:
             log.warning("[ollama] generate_stock_plain_summary failed: %s", type(exc).__name__)

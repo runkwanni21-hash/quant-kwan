@@ -175,6 +175,11 @@ class Settings(BaseSettings):
     watchlist_path: str = "config/watchlist.yml"
 
     # Weekly report
+    # Smart reader (4H 전처리 패스) 타임아웃 / 샘플 크기
+    ollama_narrative_timeout_seconds: float = 300.0
+    ollama_stock_summary_timeout_seconds: float = 90.0
+    narrative_max_items: int = 80
+
     weekly_enabled: bool = True
     weekly_lookback_days: int = 7
     weekly_mode: str = "deep_polish"
