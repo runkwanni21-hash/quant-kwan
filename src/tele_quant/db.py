@@ -168,6 +168,48 @@ CREATE TABLE IF NOT EXISTS fear_greed_history (
     previous_1_month REAL
 );
 CREATE INDEX IF NOT EXISTS idx_fear_greed_history_created_at ON fear_greed_history(created_at);
+
+CREATE TABLE IF NOT EXISTS daily_alpha_picks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    session TEXT NOT NULL,
+    market TEXT NOT NULL,
+    side TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    final_score REAL NOT NULL,
+    sentiment_score REAL,
+    value_score REAL,
+    technical_4h_score REAL,
+    technical_3d_score REAL,
+    volume_score REAL,
+    catalyst_score REAL,
+    pair_watch_score REAL,
+    risk_penalty REAL,
+    style TEXT,
+    valuation_reason TEXT,
+    sentiment_reason TEXT,
+    technical_reason TEXT,
+    catalyst_reason TEXT,
+    entry_zone TEXT,
+    invalidation_level TEXT,
+    target_zone TEXT,
+    signal_price REAL,
+    signal_price_source TEXT,
+    evidence_count INTEGER DEFAULT 0,
+    direct_evidence_count INTEGER DEFAULT 0,
+    sector TEXT,
+    rank INTEGER DEFAULT 0,
+    sent INTEGER DEFAULT 0,
+    price_at_review REAL,
+    outcome_return_pct REAL,
+    hit INTEGER,
+    status TEXT DEFAULT 'pending',
+    UNIQUE(session, market, side, symbol, created_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_alpha_created_at ON daily_alpha_picks(created_at);
+CREATE INDEX IF NOT EXISTS idx_daily_alpha_symbol ON daily_alpha_picks(symbol);
 """
 
 # Columns added after initial schema — applied via ALTER TABLE in _init
@@ -907,6 +949,106 @@ class Store:
             mode=row["mode"] or "unknown",
             stats=stats,
         )
+
+    def save_daily_alpha_picks(
+        self,
+        picks: list[Any],
+        session: str,
+        market: str,
+    ) -> int:
+        """Insert daily alpha picks. Skips duplicates (same session/market/side/symbol/date).
+        Only call when send=True. Returns number of new rows inserted."""
+        from tele_quant.daily_alpha import DailyAlphaPick
+
+        now = utc_now().isoformat()
+        today_prefix = now[:10]  # YYYY-MM-DD
+        inserted = 0
+        with self.connect() as conn:
+            for pick in picks:
+                if not isinstance(pick, DailyAlphaPick):
+                    continue
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO daily_alpha_picks
+                        (created_at, session, market, side, symbol, name, final_score,
+                         sentiment_score, value_score, technical_4h_score, technical_3d_score,
+                         volume_score, catalyst_score, pair_watch_score, risk_penalty,
+                         style, valuation_reason, sentiment_reason, technical_reason,
+                         catalyst_reason, entry_zone, invalidation_level, target_zone,
+                         signal_price, signal_price_source, evidence_count,
+                         direct_evidence_count, sector, rank, sent, status)
+                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                               ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending'
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM daily_alpha_picks
+                            WHERE session=? AND market=? AND side=? AND symbol=?
+                              AND created_at LIKE ?
+                        )
+                        """,
+                        (
+                            now, session, market, pick.side, pick.symbol,
+                            pick.name, pick.final_score,
+                            pick.sentiment_score, pick.value_score,
+                            pick.technical_4h_score, pick.technical_3d_score,
+                            pick.volume_score, pick.catalyst_score,
+                            pick.pair_watch_score, pick.risk_penalty,
+                            pick.style, pick.valuation_reason, pick.sentiment_reason,
+                            pick.technical_reason, pick.catalyst_reason,
+                            pick.entry_zone, pick.invalidation_level, pick.target_zone,
+                            pick.signal_price, pick.signal_price_source,
+                            pick.evidence_count, pick.direct_evidence_count,
+                            pick.sector, pick.rank,
+                            # WHERE NOT EXISTS params
+                            session, market, pick.side, pick.symbol,
+                            f"{today_prefix}%",
+                        ),
+                    )
+                    inserted += conn.execute("SELECT changes()").fetchone()[0]
+                except sqlite3.IntegrityError:
+                    pass
+            conn.commit()
+        return inserted
+
+    def recent_daily_alpha_picks(
+        self,
+        since: datetime,
+        market: str | None = None,
+        side: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        clauses = ["created_at >= ?"]
+        params: list[Any] = [since.isoformat()]
+        if market:
+            clauses.append("market = ?")
+            params.append(market)
+        if side:
+            clauses.append("side = ?")
+            params.append(side)
+        params.append(limit)
+        sql = (
+            f"SELECT * FROM daily_alpha_picks WHERE {' AND '.join(clauses)}"
+            " ORDER BY created_at DESC LIMIT ?"
+        )
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_daily_alpha_review(
+        self,
+        row_id: int,
+        price_at_review: float,
+        outcome_return_pct: float,
+        hit: int,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE daily_alpha_picks
+                   SET price_at_review=?, outcome_return_pct=?, hit=?, status='reviewed'
+                   WHERE id=?""",
+                (price_at_review, outcome_return_pct, hit, row_id),
+            )
+            conn.commit()
 
     def _row_to_item(self, row: sqlite3.Row) -> RawItem:
         published_at = parse_dt(row["published_at"]) or utc_now()

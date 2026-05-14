@@ -750,6 +750,93 @@ def build_weekly_input(
     )
 
 
+def build_daily_alpha_performance_section(
+    store: Any,
+    since: datetime,
+    until: datetime | None = None,
+) -> str:
+    """Weekly performance review for daily_alpha_picks saved to DB."""
+    if store is None:
+        return ""
+    try:
+        rows = store.recent_daily_alpha_picks(since=since)
+    except Exception:
+        return ""
+
+    if not rows:
+        return ""
+
+    until_dt = until or datetime.now(UTC)
+    lines: list[str] = ["12. 📊 Daily Alpha Picks 성과"]
+
+    for market in ("KR", "US"):
+        for side in ("LONG", "SHORT"):
+            side_rows = [r for r in rows if r.get("market") == market and r.get("side") == side]
+            if not side_rows:
+                continue
+            label = "🟢 LONG" if side == "LONG" else "🔴 SHORT"
+            lines.append(f"\n▸ {market} {label} ({len(side_rows)}건)")
+
+            # Attempt price review
+            reviewed: list[dict] = []
+            for r in side_rows[:6]:
+                sym = r.get("symbol") or ""
+                signal_price = r.get("signal_price")
+                current_price = _fetch_review_price(sym, market)
+                if not signal_price or not current_price:
+                    continue
+                ret = (current_price - signal_price) / signal_price * 100
+                if side == "SHORT":
+                    ret = -ret  # SHORT: price drop is a win
+                hit = 1 if ret > 0 else 0
+                reviewed.append({
+                    "symbol": sym,
+                    "name": r.get("name") or sym,
+                    "signal_price": signal_price,
+                    "current_price": current_price,
+                    "return_pct": ret,
+                    "hit": hit,
+                    "style": r.get("style") or "",
+                    "created_at": r.get("created_at"),
+                    "final_score": r.get("final_score"),
+                })
+
+            if reviewed:
+                wins = [e for e in reviewed if e["hit"]]
+                avg_ret = sum(e["return_pct"] for e in reviewed) / len(reviewed)
+                lines.append(
+                    f"- 성과 평가 가능: {len(reviewed)}건 / 승률: {len(wins)}/{len(reviewed)}"
+                    f" ({len(wins)/len(reviewed)*100:.0f}%)"
+                )
+                lines.append(f"- 평균 가상 수익률: {avg_ret:+.1f}%")
+                best = max(reviewed, key=lambda x: x["return_pct"])
+                worst = min(reviewed, key=lambda x: x["return_pct"])
+                lines.append(
+                    f"- 최고: {best['name']} {best['return_pct']:+.1f}%"
+                    f"  최악: {worst['name']} {worst['return_pct']:+.1f}%"
+                )
+                for e in reviewed[:4]:
+                    icon = "✅" if e["hit"] else "❌"
+                    hold = _fmt_hold_period(e["created_at"], until_dt)
+                    price_str = (
+                        f"{e['signal_price']:,.0f}원 → {e['current_price']:,.0f}원"
+                        if market == "KR"
+                        else f"${e['signal_price']:.2f} → ${e['current_price']:.2f}"
+                    )
+                    lines.append(
+                        f"  {icon} {e['name']} ({e['symbol']}) "
+                        f"{e['return_pct']:+.1f}% / {hold} / {price_str}"
+                    )
+            else:
+                lines.append("- 이번 주 가격 평가 데이터 없음 (신호 미생성 또는 가격 미확인)")
+
+    if len(lines) == 1:
+        return ""
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def build_weekly_deterministic_summary(
     weekly_input: WeeklyInput,
     relation_feed_data: Any = None,
@@ -759,6 +846,7 @@ def build_weekly_deterministic_summary(
     short_entries: list[dict] | None = None,
     narratives: list[dict] | None = None,
     fear_greed_history: list[dict] | None = None,
+    daily_alpha_store: Any = None,
 ) -> str:
     wi = weekly_input
 
@@ -1190,6 +1278,16 @@ def build_weekly_deterministic_summary(
             lines.append("- 이번 주 AI 독해 기록 없음")
         lines.append(f"- (AI 독해 {len(narratives)}회 기록 기반)")
         lines.append("")
+
+    # 12. Daily Alpha Picks 성과 (weekly review)
+    if daily_alpha_store is not None:
+        _da_section = build_daily_alpha_performance_section(
+            daily_alpha_store,
+            since=wi.start_at,
+            until=wi.end_at,
+        )
+        if _da_section:
+            lines.append(_da_section)
 
     lines += [
         "─" * 30,

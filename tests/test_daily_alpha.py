@@ -1,0 +1,359 @@
+"""Tests for the Daily Alpha Picks engine."""
+
+from __future__ import annotations
+
+import re
+from datetime import UTC, datetime
+
+import pytest
+
+from tele_quant.daily_alpha import (
+    SESSION_KR,
+    SESSION_US,
+    STYLE_BREAKOUT,
+    STYLE_VALUE_REBOUND,
+    DailyAlphaPick,
+    _bb_pct,
+    _detect_style_long,
+    _detect_style_short,
+    _obv_trend,
+    _price_zones,
+    _rsi,
+    _score_value_long,
+    _score_value_short,
+    _score_volume,
+    _volume_ratio,
+    build_daily_alpha_report,
+)
+
+try:
+    import pandas as pd  # noqa: F401
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+
+pytestmark = pytest.mark.skipif(not HAS_PANDAS, reason="pandas/numpy not installed")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _make_series(values: list[float]):
+    import pandas as pd
+    return pd.Series(values, dtype=float)
+
+
+def _make_pick(
+    side: str = "LONG",
+    market: str = "KR",
+    final_score: float = 65.0,
+    signal_price: float = 50000.0,
+) -> DailyAlphaPick:
+    return DailyAlphaPick(
+        session=SESSION_KR if market == "KR" else SESSION_US,
+        market=market,
+        symbol="005930.KS" if market == "KR" else "NVDA",
+        name="삼성전자" if market == "KR" else "NVIDIA",
+        side=side,
+        final_score=final_score,
+        style=STYLE_VALUE_REBOUND,
+        signal_price=signal_price,
+        created_at=datetime.now(UTC),
+    )
+
+
+# ── Technical indicator tests ─────────────────────────────────────────────────
+
+def test_rsi_returns_value_in_range():
+    import math
+    # Mix of up/down to avoid avg_loss=0 (which produces NaN in RSI formula)
+    vals = [100 + math.sin(i * 0.4) * 5 for i in range(30)]
+    close = _make_series(vals)
+    val = _rsi(close, 14)
+    assert val is not None
+    assert 0 <= val <= 100
+
+
+def test_rsi_insufficient_data_returns_none():
+    close = _make_series([100.0, 101.0, 99.0])
+    assert _rsi(close, 14) is None
+
+
+def test_obv_trend_uptrend():
+    close = _make_series([100, 101, 102, 103, 104, 105])
+    volume = _make_series([1000, 1100, 1200, 1300, 1400, 1500])
+    result = _obv_trend(close, volume)
+    assert result in ("상승", "하락", "중립")
+
+
+def test_bb_pct_value_range():
+    close = _make_series([50 + (i % 5) for i in range(25)])
+    val = _bb_pct(close, 20)
+    assert val is not None
+    assert isinstance(val, float)
+
+
+def test_volume_ratio_basic():
+    volume = _make_series([1000.0] * 20 + [3000.0])
+    result = _volume_ratio(volume)
+    assert result is not None
+    assert result > 1.0  # today's volume is 3x average
+
+
+def test_volume_ratio_insufficient_data_returns_none():
+    volume = _make_series([1000.0] * 5)
+    assert _volume_ratio(volume, period=20) is None
+
+
+# ── Scoring tests ─────────────────────────────────────────────────────────────
+
+def test_score_value_long_low_per():
+    f = {"per": 8, "pbr": 0.9, "roe": 12.0, "rev_growth": None, "op_margin": None}
+    score, reason = _score_value_long(f)
+    assert score > 50
+    assert "PER" in reason or "PBR" in reason
+
+
+def test_score_value_long_high_per_penalty():
+    f = {"per": 80, "pbr": None, "roe": None, "rev_growth": None, "op_margin": None}
+    score, _ = _score_value_long(f)
+    assert score < 60  # High PER should reduce score
+
+
+def test_score_value_short_high_per():
+    f = {"per": 100, "pbr": None, "roe": None, "rev_growth": None}
+    score, reason = _score_value_short(f)
+    assert score > 60
+    assert "고평가" in reason or "PER" in reason
+
+
+def test_score_value_short_negative_revenue():
+    f = {"per": None, "pbr": None, "roe": None, "rev_growth": -15.0}
+    score, reason = _score_value_short(f)
+    assert score > 50
+    assert "매출 감소" in reason
+
+
+def test_score_volume_long_high_ratio():
+    score, reason = _score_volume(2.5, "LONG")
+    assert score >= 80
+    assert "폭발" in reason or "거래량" in reason
+
+
+def test_score_volume_long_low_ratio():
+    score, _reason = _score_volume(0.3, "LONG")
+    assert score < 50
+
+
+def test_score_volume_none_returns_50():
+    score, _ = _score_volume(None, "LONG")
+    assert score == 50.0
+
+
+# ── Style detection tests ─────────────────────────────────────────────────────
+
+def test_detect_style_long_value_rebound():
+    style = _detect_style_long(
+        value_score=70, tech_4h=55, tech_3d=60, vol_score=50,
+        catalyst_score=50,
+        f={"per": 10, "pbr": None},
+        d4h={"rsi": 55},
+    )
+    assert style in (STYLE_VALUE_REBOUND, "저평가 반등", "실적 턴어라운드")
+
+
+def test_detect_style_long_breakout():
+    style = _detect_style_long(
+        value_score=50, tech_4h=75, tech_3d=55, vol_score=70,
+        catalyst_score=40,
+        f={"per": 20, "pbr": 2.0},
+        d4h={"rsi": 55},
+    )
+    assert style == STYLE_BREAKOUT
+
+
+def test_detect_style_short_overheat():
+    from tele_quant.daily_alpha import STYLE_OVERHEAT_SHORT
+    style = _detect_style_short(
+        value_short=65, tech_4h=70, tech_3d=60, catalyst_score=40,
+        d4h={"rsi": 80},
+    )
+    assert style == STYLE_OVERHEAT_SHORT
+
+
+# ── Price zone tests ──────────────────────────────────────────────────────────
+
+def test_price_zones_long_kr():
+    entry, invalid, target = _price_zones(50000.0, is_kr=True, side="LONG")
+    assert "원" in entry
+    assert "원" in invalid
+    assert "원" in target
+    assert "무효" in invalid
+
+
+def test_price_zones_short_us():
+    entry, invalid, _target = _price_zones(100.0, is_kr=False, side="SHORT")
+    assert "$" in entry
+    assert "$" in invalid
+
+
+def test_price_zones_no_price():
+    entry, invalid, _target = _price_zones(None, is_kr=True, side="LONG")
+    assert entry  # Should return fallback strings
+    assert invalid
+
+
+# ── Report format tests ───────────────────────────────────────────────────────
+
+def test_build_report_contains_required_sections():
+    long_picks = [_make_pick("LONG", "KR", 70.0, 55000.0)]
+    short_picks = [_make_pick("SHORT", "KR", 62.0, 50000.0)]
+    report = build_daily_alpha_report(long_picks, short_picks, "KR", "KR_0700")
+    assert "Daily Alpha Picks" in report
+    assert "LONG 관찰 후보" in report
+    assert "SHORT 관찰 후보" in report
+    assert "최종점수" in report
+
+
+def test_build_report_contains_disclaimer():
+    report = build_daily_alpha_report([], [], "KR", "KR_0700")
+    assert "매수·매도 지시 아님" in report or "기계적 스크리닝" in report
+
+
+def test_build_report_empty_picks_no_crash():
+    report = build_daily_alpha_report([], [], "US", "US_2200")
+    assert "Daily Alpha Picks" in report
+    assert "조건 충족 후보 없음" in report
+
+
+def test_build_report_us_market():
+    pick = _make_pick("LONG", "US", 68.0, 450.0)
+    report = build_daily_alpha_report([pick], [], "US", "US_2200")
+    assert "NVIDIA" in report or "NVDA" in report
+    assert "$" in report  # USD price format
+
+
+def test_build_report_kr_market_price_format():
+    pick = _make_pick("LONG", "KR", 70.0, 50000.0)
+    report = build_daily_alpha_report([pick], [], "KR", "KR_0700")
+    assert "원" in report  # KRW price format
+
+
+# ── Forbidden words test ──────────────────────────────────────────────────────
+
+_FORBIDDEN_PATTERNS = re.compile(
+    r"무조건\s*매수|확정\s*상승|바로\s*매수|주문\s*하|BUY\s*NOW|SELL\s*NOW|진입하라|지금\s*사",
+    re.IGNORECASE,
+)
+
+
+def test_report_no_forbidden_words():
+    long_picks = [_make_pick("LONG", "KR", 75.0, 55000.0)]
+    short_picks = [_make_pick("SHORT", "KR", 65.0, 45000.0)]
+    report = build_daily_alpha_report(long_picks, short_picks, "KR", "KR_0700")
+    match = _FORBIDDEN_PATTERNS.search(report)
+    assert match is None, f"Forbidden word found: {match.group()!r}"
+
+
+# ── DailyAlphaPick dataclass tests ───────────────────────────────────────────
+
+def test_daily_alpha_pick_defaults():
+    pick = DailyAlphaPick(
+        session=SESSION_KR,
+        market="KR",
+        symbol="005930.KS",
+        name="삼성전자",
+        side="LONG",
+        final_score=65.0,
+    )
+    assert pick.sentiment_score == 0.0
+    assert pick.rank == 0
+    assert pick.sent is False
+    assert pick.price_status == ""
+
+
+def test_session_constants():
+    assert SESSION_KR == "KR_0700"
+    assert SESSION_US == "US_2200"
+
+
+# ── DB integration test ───────────────────────────────────────────────────────
+
+def test_store_save_daily_alpha_picks(tmp_path):
+    from tele_quant.db import Store
+
+    store = Store(tmp_path / "test.db")
+    picks = [
+        _make_pick("LONG", "KR", 70.0, 50000.0),
+        _make_pick("SHORT", "KR", 62.0, 48000.0),
+    ]
+    n = store.save_daily_alpha_picks(picks, session=SESSION_KR, market="KR")
+    assert n == 2
+
+    # Second call same day → 0 new (dedup)
+    n2 = store.save_daily_alpha_picks(picks, session=SESSION_KR, market="KR")
+    assert n2 == 0
+
+
+def test_store_recent_daily_alpha_picks(tmp_path):
+    from datetime import timedelta
+
+    from tele_quant.db import Store
+
+    store = Store(tmp_path / "test.db")
+    picks = [_make_pick("LONG", "US", 68.0, 450.0)]
+    store.save_daily_alpha_picks(picks, session=SESSION_US, market="US")
+
+    since = datetime.now(UTC) - timedelta(hours=1)
+    rows = store.recent_daily_alpha_picks(since=since, market="US")
+    assert len(rows) >= 1
+    assert rows[0]["market"] == "US"
+    assert rows[0]["side"] == "LONG"
+
+
+def test_store_daily_alpha_market_filter(tmp_path):
+    from datetime import timedelta
+
+    from tele_quant.db import Store
+
+    store = Store(tmp_path / "test.db")
+    kr_pick = _make_pick("LONG", "KR", 70.0, 50000.0)
+    us_pick = _make_pick("LONG", "US", 68.0, 450.0)
+    store.save_daily_alpha_picks([kr_pick], session=SESSION_KR, market="KR")
+    store.save_daily_alpha_picks([us_pick], session=SESSION_US, market="US")
+
+    since = datetime.now(UTC) - timedelta(hours=1)
+    kr_rows = store.recent_daily_alpha_picks(since=since, market="KR")
+    us_rows = store.recent_daily_alpha_picks(since=since, market="US")
+    assert all(r["market"] == "KR" for r in kr_rows)
+    assert all(r["market"] == "US" for r in us_rows)
+
+
+# ── Weekly section test ───────────────────────────────────────────────────────
+
+def test_weekly_daily_alpha_section_empty_store(tmp_path):
+    from datetime import timedelta
+
+    from tele_quant.db import Store
+    from tele_quant.weekly import build_daily_alpha_performance_section
+
+    store = Store(tmp_path / "test.db")
+    since = datetime.now(UTC) - timedelta(days=7)
+    result = build_daily_alpha_performance_section(store, since=since)
+    assert result == ""
+
+
+def test_weekly_daily_alpha_section_with_data(tmp_path):
+    from datetime import timedelta
+
+    from tele_quant.db import Store
+    from tele_quant.weekly import build_daily_alpha_performance_section
+
+    store = Store(tmp_path / "test.db")
+    picks = [_make_pick("LONG", "KR", 70.0, 50000.0)]
+    store.save_daily_alpha_picks(picks, session=SESSION_KR, market="KR")
+
+    since = datetime.now(UTC) - timedelta(hours=1)
+    # Without actual yfinance prices this will show "없음" but must not crash
+    result = build_daily_alpha_performance_section(store, since=since)
+    # Either we get a section or empty string — no exception either way
+    assert isinstance(result, str)

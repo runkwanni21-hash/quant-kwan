@@ -2236,3 +2236,81 @@ def alias_audit_cmd(
     high_cnt = sum(1 for e in entries if e.severity == "HIGH")
     if fail_on_high and high_cnt > 0:
         raise SystemExit(1)
+
+
+@app.command("daily-alpha")
+def daily_alpha_cmd(
+    market: Annotated[
+        str, typer.Option("--market", help="시장 (KR 또는 US)")
+    ] = "KR",
+    send: Annotated[
+        bool, typer.Option("--send/--no-send", help="실제 전송 여부 (--no-send: 미리보기만)")
+    ] = False,
+    top_n: Annotated[
+        int, typer.Option("--top-n", help="LONG/SHORT 각 최대 후보 수")
+    ] = 4,
+    universe_size: Annotated[
+        int, typer.Option("--universe-size", help="스크리닝 유니버스 크기")
+    ] = 150,
+) -> None:
+    """Daily Alpha Picks 엔진 실행 (기계적 스크리닝 LONG/SHORT 관찰 후보).
+
+    Example: uv run tele-quant daily-alpha --market KR --no-send
+             uv run tele-quant daily-alpha --market US --send
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.daily_alpha import (
+        SESSION_KR,
+        SESSION_US,
+        build_daily_alpha_report,
+        run_daily_alpha,
+    )
+    from tele_quant.db import Store as _Store
+
+    market = market.upper()
+    if market not in ("KR", "US"):
+        console.print("[red]--market 은 KR 또는 US 만 허용됩니다.[/red]")
+        raise SystemExit(1)
+
+    session = SESSION_KR if market == "KR" else SESSION_US
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    console.print(f"[bold]Daily Alpha Picks[/bold] market={market} send={send} top_n={top_n}")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as prog:
+        task = prog.add_task(f"[cyan]{market} 유니버스 스크리닝 중...", total=None)
+        long_picks, short_picks = run_daily_alpha(
+            market=market,
+            store=store,
+            top_n=top_n,
+            universe_size=universe_size,
+        )
+        prog.update(task, description="[green]스크리닝 완료")
+
+    report = build_daily_alpha_report(long_picks, short_picks, market, session_label=session)
+    console.print("\n" + report)
+    console.print(f"\n[dim]LONG {len(long_picks)}개 / SHORT {len(short_picks)}개 후보[/dim]")
+
+    if send:
+        # Save to DB (sent gate)
+        all_picks = long_picks + short_picks
+        n_saved = store.save_daily_alpha_picks(all_picks, session=session, market=market)
+        console.print(f"[green]DB 저장: {n_saved}건 신규 (중복 제외)[/green]")
+
+        # Send via Telegram
+        async def _send() -> None:
+            from tele_quant.telegram_sender import TelegramSender
+            sender = TelegramSender(settings)
+            await sender.send(report)
+
+        asyncio.run(_send())
+        console.print(f"[green]전송 완료 ({session})[/green]")
+    else:
+        console.print("[dim](--no-send: 미리보기만, DB 미저장, 전송 안 함)[/dim]")
