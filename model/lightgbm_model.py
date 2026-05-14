@@ -17,6 +17,7 @@ import lightgbm as lgb
 # TO-BE: 안정적인 시스템 운영을 위한 typing 모듈 추가
 from typing import Dict, Any, List, Optional
 from .base_model import QuantitativeModel
+import copy
 
 class LightGBMMultiRegimeModel(QuantitativeModel): 
     # AS-IS: 파라미터 타입 및 반환형 명시 안 됨

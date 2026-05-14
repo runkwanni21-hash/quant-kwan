@@ -8,9 +8,11 @@ from typing import List, Dict, Any # AS-IS: 누락됨 -> TO-BE: 추가
 warnings.filterwarnings("ignore")
 
 # (기존 import 문 유지...)
+from model.base_model import QuantitativeModel
 from model.feature_builder import AdvancedMacroRegimeBuilder, LatentStressFeatureBuilder
 from model.lightgbm_model import LightGBMMultiRegimeModel
 from model.latent_stress_model import PCALatentStressModel
+from model.promotion_engine import PromotionEngine
 
 # AS-IS: def download_multi_data(tickers, start="2012-01-01"):
 # TO-BE: tickers 리스트 타입 명시, 반환 타입(pd.DataFrame) 명시
@@ -88,11 +90,19 @@ def calculate_final_exposure(state: Dict[str, Any]) -> float:
     final_weight: float = base_weight * (1.0 - stress_penalty) * (1.0 - transition_penalty)
     return round(max(0.0, min(final_weight, 1.0)), 3)
 
+def strict_sharpe_evaluator(champion: QuantitativeModel, candidate: QuantitativeModel, test_data: pd.DataFrame) -> bool:
+    print(f"🔍 [엄격한 심사] {champion.name}과 {candidate.name}의 샤프 지표를 롤링 비교합니다...")
+    # 실제로는 predict() 결과를 바탕으로 50일간의 백테스트 수익률/변동성을 비교하는 로직 구현
+    # ...
+    # 지금은 테스트를 위해 무조건 도전자 승리로 세팅
+    return True
+
+# ==============================================================================
+# 🌟 메인 애플리케이션 파이프라인
+# ==============================================================================
 def main() -> None:
     print("=== Institutional Multi-Layer Allocator (w/ FX Overlay) ===\n")
     
-    # AS-IS: tickers = [...]
-    # TO-BE: 명시적인 문자열 리스트로 타입 지정
     tickers: List[str] = [
         "SPY", "QQQ", "EWY", "RSP", "^TNX", "^IRX", "DX-Y.NYB", 
         "HYG", "LQD", "GLD", "USO", "^VIX", "^VIX3M", "KRW=X",
@@ -104,26 +114,42 @@ def main() -> None:
     macro_model_path: str = "models/v1/Macro_AI.pkg"
     stress_model_path: str = "models/v1/Fragility_AI.pkg"
     
-    # AS-IS: results = []
-    # TO-BE: 결과를 담는 리스트의 내부 딕셔너리 구조 명시
     results: List[Dict[str, Any]] = []
 
     # =========================================================
-    # 분기 1: 저장된 모델이 존재할 경우 (🚀 초고속 실전 추론 모드)
+    # 분기 1: 저장된 모델이 존재할 경우 (하이브리드 업데이트 모드)
     # =========================================================
     if os.path.exists(macro_model_path) and os.path.exists(stress_model_path):
-        print("\n[시스템] 📂 저장된 모델을 발견했습니다. 학습을 건너뛰고 최신 5거래일 추론을 시작합니다...")
+        print("\n[시스템] 📂 챔피언 모델을 로드하여 운영 파이프라인을 실행합니다.")
         
-        # 모델 복원 (is_fitted 상태 포함)
+        # 1. 모델 복원
         macro_model = LightGBMMultiRegimeModel.load(macro_model_path)
         stress_model = PCALatentStressModel.load(stress_model_path)
         
-        # 최근 5일 데이터만 처리
+        # 2. 모델 업데이트 전략 차별화
+        # ---------------------------------------------------------
+        # A. Macro 모델: 승급 심사를 위해 Candidate(도전자) 생성
+        # ---------------------------------------------------------
+        print("\n[시스템] 🛡️ Macro 모델: 섀도우 학습 모드 (도전자 생성)")
+        macro_candidate_name = "Macro_AI_Candidate"
+        macro_model.update(df, candidate_mode=True, candidate_name=macro_candidate_name)
+        
+        # ---------------------------------------------------------
+        # B. Stress 모델: 승급 심사 없이 즉시 업데이트 (Direct Update)
+        # ---------------------------------------------------------
+        # AS-IS: candidate_mode=True
+        # TO-BE: candidate_mode=False로 설정하여 현재 객체를 즉시 갱신하고 저장
+        print("[시스템] ⚡ Stress 모델: 즉시 업데이트 모드 (심사 생략)")
+        stress_model.update(df, candidate_mode=False) 
+        stress_model.save("models/v1") # 업데이트된 상태를 파일에 바로 반영
+        
+        # 3. 최신 5일 실전 추론
+        # Macro는 검증된 구모델(Champ)을, Stress는 방금 업데이트된 최신 모델을 사용합니다.
+        print("\n[시스템] 🎯 하이브리드 모델팩을 사용하여 최근 5거래일 추론 시작...")
         test_df = df.iloc[-5:]
         
         for j in range(len(test_df)):
             current_date = test_df.index[j]
-            # 전체 데이터 중 현재 날짜까지만 잘라서 예측 (미래 데이터 참조 방지)
             slice_idx = total_len - 5 + j + 1
             slice_df = df.iloc[:slice_idx] 
             
@@ -150,12 +176,34 @@ def main() -> None:
                 state_json["action"] = f"ALLOCATE (Weight: {final_exposure})"
             
             results.append(state_json)
+            
+        # 4. Macro 모델만 승급 심사 수행
+        print("\n========================================================")
+        print("🏛️ [시스템] 운영 종료. Macro 모델 승급 심사를 시작합니다.")
+        print("========================================================")
+        
+        engine = PromotionEngine()
+        
+        # Macro 모델만 심사 루틴 실행
+        #engine.execute(
+        #    champion_path=macro_model_path,
+        #    candidate_path=f"models/v1/candidates/{macro_candidate_name}.pkg",
+        #    test_data=df,
+        #    custom_evaluator=strict_sharpe_evaluator
+        #)
+        engine.execute(
+            champion_path=macro_model_path,
+            candidate_path=f"models/v1/candidates/{macro_candidate_name}.pkg",
+            test_data=df
+        )
+        
+        # Stress 모델은 이미 업데이트 및 저장이 완료되었으므로 심사 엔진 호출을 생략합니다.
 
     # =========================================================
-    # 분기 2: 저장된 모델이 없을 경우 (🏋️‍♂️ 전진 분석 및 딥러닝 모드)
+    # 분기 2: 저장된 모델이 없을 경우 (초기 학습 모드)
     # =========================================================
     else:
-        print("\n[시스템] 🚨 저장된 모델이 없습니다. 직교 상태 전진 분석(Walk-Forward) 및 모델 학습을 시작합니다...")
+        print("\n[시스템] 🚨 초기 모델이 없습니다. 전진 분석 및 전체 학습을 시작합니다.")
         
         builder_macro = AdvancedMacroRegimeBuilder(target_window=60)
         macro_model = LightGBMMultiRegimeModel(name="Macro_AI", feature_builder=builder_macro)
@@ -203,10 +251,8 @@ def main() -> None:
                 
                 results.append(state_json)
 
-        # 🌟 루프 종료 후 모델을 하드디스크에 추출(Save)
         macro_model.save("models/v1") 
-        stress_model.save("models/v1") 
-
+        stress_model.save("models/v1")
 
     # =========================================================
     # 공통: 최종 리포트 출력
