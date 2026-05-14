@@ -461,3 +461,55 @@ def test_sentiment_alpha_high_score_can_reach_80():
     fund = _make_fundamental(roe=0.25, pe=12.0)
     score, _grade = compute_score(candidate, tech, fund)
     assert score >= 75.0, f"High alpha + good tech → score ≥ 75, got {score:.1f}"
+
+
+# ── tech4h / tech3d 분리 테스트 ───────────────────────────────────────────────
+
+
+def test_compute_tech_4h_score_bounds():
+    """_compute_tech_4h_score는 항상 [0, 30] 범위여야 한다."""
+    from tele_quant.analysis.intraday import IntradayTechnicalSnapshot
+    from tele_quant.analysis.scoring import _compute_tech_4h_score
+
+    cases = [
+        ("상승 추세", "상승", 2.0),
+        ("하락 추세", "하락", 0.3),
+        ("횡보", "보합", 1.0),
+        ("데이터 부족", "데이터 부족", None),
+    ]
+    for trend, obv, vr in cases:
+        snap = IntradayTechnicalSnapshot(
+            symbol="TEST", close=100.0, trend_label=trend, obv_trend=obv, volume_ratio_20=vr
+        )
+        score = _compute_tech_4h_score(snap)
+        assert 0.0 <= score <= 30.0, f"score={score} out of [0,30] (trend={trend})"
+    assert _compute_tech_4h_score(None) == 14.0, "None snap → 14.0 중립"
+
+
+def test_scorecard_tech4h_bullish_beats_bearish():
+    """4H 강세 스냅이 약세 스냅보다 final_score가 높아야 한다 (alpha>0일 때)."""
+    from tele_quant.analysis.intraday import IntradayTechnicalSnapshot
+
+    candidate = _make_candidate("positive", mentions=3, catalysts=["실적 서프라이즈"],
+                                direct_evidence_count=2)
+    candidate.sentiment_alpha_score = 70.0
+    tech = _make_technical("상승 추세", rsi=55.0)
+    fund = _make_fundamental()
+
+    snap_bull = IntradayTechnicalSnapshot(
+        symbol="TEST", close=100.0, trend_label="상승 추세",
+        obv_trend="상승", volume_ratio_20=2.0, rsi14=55.0
+    )
+    snap_bear = IntradayTechnicalSnapshot(
+        symbol="TEST", close=100.0, trend_label="하락 추세",
+        obv_trend="하락", volume_ratio_20=0.3, rsi14=35.0
+    )
+
+    card_bull = compute_scorecard(candidate, tech, fund, technical_4h=snap_bull)
+    card_bear = compute_scorecard(candidate, tech, fund, technical_4h=snap_bear)
+    card_none = compute_scorecard(candidate, tech, fund)  # 4H 없음 → 중립 proxy
+
+    assert card_bull.final_score > card_bear.final_score, \
+        f"4H 강세({card_bull.final_score:.1f}) > 4H 약세({card_bear.final_score:.1f}) 기대"
+    assert card_bull.final_score > card_none.final_score, \
+        f"4H 강세({card_bull.final_score:.1f}) > 4H 없음({card_none.final_score:.1f}) 기대"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tele_quant.analysis.intraday import IntradayTechnicalSnapshot
 from tele_quant.analysis.models import (
     FundamentalSnapshot,
     ScoreCard,
@@ -68,6 +69,27 @@ def _beginner_hint(
     return hints[0] if hints else ""
 
 
+def _compute_tech_4h_score(snap: IntradayTechnicalSnapshot | None) -> float:
+    """4H 기술지표 점수 (0-30). snap 없거나 데이터 없으면 중립 14.0."""
+    if snap is None or snap.close is None:
+        return 14.0
+    score = 14.0
+    if snap.trend_label == "상승 추세":
+        score += 8.0
+    elif snap.trend_label == "하락 추세":
+        score -= 8.0
+    if snap.obv_trend == "상승":
+        score += 2.0
+    elif snap.obv_trend == "하락":
+        score -= 2.0
+    vr = snap.volume_ratio_20 or 0.0
+    if vr > 1.5:
+        score += 2.0
+    elif vr < 0.5:
+        score -= 2.0
+    return max(0.0, min(30.0, score))
+
+
 def _compute_timing_score(technical: TechnicalSnapshot | None) -> float:
     """RSI 위치·OBV·볼린저·캔들·거래량 타이밍 점수 (0-10)."""
     if technical is None or technical.close is None:
@@ -126,6 +148,7 @@ def compute_scorecard(
     candidate: StockCandidate,
     technical: TechnicalSnapshot | None,
     fundamental: FundamentalSnapshot | None,
+    technical_4h: IntradayTechnicalSnapshot | None = None,
 ) -> ScoreCard:
     """5개 컴포넌트 ScoreCard를 반환한다."""
 
@@ -216,17 +239,16 @@ def compute_scorecard(
     direct_ev = getattr(candidate, "direct_evidence_count", 0)
 
     if alpha > 0.0 and direct_ev > 0:
-        # New weighted formula: normalize all components to 0-100 scale
-        # sentiment_alpha*0.35 + tech4h*0.25 + tech3d*0.15 + value*0.10 + risk*0.10 + timing*0.05
-        # Using daily tech for both tech4h and tech3d until separate 4H data integrated
-        tech_n = (tech / 30.0) * 100.0
+        # Weighted formula: sentiment_alpha*0.35 + tech4h*0.25 + tech3d*0.15 + value*0.10 + risk*0.10 + timing*0.05
+        tech4h_n = (_compute_tech_4h_score(technical_4h) / 30.0) * 100.0
+        tech_n = (tech / 30.0) * 100.0  # 3D daily
         val_n = (val / 20.0) * 100.0
         risk_n = (macro_risk / 10.0) * 100.0
         timing_n = (timing / 10.0) * 100.0
         total = (
             alpha * 0.35
-            + tech_n * 0.25  # tech4h proxy
-            + tech_n * 0.15  # tech3d
+            + tech4h_n * 0.25
+            + tech_n * 0.15
             + val_n * 0.10
             + risk_n * 0.10
             + timing_n * 0.05

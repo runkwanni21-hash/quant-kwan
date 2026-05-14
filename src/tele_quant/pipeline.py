@@ -453,7 +453,20 @@ class TeleQuantPipeline:
                 if technical and technical.close is not None:
                     close_map[candidate.symbol] = technical.close
                 fundamental = await asyncio.to_thread(compute_fundamental, candidate.symbol)
-                card = compute_scorecard(candidate, technical, fundamental)
+
+                # 4H 기술지표 — scoring 전에 fetch해서 new formula에 투입
+                snap_4h: Any = None
+                if self.settings.intraday_tech_enabled:
+                    try:
+                        from tele_quant.analysis.intraday import fetch_intraday_4h
+
+                        snap_4h = await asyncio.to_thread(
+                            fetch_intraday_4h, candidate.symbol, self.settings
+                        )
+                    except Exception:
+                        pass
+
+                card = compute_scorecard(candidate, technical, fundamental, technical_4h=snap_4h)
 
                 # Relation feed 보조 가점: telegram + feed + technical 모두 있을 때만
                 rf_note = ""
@@ -538,22 +551,15 @@ class TeleQuantPipeline:
                         scenario.obv_3d = technical.obv_trend
                         scenario.bollinger_3d = technical.bb_position
 
-                    # 4H intraday technical
-                    if self.settings.intraday_tech_enabled:
+                    # 4H intraday technical (이미 fetch된 snap_4h 재사용)
+                    if snap_4h is not None:
                         try:
-                            from tele_quant.analysis.intraday import (
-                                fetch_intraday_4h,
-                                format_4h_section,
-                            )
+                            from tele_quant.analysis.intraday import format_4h_section
 
-                            snap = await asyncio.to_thread(
-                                fetch_intraday_4h, candidate.symbol, self.settings
-                            )
-                            if snap is not None:
-                                scenario.intraday_4h_summary = format_4h_section(snap)
-                                scenario.rsi_4h = snap.rsi14
-                                scenario.obv_4h = snap.obv_trend
-                                scenario.bollinger_4h = snap.bb_position
+                            scenario.intraday_4h_summary = format_4h_section(snap_4h)
+                            scenario.rsi_4h = snap_4h.rsi14
+                            scenario.obv_4h = snap_4h.obv_trend
+                            scenario.bollinger_4h = snap_4h.bb_position
                         except Exception:
                             pass
 
