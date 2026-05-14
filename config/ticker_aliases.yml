@@ -1213,7 +1213,7 @@ stocks:
     name: "Visa"
     market: US
     sector: 핀테크
-    aliases: ["V", "비자", "Visa"]
+    aliases: ["비자", "Visa"]
     require_context_aliases: ["V"]
 
   - symbol: "MA"
@@ -1368,7 +1368,7 @@ stocks:
     name: "Ford"
     market: US
     sector: 자동차
-    aliases: ["F", "포드", "Ford Motor"]
+    aliases: ["포드", "Ford Motor"]
     require_context_aliases: ["F"]
 
   - symbol: "GM"
@@ -1940,8 +1940,7 @@ stocks:
     name: "Citigroup"
     market: US
     sector: 금융
-    aliases: ["C", "씨티그룹", "Citigroup", "Citi"]
-    require_context_aliases: ["C"]
+    aliases: ["씨티그룹", "Citigroup", "Citi"]
 
   - symbol: "AXP"
     name: "American Express"
@@ -3695,7 +3694,7 @@ stocks:
     name: "Realty Income"
     market: US
     sector: 리테일REIT
-    aliases: ["O", "Realty Income", "리얼티인컴"]
+    aliases: ["Realty Income", "리얼티인컴"]
     require_context_aliases: ["O"]
 
   - symbol: "PAYC"
@@ -3919,7 +3918,7 @@ stocks:
     name: "AT&T"
     market: US
     sector: 통신
-    aliases: ["T", "AT&T", "에이티앤티"]
+    aliases: ["AT&T", "에이티앤티"]
     require_context_aliases: ["T"]
 
   - symbol: "TDY"
@@ -4003,7 +4002,7 @@ stocks:
     name: "Unity Software"
     market: US
     sector: 게임엔진
-    aliases: ["U", "Unity Software", "유니티", "Unity"]
+    aliases: ["Unity Software", "유니티", "Unity"]
     require_context_aliases: ["U"]
 
   - symbol: "ULTA"
@@ -4066,7 +4065,7 @@ stocks:
     name: "Wayfair"
     market: US
     sector: 가구이커머스
-    aliases: ["W", "Wayfair", "웨이페어"]
+    aliases: ["Wayfair", "웨이페어"]
     require_context_aliases: ["W"]
 
   - symbol: "WBD"
