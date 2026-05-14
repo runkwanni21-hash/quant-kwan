@@ -758,6 +758,7 @@ def build_weekly_deterministic_summary(
     long_short_signal_review: str | None = None,  # deprecated — ignored if short_entries passed
     short_entries: list[dict] | None = None,
     narratives: list[dict] | None = None,
+    fear_greed_history: list[dict] | None = None,
 ) -> str:
     wi = weekly_input
 
@@ -793,6 +794,25 @@ def build_weekly_deterministic_summary(
         conclusion = "호재·악재 혼재. 선별 접근 권장, 무리한 방향 베팅 자제."
 
     lines += ["1. 이번 주 시장 한 줄", f"- {conclusion}", ""]
+
+    # 1-B. Fear & Greed 주간 추이
+    if fear_greed_history:
+        scores = [float(r.get("score") or 0) for r in fear_greed_history if r.get("score") is not None]
+        if scores:
+            fg_min = min(scores)
+            fg_max = max(scores)
+            fg_latest = scores[0]  # DESC order → most recent first
+            fg_rating = (fear_greed_history[0].get("rating_ko") or fear_greed_history[0].get("rating") or "")
+            lines.append("1-B. 📊 이번 주 공포탐욕지수 추이")
+            lines.append(f"- 현재: {fg_latest:.0f}/100 [{fg_rating}]")
+            lines.append(f"- 주간 범위: {fg_min:.0f} ~ {fg_max:.0f} (기록 {len(scores)}회)")
+            if fg_latest < 25:
+                lines.append("- 해석: 극도 공포 구간 — 과매도 반등 가능성 모니터링")
+            elif fg_latest > 75:
+                lines.append("- 해석: 극도 탐욕 구간 — 과열 조정 리스크 주의")
+            else:
+                lines.append("- 해석: 중립~보통 구간")
+            lines.append("")
 
     # 2. 매크로 요약 (금리/환율/유가/고용/정책)
     lines.append("2. 매크로 요약")

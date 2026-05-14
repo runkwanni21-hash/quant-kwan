@@ -28,21 +28,29 @@ _RATING_KO: dict[str, str] = {
 _FRED_LABELS: dict[str, str] = {
     "FEDFUNDS": "연준 기준금리",
     "DGS10": "미국 10년물 국채",
+    "DGS5": "미국 5년물 국채",
+    "DGS3MO": "미국 3개월물",
     "DGS2": "미국 2년물 국채",
     "UNRATE": "미국 실업률",
     "CPIAUCSL": "미국 CPI (전월비)",
-    "DTWEXBGS": "달러 실효환율(DXY)",
-    "T10YIE": "기대인플레이션(BEI 10Y)",
+    "DTWEXBGS": "달러지수(DXY)",
+    "T10YIE": "기대인플레이션(10Y)",
+    "VIXCLS": "VIX 공포지수",
+    "USDKRW": "원/달러 환율",
 }
 
 _FRED_UNIT: dict[str, str] = {
     "FEDFUNDS": "%",
     "DGS10": "%",
+    "DGS5": "%",
+    "DGS3MO": "%",
     "DGS2": "%",
     "UNRATE": "%",
     "CPIAUCSL": "",
     "DTWEXBGS": "",
     "T10YIE": "%",
+    "VIXCLS": "",
+    "USDKRW": "원",
 }
 
 
@@ -177,6 +185,38 @@ def format_fred_lines(fred: dict[str, float | None]) -> list[str]:
         unit = _FRED_UNIT.get(sid, "")
         lines.append(f"{label}: {val:.2f}{unit}")
     return lines
+
+
+def extract_yfinance_macro(market_snapshot: list[dict[str, Any]]) -> dict[str, float | None]:
+    """yfinance market_snapshot에서 FRED-style 지표를 추출.
+
+    FRED API 키가 없어도 ^TNX / DX-Y.NYB / ^VIX / KRW=X 등에서
+    동일한 정보를 가져올 수 있도록 FRED 시리즈 ID로 매핑한다.
+    """
+    _yf_to_fred: dict[str, str] = {
+        "^TNX": "DGS10",        # 미국 10년물 국채
+        "^FVX": "DGS5",         # 미국 5년물 국채
+        "^IRX": "DGS3MO",       # 미국 3개월물
+        "DX-Y.NYB": "DTWEXBGS", # 달러 실효환율(DXY)
+        "^VIX": "VIXCLS",       # VIX 공포지수
+        "KRW=X": "USDKRW",      # 원/달러 환율
+    }
+    snap_by_sym = {row["symbol"]: row for row in market_snapshot if row.get("symbol")}
+    result: dict[str, float | None] = {}
+    for yf_sym, fred_id in _yf_to_fred.items():
+        row = snap_by_sym.get(yf_sym)
+        if row and row.get("last") is not None:
+            result[fred_id] = float(row["last"])
+    return result
+
+
+def merge_macro_data(fred: dict[str, float | None], yf_macro: dict[str, float | None]) -> dict[str, float | None]:
+    """FRED 결과를 우선하되, 없는 항목은 yfinance로 채운다."""
+    merged = dict(yf_macro)
+    for k, v in fred.items():
+        if v is not None:
+            merged[k] = v
+    return merged
 
 
 def _safe_float(v: Any) -> float | None:

@@ -149,6 +149,7 @@ def compute_scorecard(
     technical: TechnicalSnapshot | None,
     fundamental: FundamentalSnapshot | None,
     technical_4h: IntradayTechnicalSnapshot | None = None,
+    narrative_boost: int = 0,
 ) -> ScoreCard:
     """5개 컴포넌트 ScoreCard를 반환한다."""
 
@@ -163,6 +164,9 @@ def compute_scorecard(
     evidence += min(len(candidate.catalysts) * 3.5, 8.0)
     evidence -= min(len(candidate.risks) * 3.5, 10.0)
     evidence += min((candidate.mentions - 1) * 1.5, 6.0)
+    # AI 독해 반복 등장 가산점: 4H 리포트에서 2회 이상 호재로 언급된 종목 +3~+9
+    if narrative_boost >= 1:
+        evidence += min(narrative_boost * 3.0, 9.0)
     evidence = max(0.0, min(30.0, evidence))
 
     # --- Technical Score: 0-30 (추세·MACD·OBV 방향, 타이밍 제외) ---

@@ -798,6 +798,15 @@ def weekly(
         except Exception as _wn_exc:
             console.print(f"[yellow][weekly] narrative load failed: {_wn_exc}[/yellow]")
 
+        # Load Fear & Greed history for weekly trend section
+        weekly_fear_greed: list[dict] | None = None
+        try:
+            weekly_fear_greed = store.recent_fear_greed(since=since, limit=50)
+            if weekly_fear_greed:
+                console.print(f"[weekly] fear_greed_history: {len(weekly_fear_greed)} records")
+        except Exception as _fg_exc:
+            console.print(f"[yellow][weekly] fear_greed load failed: {_fg_exc}[/yellow]")
+
         summary = build_weekly_deterministic_summary(
             weekly_input,
             relation_feed_data=relation_feed_data,
@@ -805,6 +814,7 @@ def weekly(
             pair_watch_review=pair_watch_review,
             short_entries=short_entries if short_entries else None,
             narratives=weekly_narratives,
+            fear_greed_history=weekly_fear_greed,
         )
 
         if mode == "deep_polish":
@@ -1615,6 +1625,64 @@ def ops_doctor() -> None:
                     )
     except Exception:
         pass
+
+    # --- External indicators diagnostics ---
+    console.rule("[dim]외부 지표 진단[/dim]")
+    ext_settings = _settings()
+    # FRED API 키
+    fred_key = getattr(ext_settings, "fred_api_key", "")
+    if fred_key:
+        console.print("[green]FRED_API_KEY: 설정됨[/green]")
+    else:
+        console.print("[yellow]FRED_API_KEY: 미설정 (yfinance fallback 사용 중)[/yellow]")
+        recs.append(
+            "[yellow]INFO: FRED_API_KEY 미설정[/yellow]\n"
+            "  .env.local에 FRED_API_KEY=your_key 추가하면 연준 공식 금리/실업률 데이터 수집\n"
+            "  무료 발급: https://fred.stlouisfed.org/docs/api/api_key.html"
+        )
+    # Fear & Greed 최근 기록
+    if db_exists:
+        try:
+            fg_rows = store.recent_fear_greed(since=utc_now() - timedelta(hours=12))
+            if fg_rows:
+                from tele_quant.models import parse_dt as _parse_dt
+                fg_latest_dt = _parse_dt(fg_rows[0].get("created_at") or "")
+                fg_age_h = (utc_now() - fg_latest_dt).total_seconds() / 3600 if fg_latest_dt else 999
+                fg_score = fg_rows[0].get("score")
+                fg_rating = fg_rows[0].get("rating_ko") or fg_rows[0].get("rating") or ""
+                console.print(
+                    f"Fear&Greed 최근: {fg_score:.0f}/100 [{fg_rating}]"
+                    f"  ({fg_age_h:.1f}h 전)"
+                )
+                if fg_age_h > 8:
+                    recs.append(
+                        f"[yellow]WARN: Fear&Greed {fg_age_h:.0f}h 전 (8h 초과)[/yellow]\n"
+                        "  fear_greed_enabled=false 또는 네트워크 문제일 수 있음"
+                    )
+            else:
+                console.print("[dim]Fear&Greed: 최근 12h 기록 없음 (첫 실행 또는 비활성화)[/dim]")
+        except Exception:
+            pass
+    # pytrends 설치 여부
+    try:
+        import importlib
+        importlib.import_module("pytrends")
+        console.print("[green]pytrends: 설치됨 (Google Trends 활성화)[/green]")
+    except ImportError:
+        console.print("[dim]pytrends: 미설치 (Google Trends 비활성화 — 선택사항)[/dim]")
+    # narrative_history 최근 기록
+    if db_exists:
+        try:
+            nar_rows = store.recent_narratives(since=utc_now() - timedelta(hours=12))
+            if nar_rows:
+                from tele_quant.models import parse_dt as _parse_dt2
+                nar_dt = _parse_dt2(nar_rows[0].get("created_at") or "")
+                nar_age_h = (utc_now() - nar_dt).total_seconds() / 3600 if nar_dt else 999
+                console.print(f"narrative_history 최근: {nar_age_h:.1f}h 전 ({len(nar_rows)}건/12h)")
+            else:
+                console.print("[dim]narrative_history: 최근 12h 없음 (smart_read 미실행)[/dim]")
+        except Exception:
+            pass
 
     if not recs:
         console.print("[green]이상 없음 — 자동 실행 정상[/green]")

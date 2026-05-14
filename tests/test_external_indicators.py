@@ -9,11 +9,13 @@ import pytest
 
 from tele_quant.external_indicators import (
     _safe_float,
+    extract_yfinance_macro,
     fetch_fear_greed,
     fetch_fred_series,
     fetch_google_trends,
     format_fear_greed_line,
     format_fred_lines,
+    merge_macro_data,
 )
 
 # --- _safe_float ---
@@ -294,3 +296,233 @@ def test_apply_smart_read_boost_negative_reordered() -> None:
 
     result = _apply_smart_read_boost(ranked, _BearSmartResult())
     assert result.negative_stock[0].headline == "에코프로 실적 쇼크"
+
+
+# --- extract_yfinance_macro ---
+
+def test_extract_yfinance_macro_tnx() -> None:
+    snapshot = [{"symbol": "^TNX", "last": 4.52, "change_pct": -0.1}]
+    result = extract_yfinance_macro(snapshot)
+    assert result.get("DGS10") == pytest.approx(4.52)
+
+
+def test_extract_yfinance_macro_dxy() -> None:
+    snapshot = [{"symbol": "DX-Y.NYB", "last": 104.5, "change_pct": 0.2}]
+    result = extract_yfinance_macro(snapshot)
+    assert result.get("DTWEXBGS") == pytest.approx(104.5)
+
+
+def test_extract_yfinance_macro_vix() -> None:
+    snapshot = [{"symbol": "^VIX", "last": 18.3, "change_pct": -1.2}]
+    result = extract_yfinance_macro(snapshot)
+    assert result.get("VIXCLS") == pytest.approx(18.3)
+
+
+def test_extract_yfinance_macro_krw() -> None:
+    snapshot = [{"symbol": "KRW=X", "last": 1380.0, "change_pct": 0.5}]
+    result = extract_yfinance_macro(snapshot)
+    assert result.get("USDKRW") == pytest.approx(1380.0)
+
+
+def test_extract_yfinance_macro_unknown_symbol_ignored() -> None:
+    snapshot = [{"symbol": "UNKNOWN", "last": 999.0, "change_pct": 0}]
+    result = extract_yfinance_macro(snapshot)
+    assert "UNKNOWN" not in result
+
+
+def test_extract_yfinance_macro_empty_snapshot() -> None:
+    assert extract_yfinance_macro([]) == {}
+
+
+def test_extract_yfinance_macro_none_last_skipped() -> None:
+    snapshot = [{"symbol": "^TNX", "last": None, "change_pct": 0}]
+    result = extract_yfinance_macro(snapshot)
+    assert "DGS10" not in result
+
+
+# --- merge_macro_data ---
+
+def test_merge_macro_data_fred_priority() -> None:
+    fred = {"DGS10": 4.52}
+    yf = {"DGS10": 4.30, "VIXCLS": 18.0}
+    result = merge_macro_data(fred, yf)
+    assert result["DGS10"] == pytest.approx(4.52)  # FRED wins
+    assert result["VIXCLS"] == pytest.approx(18.0)  # yf fills gap
+
+
+def test_merge_macro_data_yf_fills_missing() -> None:
+    fred: dict = {}
+    yf = {"DGS10": 4.30, "VIXCLS": 18.0}
+    result = merge_macro_data(fred, yf)
+    assert result["DGS10"] == pytest.approx(4.30)
+    assert result["VIXCLS"] == pytest.approx(18.0)
+
+
+def test_merge_macro_data_fred_none_keeps_yf() -> None:
+    fred = {"DGS10": None}
+    yf = {"DGS10": 4.30}
+    result = merge_macro_data(fred, yf)
+    # None from FRED is skipped — yfinance fallback preserved
+    assert result["DGS10"] == pytest.approx(4.30)
+
+
+# --- fear_greed_history DB ---
+
+def test_save_and_retrieve_fear_greed() -> None:
+    import tempfile
+    from datetime import UTC, datetime, timedelta
+    from pathlib import Path
+
+    from tele_quant.db import Store
+
+    tmpdir = tempfile.mkdtemp()
+    store = Store(Path(tmpdir) / "test.sqlite")
+    data = {
+        "score": 42.5,
+        "rating": "Fear",
+        "rating_ko": "공포",
+        "previous_close": 40.0,
+        "previous_1_week": 38.0,
+        "previous_1_month": 55.0,
+    }
+    store.save_fear_greed(data, report_id=None)
+    since = datetime.now(UTC) - timedelta(days=1)
+    rows = store.recent_fear_greed(since=since)
+    assert len(rows) == 1
+    assert rows[0]["score"] == pytest.approx(42.5)
+    assert rows[0]["rating"] == "Fear"
+    assert rows[0]["rating_ko"] == "공포"
+
+
+def test_fear_greed_time_filter() -> None:
+    import tempfile
+    from datetime import UTC, datetime, timedelta
+    from pathlib import Path
+
+    from tele_quant.db import Store
+
+    tmpdir = tempfile.mkdtemp()
+    store = Store(Path(tmpdir) / "test.sqlite")
+    store.save_fear_greed({"score": 50.0, "rating": "Neutral", "rating_ko": "중립"})
+    since = datetime.now(UTC) + timedelta(hours=1)
+    rows = store.recent_fear_greed(since=since)
+    assert rows == []
+
+
+def test_fear_greed_desc_order() -> None:
+    import tempfile
+    from datetime import UTC, datetime, timedelta
+    from pathlib import Path
+
+    from tele_quant.db import Store
+
+    tmpdir = tempfile.mkdtemp()
+    store = Store(Path(tmpdir) / "test.sqlite")
+    store.save_fear_greed({"score": 30.0, "rating": "Fear", "rating_ko": "공포"})
+    store.save_fear_greed({"score": 55.0, "rating": "Neutral", "rating_ko": "중립"})
+    since = datetime.now(UTC) - timedelta(days=1)
+    rows = store.recent_fear_greed(since=since)
+    assert rows[0]["score"] == pytest.approx(55.0)  # most recent first
+
+
+# --- narrative_boost in compute_scorecard ---
+
+def test_narrative_boost_increases_evidence_score() -> None:
+    from tele_quant.analysis.models import StockCandidate
+    from tele_quant.analysis.scoring import compute_scorecard
+
+    c = StockCandidate(
+        symbol="005930.KS",
+        name="삼성전자",
+        market="KR",
+        mentions=1,
+        sentiment="positive",
+        catalysts=["HBM 수주"],
+        risks=[],
+    )
+    card_no_boost = compute_scorecard(c, None, None, narrative_boost=0)
+    card_with_boost = compute_scorecard(c, None, None, narrative_boost=3)
+    assert card_with_boost.evidence_score > card_no_boost.evidence_score
+
+
+def test_narrative_boost_capped_at_9() -> None:
+    from tele_quant.analysis.models import StockCandidate
+    from tele_quant.analysis.scoring import compute_scorecard
+
+    c = StockCandidate(
+        symbol="NVDA",
+        name="NVDA",
+        market="US",
+        mentions=1,
+        sentiment="positive",
+        catalysts=["AI 수요"],
+        risks=[],
+    )
+    card_boost_3 = compute_scorecard(c, None, None, narrative_boost=3)
+    card_boost_100 = compute_scorecard(c, None, None, narrative_boost=100)
+    # Both capped at 30 (evidence max)
+    assert card_boost_3.evidence_score <= 30.0
+    assert card_boost_100.evidence_score <= 30.0
+
+
+def test_narrative_boost_zero_no_change() -> None:
+    from tele_quant.analysis.models import StockCandidate
+    from tele_quant.analysis.scoring import compute_scorecard
+
+    c = StockCandidate(
+        symbol="AAPL",
+        name="Apple",
+        market="US",
+        mentions=2,
+        sentiment="neutral",
+        catalysts=[],
+        risks=[],
+    )
+    card_a = compute_scorecard(c, None, None, narrative_boost=0)
+    card_b = compute_scorecard(c, None, None)
+    assert card_a.evidence_score == pytest.approx(card_b.evidence_score)
+
+
+# --- weekly fear_greed_history section ---
+
+def test_weekly_fear_greed_section_shown() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from tele_quant.models import RunReport
+    from tele_quant.weekly import build_weekly_deterministic_summary, build_weekly_input
+
+    now = datetime.now(UTC)
+    reports = [
+        RunReport(
+            id=1,
+            created_at=now - timedelta(hours=4),
+            digest="🧠 Tele Quant 4시간\n한 줄 결론:\n- 호재 우세",
+            analysis=None,
+            period_hours=4.0,
+            mode="fast",
+            stats={},
+        )
+    ]
+    wi = build_weekly_input(reports)
+    fg_history = [
+        {"score": 42.0, "rating": "Fear", "rating_ko": "공포", "created_at": now.isoformat()},
+        {"score": 38.0, "rating": "Fear", "rating_ko": "공포", "created_at": (now - timedelta(hours=8)).isoformat()},
+    ]
+    summary = build_weekly_deterministic_summary(wi, fear_greed_history=fg_history)
+    assert "공포탐욕지수" in summary
+    assert "42" in summary
+
+
+def test_weekly_fear_greed_no_history_absent() -> None:
+    from datetime import UTC, datetime
+
+    from tele_quant.models import RunReport
+    from tele_quant.weekly import build_weekly_deterministic_summary, build_weekly_input
+
+    now = datetime.now(UTC)
+    reports = [
+        RunReport(id=1, created_at=now, digest="🧠 테스트", analysis=None, period_hours=4.0, mode="fast", stats={})
+    ]
+    wi = build_weekly_input(reports)
+    summary = build_weekly_deterministic_summary(wi, fear_greed_history=None)
+    assert "공포탐욕지수 추이" not in summary

@@ -155,6 +155,19 @@ CREATE TABLE IF NOT EXISTS narrative_history (
     filtered_noise INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_narrative_history_created_at ON narrative_history(created_at);
+
+CREATE TABLE IF NOT EXISTS fear_greed_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    report_id INTEGER,
+    score REAL NOT NULL,
+    rating TEXT NOT NULL DEFAULT '',
+    rating_ko TEXT NOT NULL DEFAULT '',
+    previous_close REAL,
+    previous_1_week REAL,
+    previous_1_month REAL
+);
+CREATE INDEX IF NOT EXISTS idx_fear_greed_history_created_at ON fear_greed_history(created_at);
 """
 
 # Columns added after initial schema — applied via ALTER TABLE in _init
@@ -187,6 +200,13 @@ _BACKFILL_SQL = (
     "SET signal_price = close_price_at_report "
     "WHERE signal_price IS NULL AND close_price_at_report IS NOT NULL"
 )
+
+
+def _safe_float_db(v: object) -> float | None:
+    try:
+        return float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 def _is_refill_note_db(note: str) -> bool:
@@ -610,6 +630,47 @@ class Store:
                     d[col] = []
             result.append(d)
         return result
+
+    def save_fear_greed(
+        self,
+        data: dict[str, Any],
+        report_id: int | None = None,
+    ) -> None:
+        """Fear & Greed 수치를 fear_greed_history에 저장."""
+        sql = """
+            INSERT INTO fear_greed_history
+                (created_at, report_id, score, rating, rating_ko,
+                 previous_close, previous_1_week, previous_1_month)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        with self.connect() as conn:
+            conn.execute(
+                sql,
+                (
+                    utc_now().isoformat(),
+                    report_id,
+                    float(data.get("score") or 0),
+                    str(data.get("rating") or ""),
+                    str(data.get("rating_ko") or ""),
+                    _safe_float_db(data.get("previous_close")),
+                    _safe_float_db(data.get("previous_1_week")),
+                    _safe_float_db(data.get("previous_1_month")),
+                ),
+            )
+
+    def recent_fear_greed(
+        self,
+        since: datetime,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """최근 fear_greed_history 조회 (DESC order)."""
+        sql = (
+            "SELECT * FROM fear_greed_history WHERE created_at >= ?"
+            " ORDER BY created_at DESC LIMIT ?"
+        )
+        with self.connect() as conn:
+            rows = conn.execute(sql, [since.isoformat(), limit]).fetchall()
+        return [dict(row) for row in rows]
 
     def save_mover_chain(self, relation_feed: Any, report_id: int | None = None) -> int:
         """Save lead-lag rows from relation feed. Returns count of inserted rows.

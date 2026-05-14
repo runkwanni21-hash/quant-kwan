@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -640,10 +641,11 @@ class OllamaClient:
             log.warning("[ollama] smart_read failed: %s", type(exc).__name__)
             return empty
 
-    async def generate_stock_plain_summary(self, scenario: Any) -> str:
+    async def generate_stock_plain_summary(self, scenario: Any, side: str = "long") -> str:
         """종목별 초보자용 한국어 서술 설명 생성 (2-3문장).
 
-        왜 주목받는지 + 무엇을 조심해야 하는지 중심.
+        side="long"  : 왜 주목받는지 + 무엇을 조심해야 하는지
+        side="short" : 왜 약세/위험한지 + 반전 가능 조건
         실패하면 빈 문자열 반환.
         """
         name = getattr(scenario, "name", None) or getattr(scenario, "symbol", "")
@@ -651,27 +653,45 @@ class OllamaClient:
         score = getattr(scenario, "score", 0.0)
         grade = getattr(scenario, "grade", "")
         reasons_up = getattr(scenario, "reasons_up", []) or []
+        reasons_down = getattr(scenario, "reasons_down", []) or []
         risk_notes = getattr(scenario, "risk_notes", []) or []
         tech_summary = getattr(scenario, "technical_summary", "") or ""
         intraday = getattr(scenario, "intraday_4h_summary", "") or ""
 
-        reasons_str = ", ".join(reasons_up[:2]) if reasons_up else "뉴스 언급 증가"
-        risk_str = risk_notes[0][:80] if risk_notes else "없음"
         tech_str = intraday.splitlines()[0] if intraday else tech_summary[:60]
 
-        context = (
-            f"종목: {name} ({symbol})\n"
-            f"점수: {score:.0f}/100 ({grade})\n"
-            f"주목 이유: {reasons_str}\n"
-            f"기술적 상황: {tech_str}\n"
-            f"주요 리스크: {risk_str}"
-        )
-        prompt = (
-            "아래 종목 분석 데이터를 주식을 잘 모르는 초보 투자자에게 설명하는 2~3문장을 작성하세요.\n"
-            "왜 이 종목이 지금 주목받는지, 어떤 것을 조심해야 하는지 중심으로.\n"
-            "전문 용어(RSI, MACD 등)는 쉬운 말로 풀어서. 투자를 확정 권유하지 마세요.\n\n"
-            + context
-        )
+        if side == "short":
+            reasons_str = ", ".join(reasons_down[:2]) if reasons_down else "악재 신호 포착"
+            risk_str = risk_notes[0][:80] if risk_notes else "추세 반전 가능성"
+            context = (
+                f"종목: {name} ({symbol})\n"
+                f"점수: {score:.0f}/100 ({grade})\n"
+                f"약세 이유: {reasons_str}\n"
+                f"기술적 상황: {tech_str}\n"
+                f"반전 조건(무효화): {risk_str}"
+            )
+            prompt = (
+                "아래 종목 분석 데이터를 주식을 잘 모르는 초보 투자자에게 설명하는 2~3문장을 작성하세요.\n"
+                "왜 이 종목이 지금 약세·조정 우려를 받는지, 어떤 상황이 되면 위험 신호가 해소되는지 중심으로.\n"
+                "전문 용어는 쉬운 말로. 투자를 확정 권유하지 마세요.\n\n"
+                + context
+            )
+        else:
+            reasons_str = ", ".join(reasons_up[:2]) if reasons_up else "뉴스 언급 증가"
+            risk_str = risk_notes[0][:80] if risk_notes else "없음"
+            context = (
+                f"종목: {name} ({symbol})\n"
+                f"점수: {score:.0f}/100 ({grade})\n"
+                f"주목 이유: {reasons_str}\n"
+                f"기술적 상황: {tech_str}\n"
+                f"주요 리스크: {risk_str}"
+            )
+            prompt = (
+                "아래 종목 분석 데이터를 주식을 잘 모르는 초보 투자자에게 설명하는 2~3문장을 작성하세요.\n"
+                "왜 이 종목이 지금 주목받는지, 어떤 것을 조심해야 하는지 중심으로.\n"
+                "전문 용어(RSI, MACD 등)는 쉬운 말로 풀어서. 투자를 확정 권유하지 마세요.\n\n"
+                + context
+            )
         timeout = getattr(self.settings, "ollama_stock_summary_timeout_seconds", 90.0)
         payload: dict[str, Any] = {
             "model": self.settings.ollama_chat_model,

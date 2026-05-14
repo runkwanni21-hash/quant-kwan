@@ -522,6 +522,20 @@ class TeleQuantPipeline:
             price_store = self._load_price_store()
             ohlcv = await asyncio.to_thread(fetch_ohlcv_batch, symbols, self.settings, price_store)
 
+            # ③ narrative_history 기반 반복 등장 종목 boost map 구성 (최근 24H)
+            _narrative_boost_map: dict[str, int] = {}
+            try:
+                _nar_rows = self.store.recent_narratives(
+                    since=utc_now() - timedelta(hours=24), limit=20
+                )
+                for _nr in _nar_rows:
+                    for _b in (_nr.get("bullish_json") or []):
+                        _name = (_b.get("name") or "").strip().lower() if isinstance(_b, dict) else ""
+                        if _name:
+                            _narrative_boost_map[_name] = _narrative_boost_map.get(_name, 0) + 1
+            except Exception:
+                pass
+
             scenarios = []
             close_map: dict[str, float] = {}
             for candidate in top:
@@ -543,7 +557,14 @@ class TeleQuantPipeline:
                     except Exception:
                         pass
 
-                card = compute_scorecard(candidate, technical, fundamental, technical_4h=snap_4h)
+                # narrative_boost: 후보 이름/심볼이 최근 AI 독해에서 반복 호재 언급된 횟수
+                _cand_name = (getattr(candidate, "name", "") or "").strip().lower()
+                _cand_sym = (getattr(candidate, "symbol", "") or "").strip().lower()
+                _nb = _narrative_boost_map.get(_cand_name, 0) or _narrative_boost_map.get(_cand_sym, 0)
+
+                card = compute_scorecard(
+                    candidate, technical, fundamental, technical_4h=snap_4h, narrative_boost=_nb
+                )
 
                 # Relation feed 보조 가점: telegram + feed + technical 모두 있을 때만
                 rf_note = ""
@@ -684,6 +705,28 @@ class TeleQuantPipeline:
                             )
 
                     await asyncio.gather(*[_gen_plain(sc) for sc in longs[:3]])
+
+                    # SHORT 상위 2개: 왜 약세인지 설명 (side="short")
+                    async def _gen_plain_short(sc: Any) -> None:
+                        try:
+                            elapsed2 = time.monotonic() - start_time
+                            if self.settings.run_max_seconds - elapsed2 < 60:
+                                return
+                            sc.plain_summary = await asyncio.wait_for(
+                                self.ollama.generate_stock_plain_summary(sc, side="short"),
+                                timeout=_ps_timeout,
+                            )
+                            log.info(
+                                "[analysis-fast] plain_summary SHORT %s (%d chars)",
+                                sc.symbol,
+                                len(sc.plain_summary),
+                            )
+                        except TimeoutError:
+                            log.warning("[analysis-fast] plain_summary SHORT timeout: %s", sc.symbol)
+                        except Exception as _ps_exc2:
+                            log.debug("[analysis-fast] plain_summary SHORT failed: %s", _ps_exc2)
+
+                    await asyncio.gather(*[_gen_plain_short(sc) for sc in shorts[:2]])
 
             # ④ Google Trends — 롱 상위 종목 검색 관심도 (선택)
             _trends_data: dict[str, float] = {}
@@ -866,6 +909,21 @@ class TeleQuantPipeline:
                         fred_val = _ind_results[idx]
                         if isinstance(fred_val, dict):
                             _external_data["fred"] = fred_val
+                # ① yfinance → FRED 대체: API 키 없어도 ^TNX/DXY/VIX 표시
+                try:
+                    from tele_quant.external_indicators import (
+                        extract_yfinance_macro,
+                        merge_macro_data,
+                    )
+
+                    yf_macro = extract_yfinance_macro(market_snapshot)
+                    existing_fred = _external_data.get("fred") or {}
+                    merged = merge_macro_data(existing_fred, yf_macro)
+                    if merged:
+                        _external_data["fred"] = merged
+                except Exception as _yf_macro_exc:
+                    log.debug("[pipeline] yfinance macro extract failed: %s", _yf_macro_exc)
+
                 if _external_data:
                     log.info(
                         "[pipeline] external indicators: %s",
@@ -985,6 +1043,14 @@ class TeleQuantPipeline:
                         log.info("[pipeline] pair_watch saved: %d signals", saved_pw)
                 except Exception as _pw_exc:
                     log.debug("[pipeline] pair_watch save failed: %s", _pw_exc)
+            # Save Fear & Greed to history DB
+            _fg_data = (_external_data or {}).get("fear_greed")
+            if _fg_data:
+                try:
+                    self.store.save_fear_greed(_fg_data, report_id=report_id)
+                    log.info("[pipeline] fear_greed_history saved: score=%.0f", _fg_data.get("score", 0))
+                except Exception as _fg_exc:
+                    log.debug("[pipeline] fear_greed save failed: %s", _fg_exc)
             # Save 4H AI narrative to DB for weekly reuse
             if _smart_result is not None and not getattr(_smart_result, "is_empty", True):
                 try:
