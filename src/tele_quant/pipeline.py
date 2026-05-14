@@ -630,6 +630,8 @@ class TeleQuantPipeline:
                     "risks": list(getattr(candidate, "risks", []))[:2],
                     "snap_4h": snap_4h,
                     "technical": technical,
+                    "sentiment_alpha": getattr(candidate, "sentiment_alpha_score", None),
+                    "direct_ev": getattr(candidate, "direct_evidence_count", 0),
                 })
 
                 if card.final_score >= self.settings.analysis_min_score_to_send:

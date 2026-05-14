@@ -2014,6 +2014,15 @@ def lint_report(
             )
         if no_price > 0:
             console.print(f"  → 가격 없는 후보: {no_price}개")
+    # score=44 전수 진단 (direct evidence gate 완전 차단 시 발생)
+    sc_score_44 = sum(1 for r in all_sc if 43 <= (r.get("score") or 0) <= 45)
+    if sc_all_count > 0 and sc_score_44 == sc_all_count:
+        console.print(
+            f"  [red]⚠ 전 후보 점수=44 ({sc_score_44}개) — direct evidence gate 완전 차단[/red]"
+        )
+        console.print(
+            "  → ticker symbol(Pass 3) 또는 $TICKER(Pass 4) 검색 결과 확인 필요"
+        )
     elif sc_above_50 == 0 and sc_all_count == 0:
         console.print("  [dim]해당 기간 scenario_history 저장 없음[/dim]")
     else:
@@ -2078,6 +2087,33 @@ def lint_report(
     except Exception as _rf_exc:
         console.print(f"  [dim]relation feed 확인 실패: {_rf_exc}[/dim]")
 
+    # Alias book summary
+    console.rule("[dim]alias book 상태[/dim]")
+    try:
+        from tele_quant.alias_audit import run_audit
+        from tele_quant.analysis.aliases import load_alias_config
+
+        book = load_alias_config()
+        total_syms = len(book.all_symbols)
+        audit_entries = run_audit()
+        high_cnt_alias = sum(1 for e in audit_entries if e.severity == "HIGH")
+        med_cnt_alias = sum(1 for e in audit_entries if e.severity == "MEDIUM")
+        if high_cnt_alias > 0:
+            console.print(
+                f"  [red]WARN: alias HIGH 이슈 {high_cnt_alias}건[/red]"
+                f" (총 {total_syms}개 심볼)"
+                " — alias-audit 명령으로 확인"
+            )
+        elif med_cnt_alias > 10:
+            console.print(
+                f"  [yellow]alias MEDIUM 이슈 {med_cnt_alias}건[/yellow]"
+                f" (총 {total_syms}개 심볼)"
+            )
+        else:
+            console.print(f"  [green]alias book OK: {total_syms}개 심볼, HIGH 이슈 없음[/green]")
+    except Exception as _al_exc:
+        console.print(f"  [dim]alias book 확인 실패: {_al_exc}[/dim]")
+
     has_failures = total_issues > 0 or bool(global_issues)
 
     if total_issues == 0:
@@ -2086,4 +2122,67 @@ def lint_report(
         console.print(f"[bold red]{total_issues}/{len(reports)} 리포트에 품질 이슈[/bold red]")
 
     if has_failures:
+        raise SystemExit(1)
+
+
+@app.command("alias-audit")
+def alias_audit_cmd(
+    save: Annotated[
+        bool, typer.Option("--save/--no-save", help="결과를 CSV로 저장할지 여부")
+    ] = True,
+    high_only: Annotated[
+        bool, typer.Option("--high-only", help="HIGH 심각도 이슈만 표시"),
+    ] = False,
+    fail_on_high: Annotated[
+        bool,
+        typer.Option("--fail-on-high/--no-fail-on-high", help="HIGH 이슈 존재 시 exit(1)"),
+    ] = False,
+) -> None:
+    """전체 alias 오탐 방지 품질 감사 (HIGH/MEDIUM/LOW 이슈 분류).
+
+    Example: uv run tele-quant alias-audit
+             uv run tele-quant alias-audit --high-only --fail-on-high
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.alias_audit import audit_summary, run_audit, save_audit_csv
+
+    entries = run_audit()
+
+    if high_only:
+        entries = [e for e in entries if e.severity == "HIGH"]
+
+    summary = audit_summary(entries)
+    console.print(f"\n{summary}\n")
+
+    if entries:
+        from rich.table import Table as _Table
+
+        tbl = _Table(title=f"Alias Audit ({len(entries)}건)")
+        tbl.add_column("심각도", style="bold")
+        tbl.add_column("symbol")
+        tbl.add_column("name")
+        tbl.add_column("alias")
+        tbl.add_column("이슈")
+
+        _SEV_STYLE = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "dim"}
+        for e in entries[:50]:  # cap display
+            tbl.add_row(
+                f"[{_SEV_STYLE.get(e.severity, '')}]{e.severity}[/]",
+                e.symbol,
+                e.name,
+                e.alias,
+                e.issue,
+            )
+        console.print(tbl)
+        if len(entries) > 50:
+            console.print(f"  ... 및 {len(entries) - 50}건 더 (CSV 확인)")
+
+    if save:
+        out = _Path("data/diagnostics/alias_audit_latest.csv")
+        save_audit_csv(entries, out)
+        console.print(f"[dim]CSV 저장: {out}[/dim]")
+
+    high_cnt = sum(1 for e in entries if e.severity == "HIGH")
+    if fail_on_high and high_cnt > 0:
         raise SystemExit(1)

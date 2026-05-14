@@ -263,19 +263,24 @@ def _build_sentiment_radar_section(
     neg_cnt = len(pack.negative_stock)
     total_cnt = pos_cnt + neg_cnt
     overall_score = 50.0 if total_cnt == 0 else (pos_cnt / total_cnt) * 100.0
+    net_score = pos_cnt - neg_cnt  # net positive count
 
     if overall_score >= 65:
-        mood_label = "긍정 우세"
+        mood_label, mood_icon = "긍정 우세", "🟢"
     elif overall_score >= 55:
-        mood_label = "소폭 긍정"
+        mood_label, mood_icon = "소폭 긍정", "🟡"
     elif overall_score >= 45:
-        mood_label = "중립 혼조"
+        mood_label, mood_icon = "중립 혼조", "⚪"
     elif overall_score >= 35:
-        mood_label = "소폭 부정"
+        mood_label, mood_icon = "소폭 부정", "🟠"
     else:
-        mood_label = "부정 우세"
+        mood_label, mood_icon = "부정 우세", "🔴"
 
-    lines = ["4.5 🧭 시장 감성 레이더", f"전체 감성: {mood_label} ({overall_score:.0f}/100)"]
+    net_str = f"+{net_score}" if net_score > 0 else str(net_score)
+    lines = [
+        "4.5 🧭 시장 감성 레이더",
+        f"{mood_icon} 전체 감성: {mood_label}  점수 {overall_score:.0f}/100  순감성 {net_str}",
+    ]
 
     sector_data = _compute_sector_sentiments(pack)
     if sector_data:
@@ -288,19 +293,66 @@ def _build_sentiment_radar_section(
             conf = " (저신뢰)" if data["confidence"] == "low" else ""
             lines.append(f"  {icon} {sector}: {label} (호재 {bull}건 / 악재 {bear}건){conf}")
 
-    # Sentiment delta vs previous
+    # 주요동력 / 부담 — top 2 positive / negative cluster headlines
+    drivers = [_one_sentence(c.headline, max_len=45) for c in pack.positive_stock[:2] if c.headline]
+    burdens = [_one_sentence(c.headline, max_len=45) for c in pack.negative_stock[:2] if c.headline]
+    if drivers:
+        lines.append(f"  주요동력: {' / '.join(drivers)}")
+    if burdens:
+        lines.append(f"  주요부담: {' / '.join(burdens)}")
+
+    # Sentiment delta vs previous — rising/cooling sectors
     if prev_sector_sentiments:
-        deltas: list[str] = []
+        rising: list[str] = []
+        cooling: list[str] = []
         for sector, data in sector_data.items():
             prev = prev_sector_sentiments.get(sector)
             if prev:
                 delta = data["score"] - prev["score"]
-                if abs(delta) >= 10:
-                    direction = "↑" if delta > 0 else "↓"
-                    deltas.append(f"{sector} {direction}{abs(delta):.0f}점")
-        if deltas:
-            lines.append(f"🔁 직전 대비: {', '.join(deltas[:3])}")
+                if delta >= 10:
+                    rising.append(f"{sector} ↑{delta:.0f}점")
+                elif delta <= -10:
+                    cooling.append(f"{sector} ↓{abs(delta):.0f}점")
+        if rising:
+            lines.append(f"  🔥 상승섹터: {', '.join(rising[:3])}")
+        if cooling:
+            lines.append(f"  🧊 냉각섹터: {', '.join(cooling[:3])}")
 
+    return "\n".join(lines)
+
+
+def _build_category_news_section(pack: RankedEvidencePack) -> str:
+    """카테고리별 주요 뉴스 요약 (반도체/AI/바이오/세계경제 등)."""
+    all_clusters = pack.positive_stock + pack.negative_stock + pack.macro
+    if not all_clusters:
+        return ""
+
+    # Group clusters into categories using _CATEGORY_KW
+    cat_hits: dict[str, list[tuple[str, str]]] = {cat: [] for cat in _CATEGORY_KW}
+    seen_headlines: set[str] = set()
+
+    for cluster in all_clusters:
+        text = (cluster.headline + " " + cluster.summary_hint).lower()
+        pol_icon = "🟢" if cluster.polarity == "positive" else ("🔴" if cluster.polarity == "negative" else "⚪")
+        headline = _one_sentence(cluster.headline, max_len=50)
+        if not headline or headline in seen_headlines:
+            continue
+        for cat, kws in _CATEGORY_KW.items():
+            if any(kw.lower() in text for kw in kws):
+                if len(cat_hits[cat]) < 2:
+                    cat_hits[cat].append((pol_icon, headline))
+                    seen_headlines.add(headline)
+                break
+
+    active_cats = [(cat, hits) for cat, hits in cat_hits.items() if hits]
+    if not active_cats:
+        return ""
+
+    lines = ["4.4 📰 카테고리별 주요 뉴스"]
+    for cat, hits in active_cats:
+        lines.append(f"  [{cat}]")
+        for icon, hl in hits:
+            lines.append(f"    {icon} {hl}")
     return "\n".join(lines)
 
 
@@ -576,6 +628,15 @@ def build_macro_digest(
         lines.append("  - 특정 섹터 신호 없음")
     lines.append("")
 
+    # 4.4. 카테고리별 주요 뉴스
+    try:
+        cat_news = _build_category_news_section(pack)
+        if cat_news:
+            lines.append(cat_news)
+            lines.append("")
+    except Exception:
+        pass
+
     # 4.5. 시장 감성 레이더
     try:
         radar = _build_sentiment_radar_section(pack, prev_sector_sentiments)
@@ -847,8 +908,12 @@ def build_tech_scan_section(tech_scan_rows: list[dict], max_stocks: int = 6) -> 
         is_kr = sym.endswith(".KS") or sym.endswith(".KQ")
         _fmt_price = (lambda v: f"{v:,.0f}") if is_kr else (lambda v: f"{v:.2f}")
 
+        sentiment_alpha: float | None = row.get("sentiment_alpha")
+        direct_ev: int = row.get("direct_ev", 0)
         icon = "🟢" if sentiment == "positive" else ("🔴" if sentiment == "negative" else "⚪")
-        lines.append(f"\n{icon} {name} ({sym})  점수 {score:.0f}")
+        alpha_s = f"  α{sentiment_alpha:.0f}" if sentiment_alpha is not None else ""  # noqa: RUF001
+        ev_s = f"  직증{direct_ev}" if direct_ev > 0 else ""
+        lines.append(f"\n{icon} {name} ({sym})  점수 {score:.0f}{alpha_s}{ev_s}")
 
         # 4H봉
         if snap is not None:

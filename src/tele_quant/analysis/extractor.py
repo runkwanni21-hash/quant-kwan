@@ -532,6 +532,34 @@ def extract_candidates_with_book(
                 if not _is_noise_context(ctx) and ctx not in raw_contexts:
                     raw_contexts.append(ctx)
 
+        # Pass 3: ticker symbol itself — fixes "NVDA" text when alias matched "NVIDIA"
+        ticker_sym = m.symbol.split(".")[0]
+        if ticker_sym and not ticker_sym.isdigit() and len(ticker_sym) >= 2:
+            _ticker_re = re.compile(r"\b" + re.escape(ticker_sym) + r"\b")
+            for text in all_texts:
+                idx_m = _ticker_re.search(text)
+                if not idx_m:
+                    continue
+                idx = idx_m.start()
+                lo = max(0, idx - 80)
+                hi = min(len(text), idx + len(ticker_sym) + 80)
+                ctx = text[lo:hi]
+                if not _is_noise_context(ctx) and ctx not in raw_contexts:
+                    raw_contexts.append(ctx)
+
+        # Pass 4: $TICKER mention (e.g. "$NVDA")
+        if ticker_sym and not ticker_sym.isdigit() and len(ticker_sym) >= 2:
+            dollar_form = f"${ticker_sym}"
+            for text in all_texts:
+                idx = text.find(dollar_form)
+                if idx < 0:
+                    continue
+                lo = max(0, idx - 80)
+                hi = min(len(text), idx + len(dollar_form) + 80)
+                ctx = text[lo:hi]
+                if not _is_noise_context(ctx) and ctx not in raw_contexts:
+                    raw_contexts.append(ctx)
+
         contexts = raw_contexts[:10]
         direct_evidence_count = len(contexts)
         sentiment = _infer_sentiment(contexts)
