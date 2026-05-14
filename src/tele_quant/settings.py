@@ -194,6 +194,17 @@ class Settings(BaseSettings):
     weekend_macro_only_end: str = "SUN 23:00"
     weekly_performance_review: bool = True
 
+    # External indicators
+    fear_greed_enabled: bool = True
+    fear_greed_timeout_seconds: float = 10.0
+    fred_enabled: bool = True
+    fred_api_key: str = ""
+    fred_series: str = "FEDFUNDS,DGS10,DGS2,UNRATE,T10YIE"
+    fred_timeout_seconds: float = 12.0
+    google_trends_enabled: bool = True
+    google_trends_timeout_seconds: float = 25.0
+    google_trends_max_keywords: int = 5
+
     # Relation feed (stock-relation-ai 공유 피드)
     relation_feed_enabled: bool = True
     relation_feed_dir: str = "/home/kwanni/projects/quant_spillover/shared_relation_feed"

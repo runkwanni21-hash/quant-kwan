@@ -367,6 +367,7 @@ def build_macro_digest(
     scenarios: Any = None,
     prev_sector_sentiments: dict[str, dict] | None = None,
     market_narrative: str = "",
+    external_data: dict[str, Any] | None = None,
 ) -> str:
     """4시간 투자 브리핑 형태의 deterministic digest를 생성한다."""
 
@@ -408,6 +409,25 @@ def build_macro_digest(
             if nl.strip():
                 lines.append(nl)
         lines.append("")
+
+    # 0-C. 시장 심리 & FRED 매크로 지표
+    if external_data:
+        try:
+            from tele_quant.external_indicators import format_fear_greed_line, format_fred_lines
+
+            indicator_lines: list[str] = []
+            fg = external_data.get("fear_greed")
+            if fg:
+                indicator_lines.append(f"공포탐욕지수: {format_fear_greed_line(fg)}")
+            fred = external_data.get("fred") or {}
+            indicator_lines.extend(format_fred_lines(fred))
+            if indicator_lines:
+                lines.append("📊 시장 심리 & 실시간 지표")
+                for il in indicator_lines:
+                    lines.append(f"- {il}")
+                lines.append("")
+        except Exception:
+            pass
 
     # 1. 한 줄 결론
     pos_cnt, neg_cnt, mac_cnt = len(pack.positive_stock), len(pack.negative_stock), len(pack.macro)

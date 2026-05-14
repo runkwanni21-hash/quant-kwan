@@ -20,6 +20,49 @@ from tele_quant.telegram_sender import TelegramSender
 log = logging.getLogger(__name__)
 
 
+def _apply_smart_read_boost(ranked: Any, smart_result: Any) -> Any:
+    """smart_read 결과를 반영해 positive/negative 클러스터 순서를 재조정.
+
+    bullish_items에 있는 종목명이 headline/tickers에 포함된 클러스터를 앞으로 이동.
+    기존 bucket 크기·구성은 변경하지 않음.
+    """
+    try:
+        bull_names = {
+            b.get("name", "").strip().lower()
+            for b in (getattr(smart_result, "bullish_items", []) or [])
+            if isinstance(b, dict) and b.get("name")
+        }
+        bear_names = {
+            b.get("name", "").strip().lower()
+            for b in (getattr(smart_result, "bearish_items", []) or [])
+            if isinstance(b, dict) and b.get("name")
+        }
+
+        def _reorder(clusters: list, priority_names: set) -> list:
+            if not priority_names:
+                return clusters
+            matched, rest = [], []
+            for c in clusters:
+                text = (
+                    getattr(c, "headline", "") + " " + " ".join(getattr(c, "tickers", []))
+                ).lower()
+                if any(n in text for n in priority_names if n):
+                    matched.append(c)
+                else:
+                    rest.append(c)
+            return matched + rest
+
+        from dataclasses import replace
+
+        return replace(
+            ranked,
+            positive_stock=_reorder(ranked.positive_stock, bull_names),
+            negative_stock=_reorder(ranked.negative_stock, bear_names),
+        )
+    except Exception:
+        return ranked
+
+
 def _load_watchlist(settings: Settings) -> Any:
     """watchlist.yml을 로드. 실패하면 None 반환."""
     if not settings.watchlist_enabled:
@@ -226,6 +269,7 @@ class TeleQuantPipeline:
         macro_only: bool = False,
         relation_feed: Any = None,
         prev_sector_sentiments: dict[str, dict] | None = None,
+        external_data: dict[str, Any] | None = None,
     ) -> tuple[str, Any, Any]:
         """Build deterministic digest, optionally polish with Ollama."""
         from tele_quant.deterministic_report import apply_polish_guard, build_macro_digest
@@ -259,6 +303,9 @@ class TeleQuantPipeline:
                             len(getattr(smart_result, "bullish_items", [])),
                             len(getattr(smart_result, "bearish_items", [])),
                         )
+                        # ② smart_read 결과로 증거 클러스터 재가중 — AI 독해가 호재로 본
+                        #    종목의 클러스터를 positive_stock 버킷 앞으로 이동
+                        ranked = _apply_smart_read_boost(ranked, smart_result)
                 except TimeoutError:
                     log.warning("[digest] smart_read timeout → skipped")
                 except Exception as exc:
@@ -274,6 +321,7 @@ class TeleQuantPipeline:
             relation_feed=relation_feed,
             prev_sector_sentiments=prev_sector_sentiments,
             market_narrative=market_narrative,
+            external_data=external_data,
         )
         log.info("[digest] mode=%s deterministic=ok", self.settings.digest_mode)
 
@@ -607,28 +655,71 @@ class TeleQuantPipeline:
             watches = [s for s in scenarios if s.side == "WATCH"][: self.settings.report_max_watch]
             limited_scenarios = longs + shorts + watches
 
-            # ③ 종목별 "왜?" 설명 — 롱 상위 3개에 Ollama 서술 생성
+            # ③ 종목별 "왜?" 설명 — 롱 상위 3개에 Ollama 서술 생성 (병렬)
             if self.settings.digest_mode == "fast":
-                for sc in longs[:3]:
-                    try:
-                        elapsed = time.monotonic() - start_time
-                        if self.settings.run_max_seconds - elapsed < 60:
-                            break
-                        sc.plain_summary = await asyncio.wait_for(
-                            self.ollama.generate_stock_plain_summary(sc),
-                            timeout=getattr(
-                                self.settings, "ollama_stock_summary_timeout_seconds", 90.0
+                elapsed = time.monotonic() - start_time
+                if self.settings.run_max_seconds - elapsed >= 60:
+                    _ps_timeout = getattr(
+                        self.settings, "ollama_stock_summary_timeout_seconds", 90.0
+                    )
+
+                    async def _gen_plain(sc: Any) -> None:
+                        try:
+                            sc.plain_summary = await asyncio.wait_for(
+                                self.ollama.generate_stock_plain_summary(sc),
+                                timeout=_ps_timeout,
+                            )
+                            log.info(
+                                "[analysis-fast] plain_summary %s (%d chars)",
+                                sc.symbol,
+                                len(sc.plain_summary),
+                            )
+                        except TimeoutError:
+                            log.warning(
+                                "[analysis-fast] plain_summary timeout: %s", sc.symbol
+                            )
+                        except Exception as _ps_exc:
+                            log.debug(
+                                "[analysis-fast] plain_summary failed: %s", _ps_exc
+                            )
+
+                    await asyncio.gather(*[_gen_plain(sc) for sc in longs[:3]])
+
+            # ④ Google Trends — 롱 상위 종목 검색 관심도 (선택)
+            _trends_data: dict[str, float] = {}
+            if getattr(self.settings, "google_trends_enabled", True) and longs:
+                try:
+                    from tele_quant.external_indicators import fetch_google_trends
+
+                    _kw_limit = getattr(self.settings, "google_trends_max_keywords", 5)
+                    _gt_timeout = getattr(self.settings, "google_trends_timeout_seconds", 25.0)
+                    _trend_kws = [
+                        sc.name or sc.symbol for sc in longs[:_kw_limit] if sc.name or sc.symbol
+                    ]
+                    elapsed = time.monotonic() - start_time
+                    if self.settings.run_max_seconds - elapsed > _gt_timeout + 10:
+                        _trends_data = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                fetch_google_trends, _trend_kws, "now 7-d", "", _gt_timeout
                             ),
-                        )
-                        log.info(
-                            "[analysis-fast] plain_summary %s (%d chars)",
-                            sc.symbol,
-                            len(sc.plain_summary),
-                        )
-                    except TimeoutError:
-                        log.warning("[analysis-fast] plain_summary timeout: %s", sc.symbol)
-                    except Exception as _ps_exc:
-                        log.debug("[analysis-fast] plain_summary failed: %s", _ps_exc)
+                            timeout=_gt_timeout + 5,
+                        ) or {}
+                        if _trends_data:
+                            log.info(
+                                "[analysis-fast] google_trends: %d symbols",
+                                len(_trends_data),
+                            )
+                            # 관심도 높은 종목의 plain_summary에 추가 context
+                            for sc in longs[:_kw_limit]:
+                                kw = sc.name or sc.symbol
+                                t_val = _trends_data.get(kw)
+                                if t_val is not None and t_val >= 50:
+                                    sc.plain_summary = (
+                                        (sc.plain_summary + "\n" if sc.plain_summary else "")
+                                        + f"🔍 Google 검색 관심도 {t_val:.0f}/100 (최근 7일)"
+                                    )
+                except (TimeoutError, Exception) as _gt_exc:
+                    log.debug("[analysis-fast] google_trends failed: %s", _gt_exc)
 
             report = build_long_short_report(
                 limited_scenarios,
@@ -737,6 +828,52 @@ class TeleQuantPipeline:
 
             market_snapshot = await asyncio.to_thread(fetch_market_snapshot, self.settings)
 
+            # 외부 지표 병렬 fetch (Fear&Greed + FRED)
+            _external_data: dict[str, Any] = {}
+            try:
+                from tele_quant.external_indicators import fetch_fear_greed, fetch_fred_series
+
+                _fg_enabled = getattr(self.settings, "fear_greed_enabled", True)
+                _fred_enabled = getattr(self.settings, "fred_enabled", True)
+                _fred_key = getattr(self.settings, "fred_api_key", "")
+                _fred_ids = [
+                    s.strip()
+                    for s in getattr(self.settings, "fred_series", "").split(",")
+                    if s.strip()
+                ]
+                _fg_timeout = getattr(self.settings, "fear_greed_timeout_seconds", 10.0)
+                _fred_timeout = getattr(self.settings, "fred_timeout_seconds", 12.0)
+
+                _fetch_coros = []
+                if _fg_enabled:
+                    _fetch_coros.append(
+                        asyncio.to_thread(fetch_fear_greed, _fg_timeout)
+                    )
+                if _fred_enabled and _fred_key and _fred_ids:
+                    _fetch_coros.append(
+                        asyncio.to_thread(fetch_fred_series, _fred_key, _fred_ids, _fred_timeout)
+                    )
+
+                if _fetch_coros:
+                    _ind_results = await asyncio.gather(*_fetch_coros, return_exceptions=True)
+                    idx = 0
+                    if _fg_enabled:
+                        fg_val = _ind_results[idx]
+                        if isinstance(fg_val, dict):
+                            _external_data["fear_greed"] = fg_val
+                        idx += 1
+                    if _fred_enabled and _fred_key and _fred_ids:
+                        fred_val = _ind_results[idx]
+                        if isinstance(fred_val, dict):
+                            _external_data["fred"] = fred_val
+                if _external_data:
+                    log.info(
+                        "[pipeline] external indicators: %s",
+                        list(_external_data.keys()),
+                    )
+            except Exception as _ext_exc:
+                log.debug("[pipeline] external indicators failed: %s", _ext_exc)
+
             if digest_mode == "deep":
                 digest = await self._summarize_with_evidence(kept, market_snapshot, stats, lookback)
                 if not macro_only:
@@ -772,6 +909,7 @@ class TeleQuantPipeline:
                     macro_only=macro_only,
                     relation_feed=relation_feed,
                     prev_sector_sentiments=_prev_sent,
+                    external_data=_external_data or None,
                 )
                 if not macro_only:
                     (
