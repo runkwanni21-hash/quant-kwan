@@ -1682,16 +1682,19 @@ def ops_doctor() -> None:
 
     # RSS 뉴스
     rss_ok = getattr(ext_settings, "rss_enabled", True)
+    _rss_col = "green" if rss_ok else "dim"
+    _rss_lbl = "활성화" if rss_ok else "비활성화"
     console.print(
-        f"[{'green' if rss_ok else 'dim'}]RSS 뉴스: {'활성화' if rss_ok else '비활성화'}"
-        " (PR Newswire / GlobeNewswire / BusinessWire / Google News)[/{'green' if rss_ok else 'dim'}]"
+        f"[{_rss_col}]RSS 뉴스: {_rss_lbl}"
+        f" (PR Newswire / GlobeNewswire / BusinessWire / Google News)[/{_rss_col}]"
     )
 
     # SEC EDGAR
     sec_ok = getattr(ext_settings, "sec_enabled", True)
+    _sec_col = "green" if sec_ok else "dim"
+    _sec_lbl = "활성화" if sec_ok else "비활성화"
     console.print(
-        f"[{'green' if sec_ok else 'dim'}]SEC EDGAR 8-K: {'활성화' if sec_ok else '비활성화'}"
-        " (미국 주식 직접증거)[/{'green' if sec_ok else 'dim'}]"
+        f"[{_sec_col}]SEC EDGAR 8-K: {_sec_lbl} (미국 주식 직접증거)[/{_sec_col}]"
     )
 
     # ECB / Frankfurter
