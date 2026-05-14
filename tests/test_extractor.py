@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from tele_quant.analysis.extractor import extract_candidates_dict_fallback
+from tele_quant.analysis.extractor import (
+    _compute_sentiment_alpha_score,
+    extract_candidates_dict_fallback,
+)
+from tele_quant.analysis.models import StockCandidate
 from tele_quant.models import RawItem
 
 
@@ -157,3 +161,65 @@ def test_extract_bitcoin_not_in_dict_fallback():
     candidates = extract_candidates_dict_fallback(items, max_symbols=15)
     symbols = {c.symbol for c in candidates}
     assert "BTC-USD" not in symbols, "BTC-USD should not appear in dict-fallback results"
+
+
+# ── sentiment_alpha_score tests ───────────────────────────────────────────────
+
+
+def _make_candidate_alpha(
+    sentiment: str = "positive",
+    mentions: int = 3,
+    catalysts: list[str] | None = None,
+    source_titles: list[str] | None = None,
+    direct_evidence_count: int = 2,
+) -> StockCandidate:
+    return StockCandidate(
+        symbol="NVDA",
+        name="NVIDIA",
+        market="US",
+        mentions=mentions,
+        sentiment=sentiment,
+        catalysts=catalysts or ["실적 서프라이즈", "목표가 상향"],
+        risks=[],
+        source_titles=source_titles or ["Bloomberg", "리서치"],
+        direct_evidence_count=direct_evidence_count,
+    )
+
+
+def test_sentiment_alpha_positive_candidate():
+    """Positive candidate with good evidence should have alpha > 40."""
+    c = _make_candidate_alpha(sentiment="positive", direct_evidence_count=2)
+    alpha = _compute_sentiment_alpha_score(c)
+    assert alpha > 40.0, f"Expected alpha > 40 for strong positive candidate, got {alpha}"
+
+
+def test_sentiment_alpha_zero_evidence():
+    """Candidate with no direct evidence should have low alpha (ticker_directness=0)."""
+    c = _make_candidate_alpha(sentiment="positive", direct_evidence_count=0)
+    alpha = _compute_sentiment_alpha_score(c)
+    # 0 ticker_directness (-10 from max) → still possible to have decent alpha
+    high_evidence_alpha = _compute_sentiment_alpha_score(
+        _make_candidate_alpha(sentiment="positive", direct_evidence_count=3)
+    )
+    assert alpha < high_evidence_alpha, "Higher direct_evidence_count should yield higher alpha"
+
+
+def test_sentiment_alpha_between_0_and_100():
+    """Alpha score must always be in [0, 100]."""
+    for sent in ("positive", "negative", "mixed", "neutral"):
+        for direct_ev in (0, 1, 2, 5):
+            c = _make_candidate_alpha(sentiment=sent, direct_evidence_count=direct_ev)
+            alpha = _compute_sentiment_alpha_score(c)
+            assert 0.0 <= alpha <= 100.0, f"Alpha out of bounds: {alpha} (sent={sent}, ev={direct_ev})"
+
+
+def test_sentiment_alpha_stored_on_dict_fallback_candidate():
+    """sentiment_alpha_score must be set on candidates from dict fallback."""
+    items = [
+        _item("NVDA 엔비디아 실적 서프라이즈, 목표가 상향 기대"),
+        _item("엔비디아 AI 칩 수요 급증"),
+    ]
+    candidates = extract_candidates_dict_fallback(items, max_symbols=15)
+    nvda = next((c for c in candidates if c.symbol == "NVDA"), None)
+    assert nvda is not None
+    assert nvda.sentiment_alpha_score > 0.0, "sentiment_alpha_score must be computed in dict fallback"

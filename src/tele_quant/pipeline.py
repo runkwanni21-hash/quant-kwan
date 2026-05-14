@@ -669,6 +669,7 @@ class TeleQuantPipeline:
         saved_close_map: dict[str, float] = {}
         saved_sector_map: dict[str, str] = {}
         analysis: str | None = None
+        ranked: Any = None
 
         async with TelegramGateway(self.settings) as gateway:
             kept, stats = await self._collect_and_dedupe(gateway, lookback)
@@ -765,6 +766,30 @@ class TeleQuantPipeline:
                         log.info("[pipeline] pair_watch saved: %d signals", saved_pw)
                 except Exception as _pw_exc:
                     log.debug("[pipeline] pair_watch save failed: %s", _pw_exc)
+            # Save per-sector sentiment history for trend tracking
+            if ranked is not None:
+                try:
+                    import json as _json
+
+                    from tele_quant.deterministic_report import _compute_sector_sentiments
+
+                    sector_sents = _compute_sector_sentiments(ranked)
+                    for sector, data in sector_sents.items():
+                        self.store.save_sentiment_history(
+                            report_id=report_id,
+                            sector=sector,
+                            sentiment_score=data["score"],
+                            bullish_count=data["bullish"],
+                            bearish_count=data["bearish"],
+                            novelty_count=data.get("novelty", 0),
+                            top_events_json=_json.dumps(data.get("events", [])[:3], ensure_ascii=False),
+                            source_count=data.get("sources", 0),
+                            confidence=data.get("confidence", "medium"),
+                        )
+                    if sector_sents:
+                        log.info("[pipeline] sentiment_history saved: %d sectors", len(sector_sents))
+                except Exception as _sh_exc:
+                    log.debug("[pipeline] sentiment_history save failed: %s", _sh_exc)
             return digest, analysis
 
     async def run_candidates(

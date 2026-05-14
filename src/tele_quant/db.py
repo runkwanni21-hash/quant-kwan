@@ -123,6 +123,23 @@ CREATE TABLE IF NOT EXISTS pair_watch_history (
 
 CREATE INDEX IF NOT EXISTS idx_pair_watch_created_at ON pair_watch_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_pair_watch_target ON pair_watch_history(target_symbol);
+
+CREATE TABLE IF NOT EXISTS sentiment_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    report_id INTEGER,
+    sector TEXT NOT NULL,
+    sentiment_score REAL NOT NULL,
+    bullish_count INTEGER NOT NULL DEFAULT 0,
+    bearish_count INTEGER NOT NULL DEFAULT 0,
+    novelty_count INTEGER NOT NULL DEFAULT 0,
+    top_events_json TEXT NOT NULL DEFAULT '[]',
+    source_count INTEGER NOT NULL DEFAULT 0,
+    confidence TEXT NOT NULL DEFAULT 'medium'
+);
+
+CREATE INDEX IF NOT EXISTS idx_sentiment_history_created_at ON sentiment_history(created_at);
+CREATE INDEX IF NOT EXISTS idx_sentiment_history_sector ON sentiment_history(sector);
 """
 
 # Columns added after initial schema — applied via ALTER TABLE in _init
@@ -466,6 +483,62 @@ class Store:
                 seen.add(key)
                 result.append(dict(row))
         return result
+
+    def save_sentiment_history(
+        self,
+        report_id: int | None,
+        sector: str,
+        sentiment_score: float,
+        bullish_count: int = 0,
+        bearish_count: int = 0,
+        novelty_count: int = 0,
+        top_events_json: str = "[]",
+        source_count: int = 0,
+        confidence: str = "medium",
+    ) -> None:
+        now = utc_now().isoformat()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO sentiment_history
+                (created_at, report_id, sector, sentiment_score, bullish_count, bearish_count,
+                 novelty_count, top_events_json, source_count, confidence)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    now,
+                    report_id,
+                    sector,
+                    sentiment_score,
+                    bullish_count,
+                    bearish_count,
+                    novelty_count,
+                    top_events_json,
+                    source_count,
+                    confidence,
+                ),
+            )
+            conn.commit()
+
+    def recent_sentiment_history(
+        self,
+        since: datetime,
+        sector: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        clauses = ["created_at >= ?"]
+        params: list[Any] = [since.isoformat()]
+        if sector:
+            clauses.append("sector = ?")
+            params.append(sector)
+        params.append(limit)
+        sql = (
+            f"SELECT * FROM sentiment_history WHERE {' AND '.join(clauses)}"
+            " ORDER BY created_at DESC LIMIT ?"
+        )
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
 
     def save_mover_chain(self, relation_feed: Any, report_id: int | None = None) -> int:
         """Save lead-lag rows from relation feed. Returns count of inserted rows.

@@ -15,6 +15,8 @@ class StockCandidate:
     source_titles: list[str] = field(default_factory=list)
     # Count of contexts where symbol/name appears as subject (not as broker attribution)
     direct_evidence_count: int = 0
+    # Multi-factor sentiment quality score (0-100)
+    sentiment_alpha_score: float = 0.0
 
 
 @dataclass
@@ -70,9 +72,18 @@ class ScoreCard:
     timing_score: float  # 0-10: RSI 위치·볼린저·캔들·거래량 타이밍
     final_score: float  # 0-100: 최종 (캡 적용)
     grade: str  # 강한 관심·관심·관망·제외/주의
+    sentiment_alpha_score: float = 0.0  # 0-100: 감성 알파 점수 (새 공식 사용 시)
 
     def display(self) -> str:
         """리포트용 한 줄 요약 문자열."""
+        if self.sentiment_alpha_score > 0:
+            return (
+                f"감성α {self.sentiment_alpha_score:.0f} / "
+                f"기술 {self.technical_score:.0f} / "
+                f"가치 {self.valuation_score:.0f} / "
+                f"리스크 {self.macro_risk_score:.0f} / "
+                f"타이밍 {self.timing_score:.0f}"
+            )
         return (
             f"증거 {self.evidence_score:.0f} / "
             f"기술 {self.technical_score:.0f} / "

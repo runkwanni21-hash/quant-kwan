@@ -281,3 +281,46 @@ def test_fresh_relation_feed_shows_detailed_section():
     result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=fresh_feed)
     # Fresh feed with no movers/leadlag will still show ⚡ header
     assert "⚡" in result
+
+
+# ── 감성 레이더 섹션 테스트 ──────────────────────────────────────────────────
+
+
+def test_sentiment_radar_section_in_digest():
+    """4시간 감성 레이더 섹션이 digest에 포함된다."""
+    pack = _make_pack(
+        macro=[_make_cluster("FOMC 금리 동결")],
+        pos=[_make_cluster("AI 반도체 수요 급증"), _make_cluster("엔비디아 실적 서프라이즈")],
+        neg=[_make_cluster("바이오 규제 강화", polarity="negative")],
+    )
+    result = build_macro_digest(pack, [], _make_stats(), hours=4)
+    assert "감성 레이더" in result
+
+
+def test_sentiment_radar_shows_mood_label():
+    """전체 감성 우세/부정 레이블이 표시된다."""
+    pack = _make_pack(
+        pos=[_make_cluster("호재1"), _make_cluster("호재2"), _make_cluster("호재3")],
+        neg=[],
+    )
+    result = build_macro_digest(pack, [], _make_stats(), hours=4)
+    # With all positives, should show bullish mood
+    assert any(label in result for label in ["긍정 우세", "소폭 긍정", "중립 혼조"])
+
+
+def test_compute_sector_sentiments_returns_dict():
+    """_compute_sector_sentiments should return sector → data dict."""
+    from tele_quant.deterministic_report import _compute_sector_sentiments
+    pack = _make_pack(
+        pos=[_make_cluster("AI 반도체 HBM 수요 급증")],
+        neg=[_make_cluster("바이오 임상 실패", polarity="negative")],
+    )
+    result = _compute_sector_sentiments(pack)
+    assert isinstance(result, dict)
+    # Each value should have score, bullish, bearish, confidence
+    for _sector, data in result.items():
+        assert "score" in data
+        assert "bullish" in data
+        assert "bearish" in data
+        assert "confidence" in data
+        assert 0.0 <= data["score"] <= 100.0

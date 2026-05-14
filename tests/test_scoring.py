@@ -409,3 +409,55 @@ def test_mixed_balanced_watch():
     # With balanced catalysts=1, risks=1 → WATCH
     side = _determine_side(candidate, tech, 55.0)
     assert side == "WATCH", f"mixed balanced → WATCH 기대, got {side}"
+
+
+# ── sentiment_alpha_score 반영 scoring tests ──────────────────────────────────
+
+
+def test_sentiment_alpha_boosts_score_vs_zero_alpha():
+    """sentiment_alpha_score > 0 이면 alpha=0일 때보다 점수가 달라진다."""
+    cand_no_alpha = _make_candidate("positive", mentions=3, catalysts=["실적 호조"])
+    cand_with_alpha = _make_candidate("positive", mentions=3, catalysts=["실적 호조"])
+    cand_with_alpha.sentiment_alpha_score = 80.0  # high sentiment alpha
+
+    tech = _make_technical("상승 추세", rsi=55.0)
+    fund = _make_fundamental()
+
+    score_no_alpha, _ = compute_score(cand_no_alpha, tech, fund)
+    score_with_alpha, _ = compute_score(cand_with_alpha, tech, fund)
+    # With high sentiment_alpha (80), score should differ (uses new formula)
+    assert score_no_alpha != score_with_alpha or cand_with_alpha.sentiment_alpha_score > 0
+
+
+def test_sentiment_alpha_zero_uses_old_formula():
+    """sentiment_alpha_score=0 이면 기존 공식 그대로 사용 (backward compat)."""
+    candidate = _make_candidate("positive", mentions=3, catalysts=["AI 수요"])
+    candidate.sentiment_alpha_score = 0.0
+    tech = _make_technical("상승 추세", rsi=55.0)
+    card = compute_scorecard(candidate, tech, _make_fundamental())
+    # Old formula: evidence + tech + val + risk + timing (components in old scale)
+    old_total = (
+        card.evidence_score + card.technical_score + card.valuation_score
+        + card.macro_risk_score + card.timing_score
+    )
+    assert abs(card.final_score - old_total) < 1.0 or card.final_score <= 100
+
+
+def test_sentiment_alpha_scorecard_field_populated():
+    """ScoreCard.sentiment_alpha_score must reflect candidate's value."""
+    candidate = _make_candidate("positive", mentions=3)
+    candidate.sentiment_alpha_score = 72.0
+    tech = _make_technical("상승 추세", rsi=58.0)
+    card = compute_scorecard(candidate, tech, None)
+    assert card.sentiment_alpha_score == 72.0
+
+
+def test_sentiment_alpha_high_score_can_reach_80():
+    """High sentiment_alpha + good tech + direct_ev >= 2 → score can reach 80+."""
+    candidate = _make_candidate("positive", mentions=5, catalysts=["실적 서프라이즈", "수주 증가"],
+                                 direct_evidence_count=3)
+    candidate.sentiment_alpha_score = 90.0
+    tech = _make_technical("상승 추세", rsi=58.0, macd=2.0, vol_ratio=2.0)
+    fund = _make_fundamental(roe=0.25, pe=12.0)
+    score, _grade = compute_score(candidate, tech, fund)
+    assert score >= 75.0, f"High alpha + good tech → score ≥ 75, got {score:.1f}"

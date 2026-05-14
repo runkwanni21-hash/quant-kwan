@@ -160,6 +160,28 @@ _BROKER_TICKERS: frozenset[str] = frozenset(
 )
 _BROKER_SUFFIX_RE = re.compile(r"^[)\]]\s*|^\s*외\b|^:\s*")
 
+# Broker-prefix line pattern: "BrokerName) content..." or "BrokerName: content..."
+# Used to detect lines where broker is the SOURCE tag, not the subject of news
+_BROKER_PREFIX_LINE_RE = re.compile(
+    r"^(?:"
+    + "|".join(
+        re.escape(b)
+        for b in sorted(_BROKER_TICKERS, key=len, reverse=True)
+    )
+    + r")\s*[)\]:]\s*(.{5,})",
+    re.IGNORECASE,
+)
+
+# Keywords indicating high-materiality events for sentiment_alpha
+_MATERIAL_EVENT_KW = re.compile(
+    r"실적|EPS|매출|영업이익|수주|계약|FDA|승인|목표가|상향|인수|합병|신제품|배당|서프라이즈|IPO|분기",
+    re.IGNORECASE,
+)
+_MARKET_REACTION_KW = re.compile(
+    r"급등|돌파|신고가|거래량.{0,4}급증|강세|장대양봉|상승\s*마감|52주\s*고가",
+    re.IGNORECASE,
+)
+
 # Keywords indicating broker is the SUBJECT (not just the source) of the news
 _BROKER_SELF_NEWS_RE = re.compile(
     r"EPS|실적|영업이익|순이익|매출|IB수익|트레이딩수익|자사주|배당|CEO|대손충당금|"
@@ -252,24 +274,85 @@ def extract_candidates_dict_fallback(
         sentiment = _infer_sentiment(contexts)
         catalysts = [ctx for ctx in contexts[:3] if POSITIVE_WORDS.search(ctx)]
         risks = [ctx for ctx in contexts[:3] if NEGATIVE_WORDS.search(ctx)]
-        candidates.append(
-            StockCandidate(
-                symbol=symbol,
-                name=info["name"],
-                market=info["market"],
-                mentions=info["mentions"],
-                sentiment=sentiment,
-                catalysts=[truncate(c, 60) for c in catalysts],
-                risks=[truncate(r, 60) for r in risks],
-                source_titles=[
-                    truncate(item.display_title, 60)
-                    for item in items
-                    if info["name"] in item.compact_text
-                ][:3],
-                direct_evidence_count=len(contexts),
-            )
+        sc = StockCandidate(
+            symbol=symbol,
+            name=info["name"],
+            market=info["market"],
+            mentions=info["mentions"],
+            sentiment=sentiment,
+            catalysts=[truncate(c, 60) for c in catalysts],
+            risks=[truncate(r, 60) for r in risks],
+            source_titles=[
+                truncate(item.display_title, 60)
+                for item in items
+                if info["name"] in item.compact_text
+            ][:3],
+            direct_evidence_count=len(contexts),
         )
+        sc.sentiment_alpha_score = _compute_sentiment_alpha_score(sc)
+        candidates.append(sc)
     return candidates[:max_symbols]
+
+
+# ── Sentiment alpha score ────────────────────────────────────────────────────
+
+
+def _compute_sentiment_alpha_score(candidate: StockCandidate) -> float:
+    """Compute 0-100 multi-factor sentiment alpha score from candidate data.
+
+    Components: polarity(20) + novelty(15) + source_quality(15) +
+                cross_source_confirm(15) + ticker_directness(10) +
+                event_materiality(15) + market_reaction(10) = 100 max
+    """
+    score = 0.0
+
+    # 1. Polarity (0-20)
+    if candidate.sentiment == "positive":
+        score += 12.0 + min(len(candidate.catalysts) * 2.0, 8.0)
+    elif candidate.sentiment == "mixed":
+        score += 8.0 if len(candidate.catalysts) > len(candidate.risks) else 5.0
+    elif candidate.sentiment == "negative":
+        score += 2.0
+    else:
+        score += 5.0
+
+    # 2. Novelty / source diversity (0-15)
+    score += min(len(set(candidate.source_titles)) * 4.0, 15.0)
+
+    # 3. Source quality (0-15)
+    _quality_kw = {"bloomberg", "reuters", "wsj", "ft", "연합뉴스", "뉴스1", "한국경제", "조선일보"}
+    _research_kw = {"리서치", "research", "애널", "analyst", "report", "리포트"}
+    sq = 0.0
+    for title in candidate.source_titles[:5]:
+        tl = title.lower()
+        if any(k in tl for k in _quality_kw):
+            sq += 4.0
+        elif any(k in tl for k in _research_kw):
+            sq += 2.5
+        else:
+            sq += 1.0
+    score += min(sq, 15.0)
+
+    # 4. Cross-source confirmation (0-15)
+    score += min(max(candidate.mentions - 1, 0) * 2.5, 15.0)
+
+    # 5. Ticker directness (0-10)
+    direct_ev = candidate.direct_evidence_count
+    score += 10.0 if direct_ev >= 3 else 7.0 if direct_ev == 2 else 4.0 if direct_ev == 1 else 0.0
+
+    # 6. Event materiality from catalysts (0-15)
+    mat = sum(3.0 for cat in candidate.catalysts[:5] if _MATERIAL_EVENT_KW.search(cat))
+    score += min(mat, 15.0)
+
+    # 7. Market reaction signals (0-10)
+    react = sum(
+        2.5
+        for ctx in candidate.catalysts[:3] + candidate.source_titles[:2]
+        if _MARKET_REACTION_KW.search(ctx)
+    )
+    score += min(react, 10.0)
+
+    return min(score, 100.0)
 
 
 # ── AliasBook-based extractor ─────────────────────────────────────────────────
@@ -360,6 +443,27 @@ def extract_candidates_with_book(
                     if not _is_noise_context(ctx):
                         raw_contexts.append(ctx)
 
+        # Broker-prefix recovery: scan for alias appearing AFTER a broker prefix tag
+        # e.g. "Citi) NVDA 목표가 상향" → NVDA gets direct evidence even if not found above
+        for alias in m.matched_aliases:
+            if alias in _BROKER_TICKERS:
+                continue
+            for text in all_texts:
+                bp = _BROKER_PREFIX_LINE_RE.match(text)
+                if not bp:
+                    continue
+                remainder = bp.group(1)
+                ridx = remainder.find(alias)
+                if ridx < 0:
+                    continue
+                if _is_broker_attribution(remainder, alias, ridx):
+                    continue
+                lo = max(0, ridx - 60)
+                hi = min(len(remainder), ridx + len(alias) + 60)
+                ctx = remainder[lo:hi]
+                if not _is_noise_context(ctx) and ctx not in raw_contexts:
+                    raw_contexts.append(ctx)
+
         contexts = raw_contexts[:10]
         direct_evidence_count = len(contexts)
         sentiment = _infer_sentiment(contexts)
@@ -371,19 +475,19 @@ def extract_candidates_with_book(
             if any(alias in item.compact_text for alias in m.matched_aliases)
         ][:3]
 
-        candidates.append(
-            StockCandidate(
-                symbol=m.symbol,
-                name=m.name,
-                market=m.market,
-                mentions=m.mentions,
-                sentiment=sentiment,
-                catalysts=[truncate(c, 60) for c in catalysts],
-                risks=[truncate(r, 60) for r in risks],
-                source_titles=source_titles,
-                direct_evidence_count=direct_evidence_count,
-            )
+        sc = StockCandidate(
+            symbol=m.symbol,
+            name=m.name,
+            market=m.market,
+            mentions=m.mentions,
+            sentiment=sentiment,
+            catalysts=[truncate(c, 60) for c in catalysts],
+            risks=[truncate(r, 60) for r in risks],
+            source_titles=source_titles,
+            direct_evidence_count=direct_evidence_count,
         )
+        sc.sentiment_alpha_score = _compute_sentiment_alpha_score(sc)
+        candidates.append(sc)
 
     # Sort: mentions desc → positive/mixed sentiment → more catalysts → more sources
     def _sort_key(c: StockCandidate) -> tuple[int, int, int, int]:

@@ -62,6 +62,15 @@ _SECTOR_KW: dict[str, list[str]] = {
     "로봇/AI로봇": ["로봇", "협동로봇", "두산로보틱스"],
 }
 
+_CATEGORY_KW: dict[str, list[str]] = {
+    "세계경제": ["금리", "FOMC", "연준", "관세", "GDP", "환율", "달러", "무역"],
+    "기술/AI": ["AI", "반도체", "HBM", "GPU", "NVDA", "엔비디아", "칩", "데이터센터"],
+    "바이오": ["바이오", "제약", "임상", "FDA", "CMO", "헬스케어", "신약", "의약"],
+    "정책/규제": ["규제", "제재", "법안", "정책", "행정", "허가", "승인"],
+    "산업/에너지": ["조선", "방산", "LNG", "원전", "원자력", "유가", "에너지", "배터리"],
+    "소비": ["소비", "소매", "유통", "리테일", "명품", "여행", "항공"],
+}
+
 _CHECKPOINT_KW: list[tuple[str, str]] = [
     ("FOMC", "FOMC 일정"),
     ("CPI", "CPI 발표"),
@@ -193,6 +202,108 @@ def _safe_headline(cluster: Any) -> str:
     return raw
 
 
+def _compute_sector_sentiments(pack: RankedEvidencePack) -> dict[str, dict]:
+    """Compute per-sector sentiment data from ranked evidence pack.
+
+    Returns dict[sector_name → {score, bullish, bearish, novelty, events, sources, confidence}]
+    where score is 0-100 (50 = neutral, >50 = bullish, <50 = bearish).
+    """
+    result: dict[str, dict] = {}
+    all_clusters = pack.positive_stock + pack.negative_stock + pack.macro
+
+    for sector, kws in _CATEGORY_KW.items():
+        bull = sum(
+            1
+            for c in pack.positive_stock
+            if any(kw in (c.headline + " " + c.summary_hint) for kw in kws)
+        )
+        bear = sum(
+            1
+            for c in pack.negative_stock
+            if any(kw in (c.headline + " " + c.summary_hint) for kw in kws)
+        )
+        total = bull + bear
+        if total == 0:
+            continue
+        score = (bull / total) * 100.0
+        sources = sum(
+            c.source_count
+            for c in all_clusters
+            if any(kw in (c.headline + " " + c.summary_hint) for kw in kws)
+        )
+        novelty = sum(
+            1
+            for c in all_clusters
+            if c.source_count == 1 and any(kw in (c.headline + " " + c.summary_hint) for kw in kws)
+        )
+        events = [
+            c.headline[:50]
+            for c in (pack.positive_stock + pack.negative_stock)
+            if any(kw in (c.headline + " " + c.summary_hint) for kw in kws)
+        ][:3]
+        confidence = "high" if total >= 3 else "medium" if total == 2 else "low"
+        result[sector] = {
+            "score": round(score, 1),
+            "bullish": bull,
+            "bearish": bear,
+            "novelty": novelty,
+            "events": events,
+            "sources": sources,
+            "confidence": confidence,
+        }
+    return result
+
+
+def _build_sentiment_radar_section(
+    pack: RankedEvidencePack,
+    prev_sector_sentiments: dict[str, dict] | None = None,
+) -> str:
+    """Build 🧭 4시간 시장 감성 레이더 section text."""
+    pos_cnt = len(pack.positive_stock)
+    neg_cnt = len(pack.negative_stock)
+    total_cnt = pos_cnt + neg_cnt
+    overall_score = 50.0 if total_cnt == 0 else (pos_cnt / total_cnt) * 100.0
+
+    if overall_score >= 65:
+        mood_label = "긍정 우세"
+    elif overall_score >= 55:
+        mood_label = "소폭 긍정"
+    elif overall_score >= 45:
+        mood_label = "중립 혼조"
+    elif overall_score >= 35:
+        mood_label = "소폭 부정"
+    else:
+        mood_label = "부정 우세"
+
+    lines = ["4.5 🧭 시장 감성 레이더", f"전체 감성: {mood_label} ({overall_score:.0f}/100)"]
+
+    sector_data = _compute_sector_sentiments(pack)
+    if sector_data:
+        lines.append("섹터별:")
+        for sector, data in sorted(sector_data.items(), key=lambda x: -x[1]["score"]):
+            bull, bear = data["bullish"], data["bearish"]
+            sc = data["score"]
+            icon = "⬆" if sc >= 60 else "⬇" if sc <= 40 else "➡"
+            label = "강세" if sc >= 60 else "약세" if sc <= 40 else "중립"
+            conf = " (저신뢰)" if data["confidence"] == "low" else ""
+            lines.append(f"  {icon} {sector}: {label} (호재 {bull}건 / 악재 {bear}건){conf}")
+
+    # Sentiment delta vs previous
+    if prev_sector_sentiments:
+        deltas: list[str] = []
+        for sector, data in sector_data.items():
+            prev = prev_sector_sentiments.get(sector)
+            if prev:
+                delta = data["score"] - prev["score"]
+                if abs(delta) >= 10:
+                    direction = "↑" if delta > 0 else "↓"
+                    deltas.append(f"{sector} {direction}{abs(delta):.0f}점")
+        if deltas:
+            lines.append(f"🔁 직전 대비: {', '.join(deltas[:3])}")
+
+    return "\n".join(lines)
+
+
 def build_macro_digest(
     pack: RankedEvidencePack,
     market_snapshot: list[dict[str, Any]],
@@ -203,6 +314,7 @@ def build_macro_digest(
     macro_only: bool = False,
     relation_feed: Any = None,
     scenarios: Any = None,
+    prev_sector_sentiments: dict[str, dict] | None = None,
 ) -> str:
     """4시간 투자 브리핑 형태의 deterministic digest를 생성한다."""
 
@@ -323,7 +435,15 @@ def build_macro_digest(
         lines.append("  - 특정 섹터 신호 없음")
     lines.append("")
 
-    # 4.5. 어제 급등·급락 → 후행 후보 (relation feed)
+    # 4.5. 시장 감성 레이더
+    try:
+        radar = _build_sentiment_radar_section(pack, prev_sector_sentiments)
+        lines.append(radar)
+        lines.append("")
+    except Exception:
+        pass
+
+    # 4.6. 어제 급등·급락 → 후행 후보 (relation feed)
     if relation_feed is not None:
         try:
             if getattr(relation_feed, "is_stale", False):

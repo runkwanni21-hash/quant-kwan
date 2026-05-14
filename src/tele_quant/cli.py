@@ -1578,6 +1578,34 @@ def ops_doctor() -> None:
             "  진단: uv run tele-quant lint-report --hours 24"
         )
 
+    # Sentiment history freshness check
+    try:
+        sentiment_rows = store.recent_sentiment_history(since=utc_now() - timedelta(hours=12))
+        if not sentiment_rows:
+            console.print("- sentiment_history: 최근 12h 없음 (fast/no_llm 미실행 또는 첫 실행)")
+        else:
+            latest_sent = sentiment_rows[0]
+            from tele_quant.models import parse_dt
+            sent_dt = parse_dt(latest_sent.get("created_at") or "")
+            if sent_dt:
+                sent_age_h = (utc_now() - sent_dt).total_seconds() / 3600
+                sector_counts: dict[str, int] = {}
+                for row in sentiment_rows:
+                    sec = row.get("sector") or "Unknown"
+                    sector_counts[sec] = sector_counts.get(sec, 0) + 1
+                top_sectors = sorted(sector_counts, key=lambda s: -sector_counts[s])[:3]
+                console.print(
+                    f"- sentiment_history: {sent_age_h:.1f}h 전 업데이트 "
+                    f"({len(sentiment_rows)}건, 섹터: {', '.join(top_sectors)})"
+                )
+                if sent_age_h > 8:
+                    recs.append(
+                        f"[yellow]WARN: sentiment_history {sent_age_h:.0f}h 전 (8h 초과)[/yellow]\n"
+                        "  fast 모드 리포트가 실행되지 않았을 수 있음"
+                    )
+    except Exception:
+        pass
+
     if not recs:
         console.print("[green]이상 없음 — 자동 실행 정상[/green]")
     else:
@@ -1867,6 +1895,26 @@ def lint_report(
         )
     else:
         console.print("  [green]scenario_history OK[/green]")
+
+    # Sentiment history diagnosis
+    console.rule("[dim]감성 히스토리 진단[/dim]")
+    try:
+        sentiment_rows = store.recent_sentiment_history(since=since)
+        if not sentiment_rows:
+            console.print("  [dim]sentiment_history: 기간 내 없음 (fast 모드 미실행 가능성)[/dim]")
+        else:
+            sector_avg: dict[str, list[float]] = {}
+            for sr in sentiment_rows:
+                sec = sr.get("sector") or "Unknown"
+                sc_val = float(sr.get("sentiment_score") or 50.0)
+                sector_avg.setdefault(sec, []).append(sc_val)
+            console.print(f"  sentiment_history: {len(sentiment_rows)}건")
+            for sec, vals in sorted(sector_avg.items()):
+                avg = sum(vals) / len(vals)
+                icon = "⬆" if avg >= 60 else "⬇" if avg <= 40 else "➡"
+                console.print(f"  {icon} {sec}: 평균 {avg:.0f}/100 ({len(vals)}건)")
+    except Exception as _sh_exc:
+        console.print(f"  [dim]sentiment_history 조회 실패: {_sh_exc}[/dim]")
 
     # Relation feed staleness check
     console.rule("[dim]relation feed 상태[/dim]")

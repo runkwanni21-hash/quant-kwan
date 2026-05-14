@@ -212,7 +212,27 @@ def compute_scorecard(
     timing = _compute_timing_score(technical)
 
     # --- Final Score ---
-    total = evidence + tech + val + macro_risk + timing
+    alpha = getattr(candidate, "sentiment_alpha_score", 0.0)
+    direct_ev = getattr(candidate, "direct_evidence_count", 0)
+
+    if alpha > 0.0 and direct_ev > 0:
+        # New weighted formula: normalize all components to 0-100 scale
+        # sentiment_alpha*0.35 + tech4h*0.25 + tech3d*0.15 + value*0.10 + risk*0.10 + timing*0.05
+        # Using daily tech for both tech4h and tech3d until separate 4H data integrated
+        tech_n = (tech / 30.0) * 100.0
+        val_n = (val / 20.0) * 100.0
+        risk_n = (macro_risk / 10.0) * 100.0
+        timing_n = (timing / 10.0) * 100.0
+        total = (
+            alpha * 0.35
+            + tech_n * 0.25  # tech4h proxy
+            + tech_n * 0.15  # tech3d
+            + val_n * 0.10
+            + risk_n * 0.10
+            + timing_n * 0.05
+        )
+    else:
+        total = evidence + tech + val + macro_risk + timing
     total = max(0.0, min(100.0, total))
 
     # RSI 과열 캡
@@ -228,7 +248,6 @@ def compute_scorecard(
         total = min(total, 74.0)
 
     # Direct evidence caps: no direct evidence → score capped below send threshold
-    direct_ev = getattr(candidate, "direct_evidence_count", 0)
     if direct_ev == 0:
         total = min(total, 44.0)  # below analysis_min_score_to_send (55)
     elif direct_ev == 1:
@@ -251,6 +270,7 @@ def compute_scorecard(
         timing_score=timing,
         final_score=total,
         grade=grade,
+        sentiment_alpha_score=alpha,
     )
 
 
