@@ -45,3 +45,4 @@ build/
 Thumbs.db
 .vscode/
 .idea/
+config/ticker_aliases.pkl

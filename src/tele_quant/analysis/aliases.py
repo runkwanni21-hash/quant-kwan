@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import pickle
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -182,12 +184,26 @@ class AliasBook:
 _CACHE: dict[Path, AliasBook] = {}
 
 
+def _pickle_path(yaml_path: Path) -> Path:
+    return yaml_path.with_suffix(".pkl")
+
+
 def load_alias_config(path: Path | None = None) -> AliasBook:
-    """Load AliasBook from YAML, cached per resolved path."""
+    """Load AliasBook from YAML (or its pickle cache), cached per resolved path."""
     resolved = (path or Path("config/ticker_aliases.yml")).resolve()
 
     if resolved in _CACHE:
         return _CACHE[resolved]
+
+    pkl = _pickle_path(resolved)
+    # Use pickle cache if it exists and is newer than the YAML file.
+    if pkl.exists() and pkl.stat().st_mtime >= resolved.stat().st_mtime:
+        try:
+            book = pickle.loads(pkl.read_bytes())
+            _CACHE[resolved] = book
+            return book
+        except Exception:
+            pass  # fall through to YAML parse
 
     with open(resolved, encoding="utf-8") as fh:
         data: dict[str, Any] = yaml.safe_load(fh)
@@ -217,5 +233,8 @@ def load_alias_config(path: Path | None = None) -> AliasBook:
         )
 
     book = AliasBook(symbols, themes)
+    # Save pickle for future fast loads.
+    with contextlib.suppress(Exception):
+        pkl.write_bytes(pickle.dumps(book))
     _CACHE[resolved] = book
     return book
