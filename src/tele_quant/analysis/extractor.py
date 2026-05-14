@@ -357,19 +357,87 @@ def _compute_sentiment_alpha_score(candidate: StockCandidate) -> float:
 
 # ── AliasBook-based extractor ─────────────────────────────────────────────────
 
+_DOLLAR_TICKER_EXTRACT_RE = re.compile(
+    r"\$([A-Z]{1,7}(?:\.[A-Z]{1,2})?|[0-9]{6}(?:\.[A-Z]{2})?)"
+)
+# Tokens that look like tickers but are macro/currency abbreviations.
+_DOLLAR_TICKER_BLOCKLIST: frozenset[str] = frozenset(
+    {"USD", "EUR", "JPY", "KRW", "GBP", "CNY", "AUD", "CAD", "AI", "IT", "EV",
+     "CPI", "PPI", "GDP", "IPO", "ESG", "VIX", "DXY", "ETF"}
+)
+
+
+def _extract_dollar_ticker_candidates(
+    items: list[RawItem],
+    existing_symbols: set[str],
+) -> list[StockCandidate]:
+    """Build StockCandidates from $TICKER mentions not covered by AliasBook."""
+    counts: dict[str, int] = {}
+    contexts: dict[str, list[str]] = {}
+
+    for item in items:
+        text = item.compact_text
+        for m in _DOLLAR_TICKER_EXTRACT_RE.finditer(text):
+            raw = m.group(1)
+            # Normalise bare 6-digit code
+            sym = f"{raw}.KS" if (raw.isdigit() and len(raw) == 6) else raw
+            if sym in existing_symbols:
+                continue
+            if sym.upper() in _DOLLAR_TICKER_BLOCKLIST:
+                continue
+            counts[sym] = counts.get(sym, 0) + 1
+            if sym not in contexts:
+                contexts[sym] = []
+            if len(contexts[sym]) < 5:
+                lo = max(0, m.start() - 80)
+                hi = min(len(text), m.end() + 80)
+                contexts[sym].append(text[lo:hi])
+
+    candidates: list[StockCandidate] = []
+    for sym, cnt in counts.items():
+        if cnt < 1:
+            continue
+        ctxs = contexts.get(sym, [])
+        market = "KR" if sym.endswith((".KS", ".KQ")) else "US"
+        sentiment = _infer_sentiment(ctxs)
+        sc = StockCandidate(
+            symbol=sym,
+            name=sym,  # name resolved at analysis time via yfinance
+            market=market,
+            mentions=cnt,
+            sentiment=sentiment,
+            catalysts=[truncate(c, 60) for c in ctxs[:2] if POSITIVE_WORDS.search(c)],
+            risks=[truncate(c, 60) for c in ctxs[:2] if NEGATIVE_WORDS.search(c)],
+            source_titles=[],
+            direct_evidence_count=cnt,
+        )
+        candidates.append(sc)
+
+    candidates.sort(key=lambda c: -c.mentions)
+    return candidates
+
 
 def fast_extract_candidates(
     items: list[RawItem],
     settings: Settings,
 ) -> list[StockCandidate]:
-    """Fast candidate extraction using AliasBook + dict fallback only. No LLM calls."""
+    """Fast candidate extraction using AliasBook + $TICKER dynamic fallback."""
     max_symbols = settings.analysis_max_symbols
     try:
         book = load_alias_config(Path(settings.ticker_aliases_path))
-        return extract_candidates_with_book(items, max_symbols, book)
+        base = extract_candidates_with_book(items, max_symbols, book)
     except Exception as exc:
         log.warning("[extractor] fast AliasBook failed, falling back to dict: %s", exc)
-        return extract_candidates_dict_fallback(items, max_symbols=max_symbols)
+        base = extract_candidates_dict_fallback(items, max_symbols=max_symbols)
+
+    # Supplement with $TICKER-prefixed mentions not already covered
+    existing = {c.symbol for c in base}
+    dynamic = _extract_dollar_ticker_candidates(items, existing)
+    if dynamic:
+        log.info("[extractor] $TICKER dynamic: %d extra candidates", len(dynamic))
+    combined = base + dynamic
+    combined.sort(key=lambda c: (-c.mentions, c.symbol))
+    return combined[:max_symbols]
 
 
 def _is_broker_prefix_match(text: str, alias: str, idx: int) -> bool:

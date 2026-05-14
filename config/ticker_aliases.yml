@@ -781,6 +781,1552 @@ stocks:
     sector: 기계
     aliases: ["두산밥캣", "Doosan Bobcat"]
 
+  # ─── KOSPI 건설/부동산 ───────────────────────────────────────
+  - symbol: "000720.KS"
+    name: "현대건설"
+    market: KR
+    board: KOSPI
+    sector: 건설
+    aliases: ["현대건설", "Hyundai E&C"]
+
+  - symbol: "006360.KS"
+    name: "GS건설"
+    market: KR
+    board: KOSPI
+    sector: 건설
+    aliases: ["GS건설", "자이건설"]
+
+  - symbol: "375500.KS"
+    name: "DL이앤씨"
+    market: KR
+    board: KOSPI
+    sector: 건설
+    aliases: ["DL이앤씨", "DL E&C", "대림"]
+
+  - symbol: "294870.KS"
+    name: "HDC현대산업개발"
+    market: KR
+    board: KOSPI
+    sector: 건설
+    aliases: ["HDC현대산업개발", "현대산업개발", "HDC"]
+
+  # ─── KOSPI 유통/소비재 ────────────────────────────────────────
+  - symbol: "139480.KS"
+    name: "이마트"
+    market: KR
+    board: KOSPI
+    sector: 유통
+    aliases: ["이마트", "E마트"]
+
+  - symbol: "004170.KS"
+    name: "신세계"
+    market: KR
+    board: KOSPI
+    sector: 유통
+    aliases: ["신세계", "Shinsegae"]
+
+  - symbol: "023530.KS"
+    name: "롯데쇼핑"
+    market: KR
+    board: KOSPI
+    sector: 유통
+    aliases: ["롯데쇼핑", "롯데백화점"]
+
+  - symbol: "069960.KS"
+    name: "현대백화점"
+    market: KR
+    board: KOSPI
+    sector: 유통
+    aliases: ["현대백화점"]
+
+  - symbol: "271560.KS"
+    name: "오리온"
+    market: KR
+    board: KOSPI
+    sector: 식품
+    aliases: ["오리온", "Orion"]
+
+  - symbol: "004370.KS"
+    name: "농심"
+    market: KR
+    board: KOSPI
+    sector: 식품
+    aliases: ["농심", "Nongshim"]
+
+  - symbol: "097950.KS"
+    name: "CJ제일제당"
+    market: KR
+    board: KOSPI
+    sector: 식품
+    aliases: ["CJ제일제당", "CJ제당"]
+
+  # ─── KOSPI/KOSDAQ 엔터/방송 ──────────────────────────────────
+  - symbol: "352820.KS"
+    name: "하이브"
+    market: KR
+    board: KOSPI
+    sector: 엔터
+    aliases: ["하이브", "HYBE", "빅히트"]
+
+  - symbol: "041510.KQ"
+    name: "SM엔터테인먼트"
+    market: KR
+    board: KOSDAQ
+    sector: 엔터
+    aliases: ["SM엔터테인먼트", "SM엔터", "에스엠"]
+
+  - symbol: "035900.KQ"
+    name: "JYP엔터테인먼트"
+    market: KR
+    board: KOSDAQ
+    sector: 엔터
+    aliases: ["JYP엔터테인먼트", "JYP엔터", "제이와이피"]
+
+  - symbol: "122870.KQ"
+    name: "YG엔터테인먼트"
+    market: KR
+    board: KOSDAQ
+    sector: 엔터
+    aliases: ["YG엔터테인먼트", "YG엔터", "와이지"]
+
+  - symbol: "035760.KQ"
+    name: "CJ ENM"
+    market: KR
+    board: KOSDAQ
+    sector: 엔터
+    aliases: ["CJ ENM", "씨제이이엔엠"]
+
+  # ─── KOSPI/KOSDAQ 증권 ───────────────────────────────────────
+  - symbol: "006800.KS"
+    name: "미래에셋증권"
+    market: KR
+    board: KOSPI
+    sector: 증권
+    aliases: ["미래에셋증권", "미래에셋"]
+
+  - symbol: "039490.KQ"
+    name: "키움증권"
+    market: KR
+    board: KOSDAQ
+    sector: 증권
+    aliases: ["키움증권", "키움"]
+
+  - symbol: "016360.KS"
+    name: "삼성증권"
+    market: KR
+    board: KOSPI
+    sector: 증권
+    aliases: ["삼성증권"]
+
+  - symbol: "138040.KS"
+    name: "메리츠금융지주"
+    market: KR
+    board: KOSPI
+    sector: 금융
+    aliases: ["메리츠금융지주", "메리츠금융"]
+
+  - symbol: "000060.KS"
+    name: "메리츠화재"
+    market: KR
+    board: KOSPI
+    sector: 보험
+    aliases: ["메리츠화재"]
+
+  - symbol: "088350.KS"
+    name: "한화생명"
+    market: KR
+    board: KOSPI
+    sector: 보험
+    aliases: ["한화생명"]
+
+  # ─── KOSPI 에너지/화학 추가 ─────────────────────────────────
+  - symbol: "010950.KS"
+    name: "S-Oil"
+    market: KR
+    board: KOSPI
+    sector: 에너지
+    aliases: ["S-OIL", "에쓰오일", "쌍용", "에스오일"]
+
+  - symbol: "009830.KS"
+    name: "한화솔루션"
+    market: KR
+    board: KOSPI
+    sector: 태양광
+    aliases: ["한화솔루션", "큐셀", "Q셀"]
+
+  - symbol: "078930.KS"
+    name: "GS"
+    market: KR
+    board: KOSPI
+    sector: 지주
+    aliases: ["GS홀딩스", "GS지주"]
+
+  - symbol: "034730.KS"
+    name: "SK"
+    market: KR
+    board: KOSPI
+    sector: 지주
+    aliases: ["SK지주", "SK홀딩스"]
+
+  # ─── KOSPI 철강/소재 ─────────────────────────────────────────
+  - symbol: "004020.KS"
+    name: "현대제철"
+    market: KR
+    board: KOSPI
+    sector: 철강
+    aliases: ["현대제철"]
+
+  - symbol: "010130.KS"
+    name: "고려아연"
+    market: KR
+    board: KOSPI
+    sector: 비철금속
+    aliases: ["고려아연"]
+
+  - symbol: "001430.KS"
+    name: "세아베스틸지주"
+    market: KR
+    board: KOSPI
+    sector: 철강
+    aliases: ["세아베스틸지주", "세아베스틸"]
+
+  # ─── KOSPI 산업재/전력기기 ──────────────────────────────────
+  - symbol: "010120.KS"
+    name: "LS ELECTRIC"
+    market: KR
+    board: KOSPI
+    sector: 전력기기
+    aliases: ["LS일렉트릭", "LS ELECTRIC", "LS전자"]
+
+  - symbol: "298040.KS"
+    name: "효성중공업"
+    market: KR
+    board: KOSPI
+    sector: 전력기기
+    aliases: ["효성중공업"]
+
+  - symbol: "267260.KS"
+    name: "HD현대일렉트릭"
+    market: KR
+    board: KOSPI
+    sector: 전력기기
+    aliases: ["HD현대일렉트릭", "현대일렉트릭"]
+
+  # ─── KOSPI 조선 추가 ─────────────────────────────────────────
+  - symbol: "009540.KS"
+    name: "한국조선해양"
+    market: KR
+    board: KOSPI
+    sector: 조선
+    aliases: ["한국조선해양", "HD현대조선"]
+
+  - symbol: "010620.KS"
+    name: "현대미포조선"
+    market: KR
+    board: KOSPI
+    sector: 조선
+    aliases: ["현대미포조선", "미포조선"]
+
+  # ─── KOSDAQ 2차전지 추가 ─────────────────────────────────────
+  - symbol: "278280.KQ"
+    name: "천보"
+    market: KR
+    board: KOSDAQ
+    sector: 2차전지소재
+    aliases: ["천보"]
+
+  - symbol: "336370.KQ"
+    name: "솔루스첨단소재"
+    market: KR
+    board: KOSDAQ
+    sector: 2차전지소재
+    aliases: ["솔루스첨단소재", "솔루스"]
+
+  - symbol: "137400.KQ"
+    name: "피엔티"
+    market: KR
+    board: KOSDAQ
+    sector: 2차전지장비
+    aliases: ["피엔티"]
+
+  - symbol: "348370.KQ"
+    name: "엔켐"
+    market: KR
+    board: KOSDAQ
+    sector: 2차전지소재
+    aliases: ["엔켐"]
+
+  # ─── KOSDAQ 바이오/제약 추가 ─────────────────────────────────
+  - symbol: "185750.KS"
+    name: "종근당"
+    market: KR
+    board: KOSPI
+    sector: 제약
+    aliases: ["종근당"]
+
+  - symbol: "069620.KQ"
+    name: "대웅제약"
+    market: KR
+    board: KOSDAQ
+    sector: 제약
+    aliases: ["대웅제약", "대웅"]
+
+  - symbol: "141080.KQ"
+    name: "레고켐바이오"
+    market: KR
+    board: KOSDAQ
+    sector: 바이오
+    aliases: ["레고켐바이오", "레고켐"]
+
+  - symbol: "039200.KQ"
+    name: "오스코텍"
+    market: KR
+    board: KOSDAQ
+    sector: 바이오
+    aliases: ["오스코텍"]
+
+  - symbol: "003850.KS"
+    name: "보령"
+    market: KR
+    board: KOSPI
+    sector: 제약
+    aliases: ["보령", "보령제약"]
+
+  # ─── KOSPI 반도체 추가 ──────────────────────────────────────
+  - symbol: "000990.KS"
+    name: "DB하이텍"
+    market: KR
+    board: KOSPI
+    sector: 반도체
+    aliases: ["DB하이텍", "디비하이텍"]
+
+  - symbol: "010600.KS"
+    name: "웨이브일렉트로닉스"
+    market: KR
+    board: KOSPI
+    sector: 반도체장비
+    aliases: ["웨이브일렉트로닉스"]
+
+  - symbol: "377190.KQ"
+    name: "제이앤티씨"
+    market: KR
+    board: KOSDAQ
+    sector: 반도체
+    aliases: ["제이앤티씨", "JNTC"]
+
+  # ─── KOSPI/KOSDAQ 플랫폼 ────────────────────────────────────
+  - symbol: "377300.KS"
+    name: "카카오페이"
+    market: KR
+    board: KOSPI
+    sector: 핀테크
+    aliases: ["카카오페이"]
+
+  - symbol: "403550.KQ"
+    name: "쏘카"
+    market: KR
+    board: KOSDAQ
+    sector: 모빌리티
+    aliases: ["쏘카", "Socar"]
+
+  # ─── US 클라우드/SaaS ────────────────────────────────────────
+  - symbol: "ORCL"
+    name: "Oracle"
+    market: US
+    sector: 클라우드
+    aliases: ["ORCL", "오라클", "Oracle"]
+
+  - symbol: "CRM"
+    name: "Salesforce"
+    market: US
+    sector: 클라우드
+    aliases: ["CRM", "세일즈포스", "Salesforce"]
+    require_context_aliases: ["CRM"]
+
+  - symbol: "NOW"
+    name: "ServiceNow"
+    market: US
+    sector: 클라우드
+    aliases: ["NOW", "서비스나우", "ServiceNow"]
+    require_context_aliases: ["NOW"]
+
+  - symbol: "ADBE"
+    name: "Adobe"
+    market: US
+    sector: 소프트웨어
+    aliases: ["ADBE", "어도비", "Adobe"]
+
+  - symbol: "SNOW"
+    name: "Snowflake"
+    market: US
+    sector: 클라우드
+    aliases: ["SNOW", "스노우플레이크", "Snowflake"]
+    require_context_aliases: ["SNOW"]
+
+  - symbol: "DDOG"
+    name: "Datadog"
+    market: US
+    sector: 클라우드
+    aliases: ["DDOG", "데이터독", "Datadog"]
+
+  - symbol: "NET"
+    name: "Cloudflare"
+    market: US
+    sector: 사이버보안
+    aliases: ["NET", "클라우드플레어", "Cloudflare"]
+    require_context_aliases: ["NET"]
+
+  - symbol: "PANW"
+    name: "Palo Alto Networks"
+    market: US
+    sector: 사이버보안
+    aliases: ["PANW", "팔로알토", "Palo Alto Networks"]
+
+  - symbol: "CRWD"
+    name: "CrowdStrike"
+    market: US
+    sector: 사이버보안
+    aliases: ["CRWD", "크라우드스트라이크", "CrowdStrike"]
+
+  # ─── US 금융 추가 ────────────────────────────────────────────
+  - symbol: "BAC"
+    name: "Bank of America"
+    market: US
+    sector: 금융
+    aliases: ["BAC", "뱅크오브아메리카", "Bank of America"]
+    require_context_aliases: ["BAC"]
+
+  - symbol: "WFC"
+    name: "Wells Fargo"
+    market: US
+    sector: 금융
+    aliases: ["WFC", "웰스파고", "Wells Fargo"]
+
+  - symbol: "MS"
+    name: "Morgan Stanley"
+    market: US
+    sector: 금융
+    aliases: ["MS", "모건스탠리", "Morgan Stanley"]
+    require_context_aliases: ["MS"]
+
+  - symbol: "V"
+    name: "Visa"
+    market: US
+    sector: 핀테크
+    aliases: ["V", "비자", "Visa"]
+    require_context_aliases: ["V"]
+
+  - symbol: "MA"
+    name: "Mastercard"
+    market: US
+    sector: 핀테크
+    aliases: ["MA", "마스터카드", "Mastercard"]
+    require_context_aliases: ["MA"]
+
+  - symbol: "BLK"
+    name: "BlackRock"
+    market: US
+    sector: 자산운용
+    aliases: ["BLK", "블랙록", "BlackRock"]
+    require_context_aliases: ["BLK"]
+
+  - symbol: "PYPL"
+    name: "PayPal"
+    market: US
+    sector: 핀테크
+    aliases: ["PYPL", "페이팔", "PayPal"]
+
+  # ─── US 소비재 ───────────────────────────────────────────────
+  - symbol: "COST"
+    name: "Costco"
+    market: US
+    sector: 소비재
+    aliases: ["COST", "코스트코", "Costco"]
+    require_context_aliases: ["COST"]
+
+  - symbol: "WMT"
+    name: "Walmart"
+    market: US
+    sector: 소비재
+    aliases: ["WMT", "월마트", "Walmart"]
+
+  - symbol: "SBUX"
+    name: "Starbucks"
+    market: US
+    sector: 소비재
+    aliases: ["SBUX", "스타벅스", "Starbucks"]
+    require_context_aliases: ["SBUX"]
+
+  - symbol: "MCD"
+    name: "McDonald's"
+    market: US
+    sector: 소비재
+    aliases: ["MCD", "맥도날드", "McDonald's"]
+
+  - symbol: "NKE"
+    name: "Nike"
+    market: US
+    sector: 소비재
+    aliases: ["NKE", "나이키", "Nike"]
+
+  - symbol: "CPNG"
+    name: "Coupang"
+    market: US
+    sector: 유통
+    aliases: ["CPNG", "쿠팡", "Coupang"]
+
+  # ─── US 헬스케어 추가 ────────────────────────────────────────
+  - symbol: "JNJ"
+    name: "Johnson & Johnson"
+    market: US
+    sector: 헬스케어
+    aliases: ["JNJ", "존슨앤존슨", "Johnson & Johnson"]
+
+  - symbol: "ABT"
+    name: "Abbott Labs"
+    market: US
+    sector: 헬스케어
+    aliases: ["ABT", "애보트", "Abbott Labs", "Abbott"]
+
+  - symbol: "MDT"
+    name: "Medtronic"
+    market: US
+    sector: 헬스케어
+    aliases: ["MDT", "메드트로닉", "Medtronic"]
+
+  # ─── US 에너지 추가 ──────────────────────────────────────────
+  - symbol: "CVX"
+    name: "Chevron"
+    market: US
+    sector: 에너지
+    aliases: ["CVX", "셰브론", "Chevron"]
+
+  - symbol: "OXY"
+    name: "Occidental Petroleum"
+    market: US
+    sector: 에너지
+    aliases: ["OXY", "옥시덴털", "Occidental", "OXY석유"]
+    require_context_aliases: ["OXY"]
+
+  - symbol: "NEE"
+    name: "NextEra Energy"
+    market: US
+    sector: 재생에너지
+    aliases: ["NEE", "넥스테라", "NextEra Energy", "NextEra"]
+
+  # ─── US 방산/항공 추가 ───────────────────────────────────────
+  - symbol: "BA"
+    name: "Boeing"
+    market: US
+    sector: 항공우주
+    aliases: ["BA", "보잉", "Boeing"]
+    require_context_aliases: ["BA"]
+
+  - symbol: "NOC"
+    name: "Northrop Grumman"
+    market: US
+    sector: 방산
+    aliases: ["NOC", "노스롭그루먼", "Northrop Grumman"]
+    require_context_aliases: ["NOC"]
+
+  - symbol: "GD"
+    name: "General Dynamics"
+    market: US
+    sector: 방산
+    aliases: ["GD", "제너럴다이나믹스", "General Dynamics"]
+    require_context_aliases: ["GD"]
+
+  - symbol: "LHX"
+    name: "L3Harris"
+    market: US
+    sector: 방산
+    aliases: ["LHX", "엘쓰리해리스", "L3Harris"]
+
+  # ─── US 엔터/소셜 ────────────────────────────────────────────
+  - symbol: "SPOT"
+    name: "Spotify"
+    market: US
+    sector: 엔터
+    aliases: ["SPOT", "스포티파이", "Spotify"]
+    require_context_aliases: ["SPOT"]
+
+  - symbol: "SNAP"
+    name: "Snap"
+    market: US
+    sector: 소셜미디어
+    aliases: ["SNAP", "스냅챗", "Snapchat", "Snap"]
+    require_context_aliases: ["SNAP"]
+
+  - symbol: "RBLX"
+    name: "Roblox"
+    market: US
+    sector: 게임
+    aliases: ["RBLX", "로블록스", "Roblox"]
+
+  # ─── US EV/자동차 추가 ───────────────────────────────────────
+  - symbol: "F"
+    name: "Ford"
+    market: US
+    sector: 자동차
+    aliases: ["F", "포드", "Ford Motor"]
+    require_context_aliases: ["F"]
+
+  - symbol: "GM"
+    name: "General Motors"
+    market: US
+    sector: 자동차
+    aliases: ["GM", "제너럴모터스", "General Motors"]
+    require_context_aliases: ["GM"]
+
+  - symbol: "UBER"
+    name: "Uber"
+    market: US
+    sector: 모빌리티
+    aliases: ["UBER", "우버", "Uber"]
+
+  # ─── US 원자재/광산 ──────────────────────────────────────────
+  - symbol: "FCX"
+    name: "Freeport-McMoRan"
+    market: US
+    sector: 원자재
+    aliases: ["FCX", "프리포트", "Freeport", "구리주"]
+
+  - symbol: "NEM"
+    name: "Newmont"
+    market: US
+    sector: 원자재
+    aliases: ["NEM", "뉴몬트", "Newmont"]
+    require_context_aliases: ["NEM"]
+
+  # ─── US 항공 ─────────────────────────────────────────────────
+  - symbol: "DAL"
+    name: "Delta Air Lines"
+    market: US
+    sector: 항공
+    aliases: ["DAL", "델타항공", "Delta Air Lines", "Delta"]
+
+  - symbol: "AAL"
+    name: "American Airlines"
+    market: US
+    sector: 항공
+    aliases: ["AAL", "아메리칸항공", "American Airlines"]
+
+  - symbol: "UAL"
+    name: "United Airlines"
+    market: US
+    sector: 항공
+    aliases: ["UAL", "유나이티드항공", "United Airlines"]
+
+  # ─── KOSPI 반도체 장비/소재 추가 ───────────────────────────────
+  - symbol: "009150.KS"
+    name: "삼성전기"
+    market: KR
+    board: KOSPI
+    sector: 반도체부품
+    aliases: ["삼성전기", "Samsung Electro-Mechanics"]
+
+  - symbol: "108320.KQ"
+    name: "LX세미콘"
+    market: KR
+    board: KOSDAQ
+    sector: 반도체
+    aliases: ["LX세미콘", "LX반도체"]
+
+  - symbol: "039030.KQ"
+    name: "이오테크닉스"
+    market: KR
+    board: KOSDAQ
+    sector: 반도체장비
+    aliases: ["이오테크닉스"]
+
+  - symbol: "319660.KQ"
+    name: "피에스케이"
+    market: KR
+    board: KOSDAQ
+    sector: 반도체장비
+    aliases: ["피에스케이", "PSK"]
+
+  - symbol: "036930.KQ"
+    name: "주성엔지니어링"
+    market: KR
+    board: KOSDAQ
+    sector: 반도체장비
+    aliases: ["주성엔지니어링", "주성"]
+
+  - symbol: "281820.KQ"
+    name: "케이씨텍"
+    market: KR
+    board: KOSDAQ
+    sector: 반도체장비
+    aliases: ["케이씨텍", "KC Tech"]
+
+  - symbol: "084370.KQ"
+    name: "유진테크"
+    market: KR
+    board: KOSDAQ
+    sector: 반도체장비
+    aliases: ["유진테크"]
+
+  - symbol: "089030.KQ"
+    name: "테크윙"
+    market: KR
+    board: KOSDAQ
+    sector: 반도체장비
+    aliases: ["테크윙"]
+
+  - symbol: "067310.KQ"
+    name: "하나마이크론"
+    market: KR
+    board: KOSDAQ
+    sector: 반도체
+    aliases: ["하나마이크론"]
+
+  # ─── KOSPI/KOSDAQ 자동차 부품 추가 ──────────────────────────
+  - symbol: "011210.KS"
+    name: "현대위아"
+    market: KR
+    board: KOSPI
+    sector: 자동차부품
+    aliases: ["현대위아"]
+
+  - symbol: "204320.KS"
+    name: "HL만도"
+    market: KR
+    board: KOSPI
+    sector: 자동차부품
+    aliases: ["HL만도", "만도"]
+
+  - symbol: "018880.KS"
+    name: "한온시스템"
+    market: KR
+    board: KOSPI
+    sector: 자동차부품
+    aliases: ["한온시스템", "한온"]
+
+  # ─── KOSPI/KOSDAQ 2차전지 소재 추가 ────────────────────────
+  - symbol: "025900.KS"
+    name: "동화기업"
+    market: KR
+    board: KOSPI
+    sector: 2차전지소재
+    aliases: ["동화기업"]
+
+  - symbol: "121600.KQ"
+    name: "나노신소재"
+    market: KR
+    board: KOSDAQ
+    sector: 2차전지소재
+    aliases: ["나노신소재"]
+
+  - symbol: "365340.KQ"
+    name: "성일하이텍"
+    market: KR
+    board: KOSDAQ
+    sector: 2차전지소재
+    aliases: ["성일하이텍"]
+
+  - symbol: "005070.KS"
+    name: "코스모신소재"
+    market: KR
+    board: KOSPI
+    sector: 2차전지소재
+    aliases: ["코스모신소재", "코스모화학"]
+
+  - symbol: "450080.KQ"
+    name: "에코프로머티리얼즈"
+    market: KR
+    board: KOSDAQ
+    sector: 2차전지소재
+    aliases: ["에코프로머티리얼즈", "에코프로머티"]
+
+  # ─── KOSPI/KOSDAQ 에너지/신재생 ─────────────────────────────
+  - symbol: "112610.KS"
+    name: "씨에스윈드"
+    market: KR
+    board: KOSPI
+    sector: 풍력
+    aliases: ["씨에스윈드", "CS Wind"]
+
+  - symbol: "036460.KS"
+    name: "한국가스공사"
+    market: KR
+    board: KOSPI
+    sector: 에너지
+    aliases: ["한국가스공사", "KOGAS", "가스공사"]
+
+  - symbol: "322000.KQ"
+    name: "현대에너지솔루션"
+    market: KR
+    board: KOSDAQ
+    sector: 태양광
+    aliases: ["현대에너지솔루션"]
+
+  # ─── KOSPI 건설 추가 ─────────────────────────────────────────
+  - symbol: "028050.KS"
+    name: "삼성엔지니어링"
+    market: KR
+    board: KOSPI
+    sector: 건설
+    aliases: ["삼성엔지니어링", "삼성엔지"]
+
+  - symbol: "047040.KS"
+    name: "대우건설"
+    market: KR
+    board: KOSPI
+    sector: 건설
+    aliases: ["대우건설", "Daewoo E&C"]
+
+  # ─── KOSPI 물류/해운 ─────────────────────────────────────────
+  - symbol: "086280.KS"
+    name: "현대글로비스"
+    market: KR
+    board: KOSPI
+    sector: 물류
+    aliases: ["현대글로비스", "글로비스"]
+
+  - symbol: "011200.KS"
+    name: "HMM"
+    market: KR
+    board: KOSPI
+    sector: 해운
+    aliases: ["HMM", "현대머스크", "현대상선"]
+
+  - symbol: "028670.KS"
+    name: "팬오션"
+    market: KR
+    board: KOSPI
+    sector: 해운
+    aliases: ["팬오션"]
+
+  - symbol: "002320.KS"
+    name: "한진"
+    market: KR
+    board: KOSPI
+    sector: 물류
+    aliases: ["한진", "한진그룹"]
+
+  # ─── KOSPI/KOSDAQ IT 서비스/SW ──────────────────────────────
+  - symbol: "012510.KS"
+    name: "더존비즈온"
+    market: KR
+    board: KOSPI
+    sector: IT서비스
+    aliases: ["더존비즈온", "더존"]
+
+  - symbol: "030520.KQ"
+    name: "한글과컴퓨터"
+    market: KR
+    board: KOSDAQ
+    sector: 소프트웨어
+    aliases: ["한글과컴퓨터", "한컴"]
+
+  - symbol: "304100.KQ"
+    name: "솔트룩스"
+    market: KR
+    board: KOSDAQ
+    sector: AI소프트웨어
+    aliases: ["솔트룩스"]
+
+  - symbol: "053300.KQ"
+    name: "피에스엔씨"
+    market: KR
+    board: KOSDAQ
+    sector: IT서비스
+    aliases: ["피에스엔씨"]
+
+  # ─── KOSPI/KOSDAQ 화장품/생활건강 추가 ──────────────────────
+  - symbol: "192820.KS"
+    name: "코스맥스"
+    market: KR
+    board: KOSPI
+    sector: 화장품
+    aliases: ["코스맥스", "Cosmax"]
+
+  - symbol: "161890.KS"
+    name: "한국콜마"
+    market: KR
+    board: KOSPI
+    sector: 화장품
+    aliases: ["한국콜마", "Kolmar Korea"]
+
+  - symbol: "237880.KQ"
+    name: "클리오"
+    market: KR
+    board: KOSDAQ
+    sector: 화장품
+    aliases: ["클리오", "CLIO"]
+
+  - symbol: "018290.KQ"
+    name: "브이티"
+    market: KR
+    board: KOSDAQ
+    sector: 화장품
+    aliases: ["브이티", "VT코스메틱스"]
+
+  # ─── KOSPI/KOSDAQ 바이오 추가 ───────────────────────────────
+  - symbol: "214450.KQ"
+    name: "파마리서치"
+    market: KR
+    board: KOSDAQ
+    sector: 바이오
+    aliases: ["파마리서치"]
+
+  - symbol: "214150.KQ"
+    name: "클래시스"
+    market: KR
+    board: KOSDAQ
+    sector: 의료기기
+    aliases: ["클래시스"]
+
+  - symbol: "095700.KQ"
+    name: "제넥신"
+    market: KR
+    board: KOSDAQ
+    sector: 바이오
+    aliases: ["제넥신"]
+
+  - symbol: "170900.KS"
+    name: "동아에스티"
+    market: KR
+    board: KOSPI
+    sector: 제약
+    aliases: ["동아에스티"]
+
+  - symbol: "200130.KQ"
+    name: "코미팜"
+    market: KR
+    board: KOSDAQ
+    sector: 바이오
+    aliases: ["코미팜"]
+
+  # ─── KOSPI 소비재/식품 추가 ─────────────────────────────────
+  - symbol: "000080.KS"
+    name: "하이트진로"
+    market: KR
+    board: KOSPI
+    sector: 식음료
+    aliases: ["하이트진로", "하이트", "진로"]
+
+  - symbol: "005300.KS"
+    name: "롯데칠성"
+    market: KR
+    board: KOSPI
+    sector: 식음료
+    aliases: ["롯데칠성"]
+
+  - symbol: "005180.KS"
+    name: "빙그레"
+    market: KR
+    board: KOSPI
+    sector: 식음료
+    aliases: ["빙그레"]
+
+  - symbol: "097950.KS"
+    name: "CJ제일제당"
+    market: KR
+    board: KOSPI
+    sector: 식품
+    aliases: ["CJ제일제당", "CJ제당"]
+
+  # ─── KOSPI/KOSDAQ 엔터/미디어 추가 ──────────────────────────
+  - symbol: "253450.KQ"
+    name: "스튜디오드래곤"
+    market: KR
+    board: KOSDAQ
+    sector: 미디어
+    aliases: ["스튜디오드래곤", "스드래곤"]
+
+  - symbol: "036420.KS"
+    name: "제이콘텐트리"
+    market: KR
+    board: KOSPI
+    sector: 미디어
+    aliases: ["제이콘텐트리", "JTBC스튜디오"]
+
+  # ─── KOSPI 호텔/레저 ─────────────────────────────────────────
+  - symbol: "008770.KS"
+    name: "호텔신라"
+    market: KR
+    board: KOSPI
+    sector: 여행/레저
+    aliases: ["호텔신라", "신라호텔", "신라면세점"]
+
+  - symbol: "034230.KS"
+    name: "파라다이스"
+    market: KR
+    board: KOSPI
+    sector: 여행/레저
+    aliases: ["파라다이스", "파라다이스카지노"]
+
+  - symbol: "114090.KS"
+    name: "GKL"
+    market: KR
+    board: KOSPI
+    sector: 여행/레저
+    aliases: ["GKL", "그랜드코리아레저"]
+
+  # ─── KOSPI 금융 추가 ─────────────────────────────────────────
+  - symbol: "071050.KS"
+    name: "한국금융지주"
+    market: KR
+    board: KOSPI
+    sector: 금융
+    aliases: ["한국금융지주", "한국투자증권"]
+
+  - symbol: "138930.KS"
+    name: "BNK금융지주"
+    market: KR
+    board: KOSPI
+    sector: 금융
+    aliases: ["BNK금융지주", "BNK금융", "부산은행"]
+
+  - symbol: "139130.KS"
+    name: "DGB금융지주"
+    market: KR
+    board: KOSPI
+    sector: 금융
+    aliases: ["DGB금융지주", "DGB금융", "대구은행"]
+
+  # ─── KOSPI 철강/소재 추가 ───────────────────────────────────
+  - symbol: "010060.KS"
+    name: "OCI홀딩스"
+    market: KR
+    board: KOSPI
+    sector: 화학
+    aliases: ["OCI홀딩스", "OCI"]
+
+  - symbol: "011790.KS"
+    name: "SKC"
+    market: KR
+    board: KOSPI
+    sector: 소재
+    aliases: ["SKC"]
+
+  - symbol: "006260.KS"
+    name: "LS"
+    market: KR
+    board: KOSPI
+    sector: 지주
+    aliases: ["LS지주", "LS그룹"]
+
+  - symbol: "000880.KS"
+    name: "한화"
+    market: KR
+    board: KOSPI
+    sector: 지주
+    aliases: ["한화지주", "한화그룹"]
+
+  # ─── US 반도체 추가 ──────────────────────────────────────────
+  - symbol: "TSM"
+    name: "TSMC"
+    market: US
+    sector: 반도체
+    aliases: ["TSM", "TSMC", "대만반도체", "Taiwan Semiconductor"]
+
+  - symbol: "TXN"
+    name: "Texas Instruments"
+    market: US
+    sector: 반도체
+    aliases: ["TXN", "텍사스인스트루먼트", "Texas Instruments"]
+
+  - symbol: "NXPI"
+    name: "NXP Semiconductors"
+    market: US
+    sector: 반도체
+    aliases: ["NXPI", "NXP", "NXP반도체"]
+
+  - symbol: "ON"
+    name: "Onsemi"
+    market: US
+    sector: 반도체
+    aliases: ["ON", "온세미", "Onsemi", "ON반도체"]
+    require_context_aliases: ["ON"]
+
+  - symbol: "MCHP"
+    name: "Microchip Technology"
+    market: US
+    sector: 반도체
+    aliases: ["MCHP", "마이크로칩", "Microchip Technology"]
+
+  - symbol: "MPWR"
+    name: "Monolithic Power"
+    market: US
+    sector: 반도체
+    aliases: ["MPWR", "모놀리틱파워", "Monolithic Power"]
+
+  - symbol: "STX"
+    name: "Seagate"
+    market: US
+    sector: 스토리지
+    aliases: ["STX", "씨게이트", "Seagate"]
+    require_context_aliases: ["STX"]
+
+  - symbol: "WDC"
+    name: "Western Digital"
+    market: US
+    sector: 스토리지
+    aliases: ["WDC", "웨스턴디지털", "Western Digital"]
+
+  # ─── US AI/클라우드 추가 ─────────────────────────────────────
+  - symbol: "INTU"
+    name: "Intuit"
+    market: US
+    sector: 소프트웨어
+    aliases: ["INTU", "인튜이트", "Intuit"]
+
+  - symbol: "WDAY"
+    name: "Workday"
+    market: US
+    sector: 클라우드
+    aliases: ["WDAY", "워크데이", "Workday"]
+
+  - symbol: "ZS"
+    name: "Zscaler"
+    market: US
+    sector: 사이버보안
+    aliases: ["ZS", "지스케일러", "Zscaler"]
+    require_context_aliases: ["ZS"]
+
+  - symbol: "OKTA"
+    name: "Okta"
+    market: US
+    sector: 사이버보안
+    aliases: ["OKTA", "옥타", "Okta"]
+
+  - symbol: "FTNT"
+    name: "Fortinet"
+    market: US
+    sector: 사이버보안
+    aliases: ["FTNT", "포티넷", "Fortinet"]
+
+  - symbol: "MDB"
+    name: "MongoDB"
+    market: US
+    sector: 클라우드
+    aliases: ["MDB", "몽고DB", "MongoDB"]
+
+  - symbol: "CSCO"
+    name: "Cisco"
+    market: US
+    sector: 네트워크
+    aliases: ["CSCO", "시스코", "Cisco"]
+
+  - symbol: "ANET"
+    name: "Arista Networks"
+    market: US
+    sector: 네트워크
+    aliases: ["ANET", "아리스타", "Arista Networks"]
+
+  - symbol: "IBM"
+    name: "IBM"
+    market: US
+    sector: IT서비스
+    aliases: ["IBM", "아이비엠"]
+
+  - symbol: "ACN"
+    name: "Accenture"
+    market: US
+    sector: IT서비스
+    aliases: ["ACN", "액센츄어", "Accenture"]
+
+  - symbol: "DELL"
+    name: "Dell Technologies"
+    market: US
+    sector: IT서비스
+    aliases: ["DELL", "델", "Dell Technologies", "Dell"]
+
+  # ─── US 금융 추가 ────────────────────────────────────────────
+  - symbol: "C"
+    name: "Citigroup"
+    market: US
+    sector: 금융
+    aliases: ["C", "씨티그룹", "Citigroup", "Citi"]
+    require_context_aliases: ["C"]
+
+  - symbol: "AXP"
+    name: "American Express"
+    market: US
+    sector: 금융
+    aliases: ["AXP", "아메리칸익스프레스", "American Express", "Amex"]
+
+  - symbol: "SCHW"
+    name: "Charles Schwab"
+    market: US
+    sector: 증권
+    aliases: ["SCHW", "찰스슈왑", "Charles Schwab", "Schwab"]
+
+  - symbol: "SPGI"
+    name: "S&P Global"
+    market: US
+    sector: 금융서비스
+    aliases: ["SPGI", "S&P글로벌", "S&P Global"]
+
+  - symbol: "COF"
+    name: "Capital One"
+    market: US
+    sector: 금융
+    aliases: ["COF", "캐피탈원", "Capital One"]
+
+  - symbol: "USB"
+    name: "US Bancorp"
+    market: US
+    sector: 금융
+    aliases: ["USB", "US뱅콥", "US Bancorp"]
+    require_context_aliases: ["USB"]
+
+  # ─── US 소비재 추가 ──────────────────────────────────────────
+  - symbol: "HD"
+    name: "Home Depot"
+    market: US
+    sector: 소비재
+    aliases: ["HD", "홈디포", "Home Depot"]
+    require_context_aliases: ["HD"]
+
+  - symbol: "TGT"
+    name: "Target"
+    market: US
+    sector: 소비재
+    aliases: ["TGT", "타겟", "Target"]
+    require_context_aliases: ["TGT"]
+
+  - symbol: "BKNG"
+    name: "Booking Holdings"
+    market: US
+    sector: 여행/숙박
+    aliases: ["BKNG", "부킹홀딩스", "Booking Holdings", "Booking.com"]
+
+  - symbol: "ABNB"
+    name: "Airbnb"
+    market: US
+    sector: 여행/숙박
+    aliases: ["ABNB", "에어비앤비", "Airbnb"]
+
+  - symbol: "PG"
+    name: "Procter & Gamble"
+    market: US
+    sector: 소비재
+    aliases: ["PG", "P&G", "프록터앤갬블", "Procter & Gamble"]
+    require_context_aliases: ["PG"]
+
+  - symbol: "KO"
+    name: "Coca-Cola"
+    market: US
+    sector: 식음료
+    aliases: ["KO", "코카콜라", "Coca-Cola"]
+    require_context_aliases: ["KO"]
+
+  - symbol: "PEP"
+    name: "PepsiCo"
+    market: US
+    sector: 식음료
+    aliases: ["PEP", "펩시코", "PepsiCo", "Pepsi"]
+
+  - symbol: "YUM"
+    name: "Yum! Brands"
+    market: US
+    sector: 식음료
+    aliases: ["YUM", "얌브랜즈", "Yum Brands", "KFC", "Pizza Hut", "Taco Bell"]
+    require_context_aliases: ["YUM", "KFC"]
+
+  # ─── US 헬스케어 추가 ────────────────────────────────────────
+  - symbol: "GILD"
+    name: "Gilead Sciences"
+    market: US
+    sector: 헬스케어
+    aliases: ["GILD", "길리어드", "Gilead Sciences", "Gilead"]
+
+  - symbol: "VRTX"
+    name: "Vertex Pharmaceuticals"
+    market: US
+    sector: 헬스케어
+    aliases: ["VRTX", "버텍스", "Vertex Pharmaceuticals"]
+
+  - symbol: "BMY"
+    name: "Bristol-Myers Squibb"
+    market: US
+    sector: 헬스케어
+    aliases: ["BMY", "브리스톨마이어스", "Bristol-Myers Squibb", "BMS"]
+
+  - symbol: "ZTS"
+    name: "Zoetis"
+    market: US
+    sector: 헬스케어
+    aliases: ["ZTS", "조에티스", "Zoetis"]
+
+  - symbol: "SYK"
+    name: "Stryker"
+    market: US
+    sector: 의료기기
+    aliases: ["SYK", "스트라이커", "Stryker"]
+
+  - symbol: "CVS"
+    name: "CVS Health"
+    market: US
+    sector: 헬스케어
+    aliases: ["CVS", "CVS헬스", "CVS Health"]
+    require_context_aliases: ["CVS"]
+
+  # ─── US 에너지 추가 ──────────────────────────────────────────
+  - symbol: "COP"
+    name: "ConocoPhillips"
+    market: US
+    sector: 에너지
+    aliases: ["COP", "코노코필립스", "ConocoPhillips"]
+    require_context_aliases: ["COP"]
+
+  - symbol: "SLB"
+    name: "Schlumberger"
+    market: US
+    sector: 에너지서비스
+    aliases: ["SLB", "슐룸베르거", "Schlumberger"]
+
+  - symbol: "LNG"
+    name: "Cheniere Energy"
+    market: US
+    sector: 에너지
+    aliases: ["LNG", "셰니어에너지", "Cheniere Energy"]
+    require_context_aliases: ["LNG"]
+
+  - symbol: "VST"
+    name: "Vistra Energy"
+    market: US
+    sector: 원전/전력
+    aliases: ["VST", "비스트라", "Vistra Energy", "Vistra"]
+
+  - symbol: "CEG"
+    name: "Constellation Energy"
+    market: US
+    sector: 원전/전력
+    aliases: ["CEG", "컨스텔레이션에너지", "Constellation Energy", "Constellation"]
+
+  # ─── US 산업재 ───────────────────────────────────────────────
+  - symbol: "CAT"
+    name: "Caterpillar"
+    market: US
+    sector: 산업재
+    aliases: ["CAT", "캐터필러", "Caterpillar"]
+    require_context_aliases: ["CAT"]
+
+  - symbol: "DE"
+    name: "Deere & Company"
+    market: US
+    sector: 산업재
+    aliases: ["DE", "존디어", "Deere", "John Deere"]
+    require_context_aliases: ["DE"]
+
+  - symbol: "HON"
+    name: "Honeywell"
+    market: US
+    sector: 산업재
+    aliases: ["HON", "허니웰", "Honeywell"]
+    require_context_aliases: ["HON"]
+
+  - symbol: "GE"
+    name: "GE Aerospace"
+    market: US
+    sector: 항공우주
+    aliases: ["GE", "GE에어로스페이스", "GE Aerospace", "General Electric"]
+    require_context_aliases: ["GE"]
+
+  - symbol: "ETN"
+    name: "Eaton"
+    market: US
+    sector: 전력기기
+    aliases: ["ETN", "이튼", "Eaton"]
+    require_context_aliases: ["ETN"]
+
+  - symbol: "EMR"
+    name: "Emerson Electric"
+    market: US
+    sector: 산업재
+    aliases: ["EMR", "에머슨", "Emerson Electric"]
+
+  # ─── US 중국 ADR ─────────────────────────────────────────────
+  - symbol: "BABA"
+    name: "Alibaba"
+    market: US
+    sector: 중국빅테크
+    aliases: ["BABA", "알리바바", "Alibaba"]
+
+  - symbol: "PDD"
+    name: "PDD Holdings"
+    market: US
+    sector: 중국빅테크
+    aliases: ["PDD", "핀둬둬", "테무", "Temu", "PDD Holdings", "Pinduoduo"]
+
+  - symbol: "JD"
+    name: "JD.com"
+    market: US
+    sector: 중국빅테크
+    aliases: ["JD", "징둥", "JD.com"]
+    require_context_aliases: ["JD"]
+
+  - symbol: "BIDU"
+    name: "Baidu"
+    market: US
+    sector: 중국빅테크
+    aliases: ["BIDU", "바이두", "Baidu"]
+
+  - symbol: "NIO"
+    name: "NIO"
+    market: US
+    sector: 중국EV
+    aliases: ["NIO", "니오", "웨이래"]
+
+  - symbol: "LI"
+    name: "Li Auto"
+    market: US
+    sector: 중국EV
+    aliases: ["LI", "리오토", "Li Auto"]
+    require_context_aliases: ["LI"]
+
+  - symbol: "XPEV"
+    name: "XPeng"
+    market: US
+    sector: 중국EV
+    aliases: ["XPEV", "샤오펑", "XPeng"]
+
+  # ─── US Sector ETF (섹터 흐름 지수) ─────────────────────────
+  - symbol: "XLK"
+    name: "Technology Select Sector SPDR"
+    market: ETF
+    sector: 기술섹터지수
+    aliases: ["XLK", "기술섹터ETF", "Technology SPDR"]
+
+  - symbol: "XLF"
+    name: "Financial Select Sector SPDR"
+    market: ETF
+    sector: 금융섹터지수
+    aliases: ["XLF", "금융섹터ETF", "Financial SPDR"]
+
+  - symbol: "XLE"
+    name: "Energy Select Sector SPDR"
+    market: ETF
+    sector: 에너지섹터지수
+    aliases: ["XLE", "에너지섹터ETF", "Energy SPDR"]
+
+  - symbol: "XLV"
+    name: "Health Care Select Sector SPDR"
+    market: ETF
+    sector: 헬스케어섹터지수
+    aliases: ["XLV", "헬스케어섹터ETF", "Healthcare SPDR"]
+
+  - symbol: "XLI"
+    name: "Industrial Select Sector SPDR"
+    market: ETF
+    sector: 산업섹터지수
+    aliases: ["XLI", "산업섹터ETF", "Industrial SPDR"]
+
+  - symbol: "XLC"
+    name: "Communication Services Select Sector SPDR"
+    market: ETF
+    sector: 통신서비스섹터지수
+    aliases: ["XLC", "통신서비스ETF", "Communication SPDR"]
+
+  - symbol: "XLP"
+    name: "Consumer Staples Select Sector SPDR"
+    market: ETF
+    sector: 필수소비재섹터지수
+    aliases: ["XLP", "필수소비재ETF", "Consumer Staples SPDR"]
+
+  - symbol: "XLY"
+    name: "Consumer Discretionary Select Sector SPDR"
+    market: ETF
+    sector: 임의소비재섹터지수
+    aliases: ["XLY", "임의소비재ETF", "Consumer Discretionary SPDR"]
+
+  - symbol: "XLB"
+    name: "Materials Select Sector SPDR"
+    market: ETF
+    sector: 소재섹터지수
+    aliases: ["XLB", "소재섹터ETF", "Materials SPDR"]
+
+  - symbol: "XLU"
+    name: "Utilities Select Sector SPDR"
+    market: ETF
+    sector: 유틸리티섹터지수
+    aliases: ["XLU", "유틸리티섹터ETF", "Utilities SPDR"]
+
+  - symbol: "XLRE"
+    name: "Real Estate Select Sector SPDR"
+    market: ETF
+    sector: 부동산섹터지수
+    aliases: ["XLRE", "부동산섹터ETF", "Real Estate SPDR"]
+
+  - symbol: "SMH"
+    name: "VanEck Semiconductor ETF"
+    market: ETF
+    sector: 반도체지수
+    aliases: ["SMH", "반도체ETF글로벌", "VanEck Semi"]
+
+  - symbol: "IBB"
+    name: "iShares Biotechnology ETF"
+    market: ETF
+    sector: 바이오테크지수
+    aliases: ["IBB", "바이오테크ETF", "Biotech ETF"]
+
+  - symbol: "XBI"
+    name: "SPDR S&P Biotech ETF"
+    market: ETF
+    sector: 바이오테크지수
+    aliases: ["XBI", "S&P바이오ETF"]
+
+  - symbol: "KRE"
+    name: "SPDR S&P Regional Banking ETF"
+    market: ETF
+    sector: 지역은행지수
+    aliases: ["KRE", "지역은행ETF"]
+    require_context_aliases: ["KRE"]
+
+  - symbol: "HACK"
+    name: "ETFMG Prime Cyber Security ETF"
+    market: ETF
+    sector: 사이버보안지수
+    aliases: ["HACK", "사이버보안ETF"]
+
+  - symbol: "JETS"
+    name: "U.S. Global Jets ETF"
+    market: ETF
+    sector: 항공지수
+    aliases: ["JETS", "항공ETF"]
+
+  # ─── KR Sector ETF (한국 섹터 ETF) ──────────────────────────
+  - symbol: "091160.KS"
+    name: "KODEX 반도체"
+    market: ETF
+    sector: 반도체지수
+    aliases: ["KODEX반도체", "091160", "반도체ETF한국"]
+
+  - symbol: "091180.KS"
+    name: "KODEX 자동차"
+    market: ETF
+    sector: 자동차지수
+    aliases: ["KODEX자동차", "091180", "자동차ETF한국"]
+
+  - symbol: "091170.KS"
+    name: "KODEX 금융"
+    market: ETF
+    sector: 금융지수
+    aliases: ["KODEX금융", "091170"]
+
+  - symbol: "244580.KS"
+    name: "KODEX 바이오"
+    market: ETF
+    sector: 바이오지수
+    aliases: ["KODEX바이오", "244580", "바이오ETF한국"]
+
+  - symbol: "305720.KS"
+    name: "KODEX 2차전지산업"
+    market: ETF
+    sector: 2차전지지수
+    aliases: ["KODEX2차전지", "305720", "2차전지ETF한국"]
+
+  - symbol: "157490.KS"
+    name: "TIGER 방산"
+    market: ETF
+    sector: 방산지수
+    aliases: ["TIGER방산", "157490", "방산ETF한국"]
+
   # ─── 암호화폐 (CRYPTO) ───────────────────────────────────────
   - symbol: "BTC-USD"
     name: "Bitcoin"
@@ -1048,3 +2594,179 @@ themes:
       - "큐비트"
       - "quantum"
     related_symbols: ["MSFT", "GOOGL"]
+
+  - name: 사이버보안
+    aliases:
+      - "사이버보안"
+      - "사이버공격"
+      - "랜섬웨어"
+      - "제로트러스트"
+      - "정보보안"
+      - "endpoint보안"
+    related_symbols: ["CRWD", "PANW", "ZS", "FTNT", "OKTA", "NET"]
+
+  - name: 클라우드
+    aliases:
+      - "클라우드"
+      - "퍼블릭클라우드"
+      - "SaaS"
+      - "하이퍼스케일"
+      - "클라우드마이그레이션"
+    related_symbols: ["MSFT", "AMZN", "GOOGL", "SNOW", "DDOG", "CRM", "NOW"]
+
+  - name: 중국테크
+    aliases:
+      - "중국테크"
+      - "중국AI"
+      - "알리바바"
+      - "바이두"
+      - "징둥"
+      - "테무"
+      - "핀둬둬"
+      - "DeepSeek"
+      - "딥시크"
+    related_symbols: ["BABA", "PDD", "JD", "BIDU"]
+
+  - name: 중국EV
+    aliases:
+      - "중국EV"
+      - "중국전기차"
+      - "니오"
+      - "샤오펑"
+      - "리오토"
+      - "BYD"
+    related_symbols: ["NIO", "LI", "XPEV"]
+
+  - name: 원전/소형원자로
+    aliases:
+      - "원전"
+      - "원자력"
+      - "SMR"
+      - "소형모듈원자로"
+      - "핵융합"
+      - "원자로"
+      - "우라늄"
+    related_symbols: ["CEG", "VST", "034020.KS"]
+
+  - name: 전력인프라/AI전력
+    aliases:
+      - "AI전력"
+      - "전력인프라"
+      - "전력망"
+      - "송배전"
+      - "변압기"
+      - "전력설비"
+      - "에너지인프라"
+      - "데이터센터전력"
+    related_symbols: ["ETN", "GE", "015760.KS", "034020.KS", "298040.KS", "267260.KS", "010120.KS"]
+
+  - name: 해운/물류
+    aliases:
+      - "해운"
+      - "컨테이너운임"
+      - "BDI"
+      - "발틱운임지수"
+      - "운임상승"
+      - "글로벌물류"
+    related_symbols: ["011200.KS", "028670.KS", "086280.KS", "003490.KS"]
+
+  - name: K방산수출
+    aliases:
+      - "K방산"
+      - "방산수출"
+      - "무기수출"
+      - "국방예산"
+      - "방위산업"
+      - "NATO"
+      - "유럽방산"
+    related_symbols: ["012450.KS", "047810.KS", "079550.KS", "064350.KS", "042660.KS", "LMT", "RTX"]
+
+  - name: 풍력/태양광
+    aliases:
+      - "풍력"
+      - "태양광"
+      - "신재생에너지"
+      - "재생에너지"
+      - "그린에너지"
+      - "탄소중립"
+    related_symbols: ["112610.KS", "322000.KQ", "009830.KS", "NEE"]
+
+  - name: 미국금리/채권
+    aliases:
+      - "연준"
+      - "FOMC"
+      - "금리인하"
+      - "금리인상"
+      - "금리동결"
+      - "기준금리"
+      - "국채금리"
+      - "장단기스프레드"
+      - "피벗"
+      - "QT"
+      - "QE"
+    related_symbols: ["TLT", "JPM", "GS", "BAC"]
+
+  - name: 인플레이션/CPI
+    aliases:
+      - "CPI"
+      - "인플레이션"
+      - "물가"
+      - "PPI"
+      - "PCE"
+      - "근원물가"
+      - "하이퍼인플레이션"
+      - "디플레이션"
+    related_symbols: ["XLP", "GLD", "XLE"]
+
+  - name: 달러강세/환율
+    aliases:
+      - "달러강세"
+      - "달러인덱스"
+      - "DXY"
+      - "원달러"
+      - "환율급등"
+      - "달러패권"
+      - "달러약세"
+    related_symbols: ["GLD", "XLE"]
+
+  - name: 금/안전자산
+    aliases:
+      - "금"
+      - "금값"
+      - "골드"
+      - "안전자산"
+      - "인플레헤지"
+      - "금선물"
+    related_symbols: ["GLD", "NEM", "FCX"]
+
+  - name: 관세/무역전쟁
+    aliases:
+      - "관세"
+      - "무역전쟁"
+      - "미중관세"
+      - "트럼프관세"
+      - "상호관세"
+      - "무역분쟁"
+      - "공급망재편"
+    related_symbols: ["BABA", "TSM", "005930.KS", "000660.KS", "005380.KS"]
+
+  - name: 반도체수출규제
+    aliases:
+      - "반도체수출규제"
+      - "대중국규제"
+      - "HBM수출"
+      - "칩법"
+      - "CHIPS Act"
+      - "반도체법"
+      - "엔티티리스트"
+    related_symbols: ["NVDA", "AMD", "ASML", "000660.KS", "005930.KS"]
+
+  - name: 미국증시섹터
+    aliases:
+      - "섹터로테이션"
+      - "기술섹터"
+      - "금융섹터"
+      - "에너지섹터"
+      - "헬스케어섹터"
+      - "산업섹터"
+    related_symbols: ["XLK", "XLF", "XLE", "XLV", "XLI", "XLC", "XLP", "XLY"]

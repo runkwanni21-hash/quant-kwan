@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -15,6 +16,9 @@ from tele_quant.settings import Settings
 from tele_quant.textutil import clean_text, truncate
 
 log = logging.getLogger(__name__)
+
+# Matches $NVDA, $AAPL, $005930.KS, $000660 etc.
+_DOLLAR_TICKER_RE = re.compile(r"\$([A-Z]{1,7}(?:\.[A-Z]{1,2})?|[0-9]{6}(?:\.[A-Z]{2})?)")
 
 
 class TelegramGateway:
@@ -168,6 +172,17 @@ class TelegramGateway:
 
             url = f"https://t.me/{username}/{msg.id}" if username else None
             title = truncate(text.splitlines()[0], 120)
+            _meta: dict[str, Any] = {
+                "chat_id": chat_id,
+                "message_id": msg.id,
+                "username": username,
+            }
+            _dollar_tickers = _DOLLAR_TICKER_RE.findall(text)
+            if _dollar_tickers:
+                _norm = []
+                for _t in _dollar_tickers:
+                    _norm.append(f"{_t}.KS" if (_t.isdigit() and len(_t) == 6) else _t)
+                _meta["tickers"] = _norm
             items.append(
                 RawItem(
                     source_type="telegram",
@@ -177,11 +192,7 @@ class TelegramGateway:
                     title=title,
                     text=text,
                     url=url,
-                    meta={
-                        "chat_id": chat_id,
-                        "message_id": msg.id,
-                        "username": username,
-                    },
+                    meta=_meta,
                 )
             )
         return items
