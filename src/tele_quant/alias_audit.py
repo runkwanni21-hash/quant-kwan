@@ -67,13 +67,16 @@ def run_audit(yaml_path: Path | None = None) -> list[AuditEntry]:
             if alias in MACRO_KEYWORDS:
                 issues.append((f"MACRO_KEYWORDS에 포함: '{alias}'", "HIGH"))
 
-            # Very short (≤2 char) non-Korean alias without require_context
+            # Very short non-Korean alias that is NOT auto-protected by _alias_requires_context.
+            # 1-5자 uppercase ASCII is already auto-gated by the AliasBook matching logic,
+            # so only flag aliases that slip through: lowercase or mixed-case short aliases.
             if (
                 len(alias) <= 2
                 and alias.isascii()
+                and not (alias.isupper() and len(alias) >= 1)  # uppercase already auto-protected
                 and alias not in sym.require_context_aliases
             ):
-                issues.append((f"짧은 ASCII alias '{alias}' + require_context 없음", "MEDIUM"))
+                issues.append((f"짧은 ASCII alias '{alias}' + 자동보호 없음 + require_context 없음", "MEDIUM"))
 
             # Common generic word alias
             if alias in _COMMON_WORDS:
