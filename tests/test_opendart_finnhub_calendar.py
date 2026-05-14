@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-
 # ---------- economic_calendar ----------
 
 class TestGetUpcomingEvents:
@@ -239,6 +238,7 @@ class TestIntradayBBFields:
 
     def test_bb_bands_returns_prices(self):
         import pandas as pd
+
         from tele_quant.analysis.intraday import _bb_bands
         close = pd.Series([float(100 + i % 5) for i in range(25)])
         label, upper, middle, lower = _bb_bands(close)
@@ -250,15 +250,17 @@ class TestIntradayBBFields:
 
     def test_bb_bands_insufficient_data(self):
         import pandas as pd
+
         from tele_quant.analysis.intraday import _bb_bands
         close = pd.Series([100.0] * 5)
-        label, upper, middle, lower = _bb_bands(close)
+        label, upper, _middle, _lower = _bb_bands(close)
         assert label == "데이터 부족"
         assert upper is None
 
     def test_compute_4h_snapshot_populates_bb_prices(self):
         import numpy as np
         import pandas as pd
+
         from tele_quant.analysis.intraday import compute_4h_snapshot
 
         np.random.seed(42)
