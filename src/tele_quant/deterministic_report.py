@@ -294,8 +294,8 @@ def _build_sentiment_radar_section(
             lines.append(f"  {icon} {sector}: {label} (호재 {bull}건 / 악재 {bear}건){conf}")
 
     # 주요동력 / 부담 — top 2 positive / negative cluster headlines
-    drivers = [_one_sentence(c.headline, max_len=45) for c in pack.positive_stock[:2] if c.headline]
-    burdens = [_one_sentence(c.headline, max_len=45) for c in pack.negative_stock[:2] if c.headline]
+    drivers = [h for c in pack.positive_stock[:2] if (h := _safe_headline(c))]
+    burdens = [h for c in pack.negative_stock[:2] if (h := _safe_headline(c))]
     if drivers:
         lines.append(f"  주요동력: {' / '.join(drivers)}")
     if burdens:

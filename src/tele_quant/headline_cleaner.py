@@ -169,12 +169,22 @@ def clean_source_header(text: str) -> str:
     return result
 
 
+_BROKER_GREETING_RE = re.compile(r"^안녕하세요\s+.{2,40}입니다")
+
+
 def extract_issue_sentence(text: str, fallback_title: str = "") -> str:
     """Return the core investment issue from text (<=90 chars, no broker headers)."""
     cleaned = clean_source_header(text)
 
+    # Drop broker greetings before any further processing
+    if _BROKER_GREETING_RE.match(cleaned):
+        cleaned = ""
+
     if len(cleaned) < 8:
         cleaned = clean_source_header(fallback_title) if fallback_title else ""
+
+    if _BROKER_GREETING_RE.match(cleaned):
+        return ""
 
     if len(cleaned) < 8:
         return ""
@@ -211,6 +221,8 @@ _FINAL_DROP_LINE_RES = [
     re.compile(r"^모닝\s*브리핑\s*$", re.IGNORECASE),
     re.compile(r"^프리마켓\s*뉴스\s*$", re.IGNORECASE),
     re.compile(r"^출처\s*:", re.IGNORECASE),
+    # Broker greetings anywhere in the line: "안녕하세요 키움 이차전지 권준수입니다."
+    re.compile(r"안녕하세요\s+.{2,40}입니다"),
 ]
 
 # Inline patterns to strip from lines (rather than drop the whole line)
