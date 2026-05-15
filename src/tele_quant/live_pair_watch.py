@@ -410,8 +410,12 @@ def _prices_from_cache(cache: dict[str, Any], symbols: list[str]) -> dict[str, T
 
 
 def _calc_returns_from_df(sym: str, df: Any) -> TickerPrice:
-    """Calculate 4h/1d return and volume ratio from OHLCV DataFrame."""
+    """Calculate 4h/1d return and volume ratio from OHLCV DataFrame.
 
+    yfinance returns daily bars for many KR tickers even when interval='1h'.
+    Detect this by checking the median bar gap; use proper daily-bar formulas
+    (last vs prev-close for 1D, last vs 5-bar-ago for ~5D/4H label) in that case.
+    """
     result = TickerPrice(symbol=sym)
     try:
         if df is None or getattr(df, "empty", True):
@@ -423,17 +427,31 @@ def _calc_returns_from_df(sym: str, df: Any) -> TickerPrice:
         last_close = float(closes.iloc[-1])
         result.close = last_close
 
-        # 4h return: 4 bars back (1h interval → 4h window)
-        if n >= 5:
-            prev = float(closes.iloc[-5])
-            if prev > 0:
-                result.return_4h = (last_close - prev) / prev * 100
+        # Detect daily bars: median gap between bars >= 20 hours
+        is_daily = False
+        if hasattr(closes.index, "to_series") and n >= 2:
+            gaps = closes.index.to_series().diff().dropna()
+            if len(gaps) > 0:
+                median_gap_h = gaps.median().total_seconds() / 3600
+                is_daily = median_gap_h >= 20.0
 
-        # 1d return: 24 bars back (1h interval → ~1 trading day)
-        idx_1d = max(0, n - 25)
-        prev_1d = float(closes.iloc[idx_1d])
-        if prev_1d > 0 and idx_1d < n - 1:
-            result.return_1d = (last_close - prev_1d) / prev_1d * 100
+        if is_daily:
+            # Daily bars: 1D = last close vs previous close; 4H = None (no intraday data)
+            prev_close = float(closes.iloc[-2])
+            if prev_close > 0:
+                result.return_1d = (last_close - prev_close) / prev_close * 100
+            # 4H is meaningless with daily bars — leave as None
+        else:
+            # Hourly bars: 4H = last 4 hours (4 bars back), 1D = last ~24h (24 bars back)
+            if n >= 5:
+                prev = float(closes.iloc[-5])
+                if prev > 0:
+                    result.return_4h = (last_close - prev) / prev * 100
+
+            idx_1d = max(0, n - 25)
+            prev_1d = float(closes.iloc[idx_1d])
+            if prev_1d > 0 and idx_1d < n - 1:
+                result.return_1d = (last_close - prev_1d) / prev_1d * 100
 
         # Volume ratio
         if "Volume" in df.columns:

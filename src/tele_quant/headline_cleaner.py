@@ -34,7 +34,7 @@ _BROKER_BRACKET_RE = re.compile(
     r"^\[[^\]]*(?:증권|리서치|투자|Securities|Research|Global|"
     r"하나|메리츠|신한|키움|KB|NH|"
     r"삼성|대신|미래에셋|현대차|DB|"
-    r"한투|골드만|JP모건|씨티|BofA|유안타|교보|이베스트|SK)[^\]]*\]\s*",
+    r"한투|골드만|JP모건|씨티|BofA|유안타|교보|이베스트|SK|기업)[^\]]*\]\s*",
     re.IGNORECASE,
 )
 _GLOBAL_RESEARCH_RE = re.compile(r"^Global Research\s*", re.IGNORECASE)
@@ -223,6 +223,10 @@ _FINAL_DROP_LINE_RES = [
     re.compile(r"^출처\s*:", re.IGNORECASE),
     # Broker greetings anywhere in the line: "안녕하세요 키움 이차전지 권준수입니다."
     re.compile(r"안녕하세요\s+.{2,40}입니다"),
+    # "Web발신" SMS/fax noise
+    re.compile(r"^\s*Web발신\s*$"),
+    # Malformed bracket artifacts: "[기업][종목명]" style
+    re.compile(r"^\s*기업\s*\]\s*\["),
 ]
 
 # Inline patterns to strip from lines (rather than drop the whole line)
