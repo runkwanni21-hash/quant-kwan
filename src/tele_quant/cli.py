@@ -2314,3 +2314,51 @@ def daily_alpha_cmd(
         console.print(f"[green]전송 완료 ({session})[/green]")
     else:
         console.print("[dim](--no-send: 미리보기만, DB 미저장, 전송 안 함)[/dim]")
+
+
+@app.command("price-alert")
+def price_alert_cmd(
+    market: Annotated[
+        str | None, typer.Option("--market", help="시장 필터 (KR | US | 생략 시 둘 다)")
+    ] = None,
+    send: Annotated[
+        bool, typer.Option("--send/--no-send", help="실제 텔레그램 전송 여부")
+    ] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="장중 시간대 체크 없이 강제 실행")
+    ] = False,
+) -> None:
+    """목표가/무효화 레벨 도달 알림 (장중 30분마다 자동 실행).
+
+    Example: uv run tele-quant price-alert --market KR --send
+             uv run tele-quant price-alert --force --no-send  (수동 테스트)
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.price_alert import run_price_alerts
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    mkt_label = market.upper() if market else "KR+US"
+    console.print(f"[bold]Price Alert[/bold] market={mkt_label} send={send} force={force}")
+
+    triggered = run_price_alerts(
+        store=store,
+        market=market.upper() if market else None,
+        send=send,
+        force=force,
+    )
+
+    if triggered:
+        for t in triggered:
+            emoji = "🎯" if t["type"] == "TARGET" else "🚨"
+            pick = t["pick"]
+            console.print(
+                f"  {emoji} {pick.get('side')} {pick.get('symbol')} "
+                f"→ {t['type']} @ {t['price']:.2f}"
+            )
+        console.print(f"\n[green]{len(triggered)}건 알림 처리됨[/green]")
+    else:
+        console.print("[dim]트리거 없음 (장중 시간 아님이거나 도달 종목 없음)[/dim]")

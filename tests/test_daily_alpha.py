@@ -183,23 +183,27 @@ def test_detect_style_short_overheat():
 # ── Price zone tests ──────────────────────────────────────────────────────────
 
 def test_price_zones_long_kr():
-    entry, invalid, target = _price_zones(50000.0, is_kr=True, side="LONG")
+    entry, invalid, target, inv_p, tgt_p = _price_zones(50000.0, is_kr=True, side="LONG")
     assert "원" in entry
     assert "원" in invalid
     assert "원" in target
     assert "무효" in invalid
+    assert inv_p is not None and inv_p < 50000.0
+    assert tgt_p is not None and tgt_p > 50000.0
 
 
 def test_price_zones_short_us():
-    entry, invalid, _target = _price_zones(100.0, is_kr=False, side="SHORT")
+    entry, invalid, _target, _inv_p, _tgt_p = _price_zones(100.0, is_kr=False, side="SHORT")
     assert "$" in entry
     assert "$" in invalid
 
 
 def test_price_zones_no_price():
-    entry, invalid, _target = _price_zones(None, is_kr=True, side="LONG")
+    entry, invalid, _target, inv_p, tgt_p = _price_zones(None, is_kr=True, side="LONG")
     assert entry  # Should return fallback strings
     assert invalid
+    assert inv_p is None
+    assert tgt_p is None
 
 
 # ── Report format tests ───────────────────────────────────────────────────────
@@ -409,31 +413,34 @@ def test_compute_atr_basic():
 def test_price_zones_long_uses_atr():
     from tele_quant.daily_alpha import _price_zones
 
-    _entry, invalid, target = _price_zones(100.0, is_kr=False, side="LONG", atr=5.0)
+    _entry, invalid, target, inv_p, tgt_p = _price_zones(100.0, is_kr=False, side="LONG", atr=5.0)
     assert "95" in invalid  # 100 - 1*5 = 95
     assert "107" in target or "108" in target  # 100 + 1.5*5 = 107.5
     assert "하향 이탈 시 무효" in invalid
+    assert inv_p == pytest.approx(95.0)
+    assert tgt_p == pytest.approx(107.5)
 
 
 def test_price_zones_short_uses_atr():
     from tele_quant.daily_alpha import _price_zones
 
-    _entry, invalid, _target = _price_zones(100.0, is_kr=False, side="SHORT", atr=5.0)
+    _entry, invalid, _target, inv_p, _tgt_p = _price_zones(100.0, is_kr=False, side="SHORT", atr=5.0)
     assert "105" in invalid  # 100 + 1*5 = 105
     assert "상향 돌파 시 무효" in invalid
+    assert inv_p == pytest.approx(105.0)
 
 
 def test_price_zones_long_wording_no_atr():
     from tele_quant.daily_alpha import _price_zones
 
-    _, invalid, _ = _price_zones(50000.0, is_kr=True, side="LONG")
+    _, invalid, _, _inv_p, _tgt_p = _price_zones(50000.0, is_kr=True, side="LONG")
     assert "하향 이탈 시 무효" in invalid
 
 
 def test_price_zones_short_wording_no_atr():
     from tele_quant.daily_alpha import _price_zones
 
-    _, invalid, _ = _price_zones(100.0, is_kr=False, side="SHORT")
+    _, invalid, _, _inv_p, _tgt_p = _price_zones(100.0, is_kr=False, side="SHORT")
     assert "상향 돌파 시 무효" in invalid
 
 

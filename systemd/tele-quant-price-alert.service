@@ -1,0 +1,10 @@
+[Unit]
+Description=Tele Quant Price Alert — 목표가/무효화 레벨 도달 알림
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+ExecStart=%h/.local/bin/uv run tele-quant price-alert --send
+StandardOutput=journal
+StandardError=journal

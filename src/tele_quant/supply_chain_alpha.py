@@ -468,7 +468,7 @@ def _build_pick(
     vol_score, _vr = _score_volume(vol_r, side)
     close_price = d4h.get("close") or d3.get("close")
     atr = d3.get("atr")
-    entry, invalid, tgt_zone = _price_zones(close_price, is_kr, side, atr)
+    entry, invalid, tgt_zone, inv_price, tgt_price = _price_zones(close_price, is_kr, side, atr)
     src = target.source
     connection_str = (
         f"{src.name} {src.return_1d:+.1f}% ({src.reason_ko}) → {target.connection}"
@@ -513,6 +513,8 @@ def _build_pick(
         connection_reason=connection_str,
         source_reason_type=src.reason_type,
         sentiment_missing=sent_missing,
+        target_price=tgt_price,
+        invalidation_price=inv_price,
     )
 
 

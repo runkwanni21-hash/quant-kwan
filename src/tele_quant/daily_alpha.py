@@ -106,6 +106,10 @@ class DailyAlphaPick:
     is_speculative: bool = False
     sentiment_missing: bool = False
     avg_daily_turnover: float | None = None
+    # Price alert fields
+    target_price: float | None = None
+    invalidation_price: float | None = None
+    alert_sent: int = 0  # 0=없음 1=목표가도달 2=무효화이탈
 
 
 # ── Universe builders ─────────────────────────────────────────────────────────
@@ -731,11 +735,12 @@ def _detect_style_short(
 
 def _price_zones(
     close: float | None, is_kr: bool, side: str, atr: float | None = None
-) -> tuple[str, str, str]:
-    """entry_zone, invalidation_level, target_zone — ATR 기반 우선, 없으면 % 기반."""
+) -> tuple[str, str, str, float | None, float | None]:
+    """entry_zone, invalidation_level, target_zone, invalidation_price, target_price.
+    ATR 기반 우선, 없으면 % 기반. 숫자 가격은 알림 시스템에서 사용."""
     if close is None:
         inval_word = "하향 이탈 시 무효" if side == "LONG" else "상향 돌파 시 무효"
-        return "시장가 인근", inval_word, "단기 저항/지지선"
+        return "시장가 인근", inval_word, "단기 저항/지지선", None, None
 
     fmt = (lambda v: f"{v:,.0f}원") if is_kr else (lambda v: f"${v:.2f}")
     basis = "(ATR 기반)" if atr is not None else "(±%)"
@@ -748,6 +753,8 @@ def _price_zones(
             f"~{entry} (현재가 -1% 이내)",
             f"{fmt(invalid_price)} 하향 이탈 시 무효",
             f"{fmt(target_price)} 부근 {basis}",
+            invalid_price,
+            target_price,
         )
     else:  # SHORT
         entry = fmt(close * 1.005)
@@ -757,6 +764,8 @@ def _price_zones(
             f"~{entry} (현재가 +0.5% 이내)",
             f"{fmt(invalid_price)} 상향 돌파 시 무효",
             f"{fmt(target_price)} 부근 {basis}",
+            invalid_price,
+            target_price,
         )
 
 
@@ -825,7 +834,7 @@ def _score_candidate(
         style = _detect_style_short(val_score, tech4, tech3, cat_score, d4h)
 
     close_price = d4h.get("close") or d3.get("close")
-    entry, invalid, target = _price_zones(close_price, is_kr, side, atr)
+    entry, invalid, target, inv_price, tgt_price = _price_zones(close_price, is_kr, side, atr)
 
     return DailyAlphaPick(
         session=session,
@@ -859,6 +868,8 @@ def _score_candidate(
         created_at=datetime.now(UTC),
         sentiment_missing=sent_missing,
         avg_daily_turnover=d3.get("avg_turnover"),
+        target_price=tgt_price,
+        invalidation_price=inv_price,
     )
 
 

@@ -1,8 +1,8 @@
 [Unit]
-Description=Run Tele Quant Daily Alpha Picks US every weekday at 22:00 KST (13:00 UTC)
+Description=Run Tele Quant Daily Alpha Picks US every weekday at 22:00 KST
 
 [Timer]
-OnCalendar=Mon..Fri *-*-* 13:00:00
+OnCalendar=Mon..Fri *-*-* 22:00:00
 Persistent=true
 
 [Install]

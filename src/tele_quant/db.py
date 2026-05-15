@@ -245,6 +245,10 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE daily_alpha_picks ADD COLUMN source_reason_type TEXT",
     "ALTER TABLE daily_alpha_picks ADD COLUMN style_detail TEXT",
     "ALTER TABLE daily_alpha_picks ADD COLUMN is_speculative INTEGER DEFAULT 0",
+    # daily_alpha_picks: 목표가 알림 컬럼
+    "ALTER TABLE daily_alpha_picks ADD COLUMN target_price REAL",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN invalidation_price REAL",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN alert_sent INTEGER DEFAULT 0",
 ]
 
 # 기존 DB 백필: signal_price 컬럼 추가 후 close_price_at_report 값 복사
@@ -991,10 +995,11 @@ class Store:
                          direct_evidence_count, sector, rank, sent, status,
                          source_symbol, source_name, source_return,
                          relation_type, rule_id, spillover_score,
-                         source_reason_type, style_detail, is_speculative)
+                         source_reason_type, style_detail, is_speculative,
+                         target_price, invalidation_price, alert_sent)
                         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                                ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, ?, ?, ?, ?,
-                               ?, ?, ?
+                               ?, ?, ?, ?, ?, 0
                         WHERE NOT EXISTS (
                             SELECT 1 FROM daily_alpha_picks
                             WHERE session=? AND market=? AND side=? AND symbol=?
@@ -1025,6 +1030,9 @@ class Store:
                             getattr(pick, "source_reason_type", "") or "",
                             getattr(pick, "style_detail", "") or "",
                             1 if getattr(pick, "is_speculative", False) else 0,
+                            # price alert fields
+                            getattr(pick, "target_price", None),
+                            getattr(pick, "invalidation_price", None),
                             # WHERE NOT EXISTS params
                             session, market, pick.side, pick.symbol,
                             f"{today_prefix}%",
@@ -1055,6 +1063,31 @@ class Store:
         sql = (
             f"SELECT * FROM daily_alpha_picks WHERE {' AND '.join(clauses)}"
             " ORDER BY created_at DESC LIMIT ?"
+        )
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_alert_sent(self, row_id: int, alert_type: int) -> None:
+        """alert_sent 컬럼 업데이트. alert_type: 1=목표가도달 2=무효화이탈."""
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE daily_alpha_picks SET alert_sent=? WHERE id=?",
+                (alert_type, row_id),
+            )
+            conn.commit()
+
+    def get_active_picks_for_alert(self, since: datetime, market: str | None = None) -> list[dict]:
+        """alert_sent=0 이고 target_price/invalidation_price가 있는 활성 picks 반환."""
+        clauses = ["created_at >= ?", "alert_sent = 0",
+                   "target_price IS NOT NULL", "invalidation_price IS NOT NULL"]
+        params: list[Any] = [since.isoformat()]
+        if market:
+            clauses.append("market = ?")
+            params.append(market)
+        sql = (
+            f"SELECT * FROM daily_alpha_picks WHERE {' AND '.join(clauses)}"
+            " ORDER BY created_at DESC"
         )
         with self.connect() as conn:
             rows = conn.execute(sql, params).fetchall()

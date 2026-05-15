@@ -1,0 +1,14 @@
+[Unit]
+Description=Tele Quant Price Alert — 장중 30분마다 목표가/무효화 알림
+
+[Timer]
+# KR 장중 09:05~15:35 KST (Mon-Fri)
+OnCalendar=Mon..Fri *-*-* 09,10,11,12,13,14,15:05,35:00
+# US 장중 23:35 KST (Mon-Fri)
+OnCalendar=Mon..Fri *-*-* 23:35:00
+# US 장중 00:05~05:35 KST 다음날 (Tue-Sat)
+OnCalendar=Tue..Sat *-*-* 00,01,02,03,04,05:05,35:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
