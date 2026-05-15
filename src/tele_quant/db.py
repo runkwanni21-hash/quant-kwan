@@ -1116,10 +1116,17 @@ class Store:
         # Step 4: try yfinance backfill for price-missing active rows
         try:
             self._backfill_pair_watch_prices()
+            # backfilled = rows that now have price (legacy_missing_price reset to 0 by backfill)
             with self.connect() as conn:
                 backfilled = conn.execute(
-                    "SELECT COUNT(*) FROM pair_watch_history WHERE legacy_missing_price = 1 AND target_price_at_signal IS NOT NULL"
+                    "SELECT COUNT(*) FROM pair_watch_history WHERE target_price_at_signal IS NOT NULL AND (archived IS NULL OR archived = 0) AND id IN (SELECT id FROM pair_watch_history WHERE legacy_missing_price = 0 AND target_price_at_signal IS NOT NULL)"
                 ).fetchone()[0]
+                # More accurate: count rows that were backfilled = had price written in this call
+                # Use a simpler proxy: total rows with price now minus those that had price before
+                still_missing = conn.execute(
+                    "SELECT COUNT(*) FROM pair_watch_history WHERE target_price_at_signal IS NULL AND (archived IS NULL OR archived = 0)"
+                ).fetchone()[0]
+                backfilled = max(0, legacy_marked - still_missing)
         except Exception:
             pass
 
