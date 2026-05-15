@@ -80,6 +80,10 @@ def classify_event_polarity(text: str) -> str:
     return "neutral"
 
 
+# Snippet starting with a single hangul syllable + postposition → likely a mid-sentence fragment
+_FRAG_START_RE = re.compile(r"^[가-힣]\s+(?:후|와|과|이|가|은|는|도|만|에|의)\b")
+
+
 def clean_snippets(texts: list[str], max_items: int = 2, max_len: int = 80) -> list[str]:
     """Remove junk from catalyst/risk snippets.
 
@@ -92,6 +96,8 @@ def clean_snippets(texts: list[str], max_items: int = 2, max_len: int = 80) -> l
     seen: set[str] = set()
     for t in texts:
         if is_noise_sentence(t):
+            continue
+        if _FRAG_START_RE.match(t):
             continue
         t = clean_source_header(t)
         t = _URL_RE.sub("", t)
