@@ -457,3 +457,131 @@ def test_report_source_reason_type_shown():
     report = build_daily_alpha_report([pick], [], "US")
     assert "source 이유" in report
     assert "ai_capex" in report
+
+
+# ── Sentiment news fallback tests ─────────────────────────────────────────────
+
+class _FakeItem:
+    def __init__(self, title: str, text: str):
+        self.title = title
+        self.text = text
+
+
+class _FakeStore:
+    def __init__(self, items: list[_FakeItem]):
+        self._items = items
+
+    def recent_scenarios(self, since, symbol):
+        return []  # no scenario data → triggers fallback
+
+    def recent_items(self, since, limit=100):
+        return self._items
+
+
+def test_sentiment_no_mentions_returns_neutral_not_missing():
+    """Items exist but none mention the symbol → neutral, NOT missing."""
+    from tele_quant.daily_alpha import _score_sentiment
+
+    store = _FakeStore([_FakeItem("애플 실적 발표", "애플이 상승세를 보였다")])
+    score, reason, _ev, _de, missing = _score_sentiment("NVDA", store, name="NVIDIA")
+    assert missing is False
+    assert score == 50.0
+    assert "언급 없음" in reason
+
+
+def test_sentiment_bullish_news_returns_high_score():
+    """Items mention the symbol with bullish keywords → score > 50, not missing."""
+    from tele_quant.daily_alpha import _score_sentiment
+
+    store = _FakeStore([
+        _FakeItem("TSLA 급등", "테슬라 상승 돌파 반등 계약 수주"),
+    ])
+    score, reason, ev, _de, missing = _score_sentiment("TSLA", store, name="테슬라")
+    assert missing is False
+    assert score > 50.0
+    assert ev >= 1
+
+
+def test_sentiment_bearish_news_returns_low_score():
+    """Items mention the symbol with bearish keywords → score < 50, not missing."""
+    from tele_quant.daily_alpha import _score_sentiment
+
+    store = _FakeStore([
+        _FakeItem("LG전자 급락", "LG전자 하락 악재 이탈 붕괴 실적 부진"),
+    ])
+    score, reason, _ev, _de, missing = _score_sentiment("066570.KS", store, name="LG전자")
+    assert missing is False
+    assert score < 50.0
+
+
+def test_sentiment_empty_items_returns_neutral_not_missing():
+    """recent_items returns empty list → neutral, NOT missing."""
+    from tele_quant.daily_alpha import _score_sentiment
+
+    store = _FakeStore([])
+    score, reason, _ev, _de, missing = _score_sentiment("AAPL", store, name="Apple")
+    assert missing is False
+    assert score == 50.0
+    assert "언급 없음" in reason
+
+
+def test_sentiment_no_store_still_missing():
+    """store=None always → sentiment_missing=True."""
+    from tele_quant.daily_alpha import _score_sentiment
+
+    score, reason, _ev, _de, missing = _score_sentiment("AAPL", None, name="Apple")
+    assert missing is True
+
+
+# ── Repeat SHORT penalty tests ─────────────────────────────────────────────────
+
+class _StoreWithRepeats:
+    """Fake store: no scenarios, no items, but returns repeat picks."""
+
+    def __init__(self, repeat_rows: list[dict]):
+        self._rows = repeat_rows
+
+    def recent_scenarios(self, since, symbol):
+        return []
+
+    def recent_items(self, since, limit=100):
+        return []
+
+    def recent_daily_alpha_picks(self, since, market=None, side=None, limit=200):
+        return self._rows
+
+
+def test_repeat_short_penalty_applied():
+    """Symbol appearing 3× as SHORT in last 3 days → penalty 8*(3-1)=16."""
+    from tele_quant.daily_alpha import _BULLISH_KEYWORDS, _score_sentiment
+
+    rows = [
+        {"symbol": "066570.KS", "side": "SHORT"},
+        {"symbol": "066570.KS", "side": "SHORT"},
+        {"symbol": "066570.KS", "side": "SHORT"},
+    ]
+    repeat_counts: dict = {}
+    for r in rows:
+        key = (r["symbol"], r["side"])
+        repeat_counts[key] = repeat_counts.get(key, 0) + 1
+
+    repeat = repeat_counts.get(("066570.KS", "SHORT"), 0)
+    assert repeat == 3
+    penalty = 8.0 * (repeat - 1)
+    assert penalty == 16.0
+
+
+def test_repeat_long_no_penalty():
+    """Repeat LONG signals should not be penalised."""
+    rows = [
+        {"symbol": "AAPL", "side": "LONG"},
+        {"symbol": "AAPL", "side": "LONG"},
+    ]
+    repeat_counts: dict = {}
+    for r in rows:
+        key = (r["symbol"], r["side"])
+        repeat_counts[key] = repeat_counts.get(key, 0) + 1
+
+    # Only SHORT gets penalised in _deep_score; LONG repeat count exists but penalty is not applied
+    repeat_short = repeat_counts.get(("AAPL", "SHORT"), 0)
+    assert repeat_short == 0

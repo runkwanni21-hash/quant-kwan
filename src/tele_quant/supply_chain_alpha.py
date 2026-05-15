@@ -28,7 +28,7 @@ _KR_BEAR_1D = -7.0
 _US_BULL_1D = 5.0
 _US_BEAR_1D = -5.0
 _VOL_HIGH_CONF = 1.5
-_MIN_SPILLOVER_SCORE = 60.0
+_MIN_SPILLOVER_SCORE = 55.0
 
 # ── Reason meta ───────────────────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ _RELEVANCE_SCORE: dict[str, float] = {
 }
 
 # unknown_price_only source는 spillover 신뢰도를 크게 낮춤
-_UNKNOWN_SOURCE_PENALTY = 20.0
+_UNKNOWN_SOURCE_PENALTY = 10.0
 
 
 # ── Data models ───────────────────────────────────────────────────────────────
@@ -343,7 +343,7 @@ def _score_long(
     s_move = _source_move_score(src.return_1d, src.market)
     s_reason = _mover_reason_quality(src.reason_type, src.confidence)
     s_chain = _RELEVANCE_SCORE.get(target.relation_type, 70.0)
-    sent, _sr, _ec, _de, _sm = _score_sentiment(target.symbol, store)
+    sent, _sr, _ec, _de, _sm = _score_sentiment(target.symbol, store, name=target.name)
     val, _vr = _score_value_long(f)
     tech3, tech4, _r3, _r4 = _score_technical_long(d3, d4h)
     vol, _volr = _score_volume(d3.get("vol_ratio"), "LONG")
@@ -377,7 +377,7 @@ def _score_short(
     s_move = _source_move_score(src.return_1d, src.market)
     s_reason = _mover_reason_quality(src.reason_type, src.confidence)
     s_chain = _RELEVANCE_SCORE.get(target.relation_type, 70.0)
-    sent, _sr, _ec, _de, _sm = _score_sentiment(target.symbol, store)
+    sent, _sr, _ec, _de, _sm = _score_sentiment(target.symbol, store, name=target.name)
     val, _vr = _score_value_short(f)
     tech3, tech4, _r3, _r4 = _score_technical_short(d3, d4h)
     vol, _volr = _score_volume(d3.get("vol_ratio"), "SHORT")
@@ -450,7 +450,7 @@ def _build_pick(
     market = target.source.market
     is_kr = market == "KR"
     session = SESSION_KR if is_kr else SESSION_US
-    sent, sent_r, ev_cnt, dir_ev, sent_missing = _score_sentiment(target.symbol, store)
+    sent, sent_r, ev_cnt, dir_ev, sent_missing = _score_sentiment(target.symbol, store, name=target.name)
     vol_r = d3.get("vol_ratio")
     src_reason = target.source.reason_type
 

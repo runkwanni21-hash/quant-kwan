@@ -46,6 +46,16 @@ STYLE_BREAKDOWN = "추세 붕괴"
 # Sentiment missing penalty
 _SENTIMENT_MISSING_PENALTY = 5.0
 
+# News-based sentiment fallback keyword lists
+_BULLISH_KEYWORDS = [
+    "급등", "상승", "호재", "신고가", "수주", "계약", "승인", "어닝 서프라이즈", "실적 호조",
+    "매수", "상향", "강세", "돌파", "반등", "beat", "upgrade", "buy", "bullish", "outperform",
+]
+_BEARISH_KEYWORDS = [
+    "급락", "하락", "악재", "신저가", "소송", "규제", "부진", "어닝 쇼크", "실적 부진",
+    "매도", "하향", "약세", "이탈", "붕괴", "miss", "downgrade", "sell", "bearish", "underperform",
+]
+
 
 @dataclass
 class DailyAlphaPick:
@@ -590,10 +600,11 @@ def _score_volume(vol_ratio: float | None, side: str) -> tuple[float, str]:
 
 
 def _score_sentiment(
-    symbol: str, store: Store | None, hours: int = 12
+    symbol: str, store: Store | None, hours: int = 12, name: str = ""
 ) -> tuple[float, str, int, int, bool]:
-    """DB sentiment_history + scenario_history 기반 감성 점수.
-    returns (score, reason, evidence_count, direct_ev_count, sentiment_missing)"""
+    """DB sentiment_history + scenario_history 기반 감성 점수, news fallback 포함.
+    returns (score, reason, evidence_count, direct_ev_count, sentiment_missing)
+    sentiment_missing=True only when store is None or exception occurs."""
     if store is None:
         return 50.0, "감성 중립/확인 불가 (DB없음)", 0, 0, True
 
@@ -601,24 +612,56 @@ def _score_sentiment(
         from datetime import timedelta
         since = datetime.now(UTC) - timedelta(hours=hours)
         scenarios = store.recent_scenarios(since=since, symbol=symbol)
-        if not scenarios:
-            return 50.0, "감성 중립/확인 불가 (언급 없음)", 0, 0, True
+        if scenarios:
+            # Most recent scenario for this symbol
+            latest = scenarios[0]
+            score_raw = float(latest.get("score") or 50)
+            direct_ev = int(latest.get("direct_evidence_count") or 0)
+            side = str(latest.get("side") or "LONG")
 
-        # Most recent scenario for this symbol
-        latest = scenarios[0]
-        score_raw = float(latest.get("score") or 50)
-        direct_ev = int(latest.get("direct_evidence_count") or 0)
-        side = str(latest.get("side") or "LONG")
+            # Map scenario score to sentiment score
+            if side == "SHORT":
+                sentiment = min(100.0, 30.0 + (score_raw - 44) * 0.8)
+                reason = f"부정 감성 언급 (점수 {score_raw:.0f})"
+            else:
+                sentiment = min(100.0, 40.0 + (score_raw - 44) * 1.0)
+                reason = f"긍정 감성 언급 (점수 {score_raw:.0f})"
 
-        # Map scenario score to sentiment score
-        if side == "SHORT":
-            sentiment = min(100.0, 30.0 + (score_raw - 44) * 0.8)
-            reason = f"부정 감성 언급 (점수 {score_raw:.0f})"
+            return max(0.0, sentiment), reason, len(scenarios), direct_ev, False
+
+        # No scenario data — try news/RSS keyword fallback (24h window)
+        since_news = datetime.now(UTC) - timedelta(hours=24)
+        raw_items = store.recent_items(since=since_news, limit=100)
+
+        # Filter items that mention this symbol or its name
+        ticker_base = symbol.split(".")[0].upper()
+        name_lower = name.lower()
+        matched: list[str] = []
+        for item in raw_items:
+            text = f"{getattr(item, 'title', '')} {getattr(item, 'text', '')}".lower()
+            if ticker_base.lower() in text or (name_lower and name_lower in text):
+                matched.append(text)
+
+        if not matched:
+            # No news mentions — neutral, NOT missing
+            return 50.0, "감성 중립 (언급 없음)", 0, 0, False
+
+        # Count bullish vs bearish keywords across matched texts
+        combined = " ".join(matched)
+        bull_hits = sum(combined.count(kw.lower()) for kw in _BULLISH_KEYWORDS)
+        bear_hits = sum(combined.count(kw.lower()) for kw in _BEARISH_KEYWORDS)
+        total = bull_hits + bear_hits
+        if total == 0:
+            return 55.0, f"뉴스 언급 {len(matched)}건 (감성 중립)", len(matched), 0, False
+
+        bull_ratio = bull_hits / total
+        # Map ratio [0,1] → score [20, 80]
+        news_score = 20.0 + bull_ratio * 60.0
+        if news_score >= 55:
+            reason = f"뉴스 긍정 {bull_hits}건/{total}건 (RSS 분석)"
         else:
-            sentiment = min(100.0, 40.0 + (score_raw - 44) * 1.0)
-            reason = f"긍정 감성 언급 (점수 {score_raw:.0f})"
-
-        return max(0.0, sentiment), reason, len(scenarios), direct_ev, False
+            reason = f"뉴스 부정 {bear_hits}건/{total}건 (RSS 분석)"
+        return round(news_score, 1), reason, len(matched), 0, False
 
     except Exception as exc:
         log.debug("Sentiment score %s failed: %s", symbol, exc)
@@ -735,7 +778,7 @@ def _score_candidate(
     is_kr = market == "KR"
 
     # Sentiment
-    sent_score, sent_reason, ev_cnt, dir_ev, sent_missing = _score_sentiment(symbol, store)
+    sent_score, sent_reason, ev_cnt, dir_ev, sent_missing = _score_sentiment(symbol, store, name=name)
 
     # Volume
     vol_ratio = d3.get("vol_ratio") or d4h.get("vol_ratio")
@@ -953,7 +996,20 @@ def run_daily_alpha(
 
     log.info("[daily-alpha] pre-filtered: LONG=%d SHORT=%d", len(long_candidates), len(short_candidates))
 
-    # 5. Deep score: fetch 4H + fundamentals for top candidates
+    # 5. Pre-compute repeat signal counts from last 3 days (for repeat SHORT penalty)
+    repeat_counts: dict[tuple[str, str], int] = {}
+    if store:
+        try:
+            from datetime import timedelta
+            since_3d = datetime.now(UTC) - timedelta(days=3)
+            recent_picks = store.recent_daily_alpha_picks(since=since_3d)
+            for r in recent_picks:
+                key = (r.get("symbol", ""), r.get("side", ""))
+                repeat_counts[key] = repeat_counts.get(key, 0) + 1
+        except Exception as exc:
+            log.debug("[daily-alpha] repeat_counts fetch failed: %s", exc)
+
+    # 6. Deep score: fetch 4H + fundamentals for top candidates
     def _deep_score(candidates: list[tuple[str, str, str]], side: str) -> list[DailyAlphaPick]:
         picks: list[DailyAlphaPick] = []
         for sym, name, sector in candidates[:30]:  # max 30 deep
@@ -961,6 +1017,14 @@ def run_daily_alpha(
             fundamentals = _fetch_fundamentals(sym)
             d3 = daily_data.get(sym, {})
             pick = _score_candidate(sym, name, sector, market, side, d3, d4h, fundamentals, store)
+            # Repeat SHORT penalty: ≥2 appearances in last 3 days = 8pt * (repeat-1)
+            if side == "SHORT":
+                repeat = repeat_counts.get((sym, "SHORT"), 0)
+                if repeat >= 2:
+                    penalty = 8.0 * (repeat - 1)
+                    pick.final_score = max(0.0, pick.final_score - penalty)
+                    pick.risk_penalty += penalty
+                    log.debug("[daily-alpha] repeat SHORT penalty %s: -%d (count=%d)", sym, penalty, repeat)
             picks.append(pick)
             log.debug("[daily-alpha] scored %s %s final=%.1f", side, sym, pick.final_score)
 
@@ -971,7 +1035,7 @@ def run_daily_alpha(
     long_picks = _deep_score(long_candidates, "LONG")
     short_picks = _deep_score(short_candidates, "SHORT")
 
-    # 6. Classify: 70+ = main, 60-70 = speculative; mark low-liquidity as speculative
+    # 7. Classify: 70+ = main, 60-70 = speculative; mark low-liquidity as speculative
     _main_threshold = 70.0
     _spec_threshold = 60.0
 
@@ -989,7 +1053,7 @@ def run_daily_alpha(
     long_picks = [p for p in _mark_speculative(long_picks) if p.final_score >= _spec_threshold]
     short_picks = [p for p in _mark_speculative(short_picks) if p.final_score >= _spec_threshold]
 
-    # 7. Spillover engine — 공급망 2차 수혜/피해 후보 추가
+    # 8. Spillover engine — 공급망 2차 수혜/피해 후보 추가
     symbols_info = {sym: (name, sec) for sym, name, sec in universe}
     try:
         from tele_quant.supply_chain_alpha import run_spillover_engine
@@ -1005,7 +1069,7 @@ def run_daily_alpha(
     except Exception as exc:
         log.warning("[daily-alpha] spillover engine error: %s", exc)
 
-    # 8. Rank final
+    # 9. Rank final
     for rank, pick in enumerate(long_picks[:top_n], 1):
         pick.rank = rank
     for rank, pick in enumerate(short_picks[:top_n], 1):
