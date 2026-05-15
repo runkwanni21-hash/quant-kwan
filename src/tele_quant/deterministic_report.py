@@ -549,8 +549,8 @@ def build_macro_digest(
 
     # 2. 직전 리포트 대비 변화 (현재는 텍스트 기반 간략 표시)
     lines.append("2️⃣ 🔁 직전 리포트 대비 변화")
-    new_pos_headlines = [_one_sentence(c.headline) for c in pack.positive_stock[:3] if c.headline]
-    new_neg_headlines = [_one_sentence(c.headline) for c in pack.negative_stock[:3] if c.headline]
+    new_pos_headlines = [h for c in pack.positive_stock[:3] if (h := _safe_headline(c))]
+    new_neg_headlines = [h for c in pack.negative_stock[:3] if (h := _safe_headline(c))]
 
     if new_pos_headlines:
         lines.append(f"- 새로 뜬 호재: {new_pos_headlines[0]}")
@@ -568,9 +568,9 @@ def build_macro_digest(
 
     # 반복 이슈 감지 (tickers가 2건 이상인 클러스터)
     repeat_issues = [
-        _one_sentence(c.headline)
+        h
         for c in (pack.positive_stock + pack.negative_stock)
-        if c.source_count >= 2 and c.headline
+        if c.source_count >= 2 and (h := _safe_headline(c))
     ]
     if repeat_issues:
         lines.append(f"- 계속 반복되는 이슈: {repeat_issues[0]}")

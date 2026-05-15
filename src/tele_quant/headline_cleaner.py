@@ -80,6 +80,8 @@ _HEADER_ONLY_RES = [
     re.compile(r"^(?:link|카테고리|출처)\s*:\s*\S*\s*$", re.IGNORECASE),
     re.compile(r"^ShowHashtag\b", re.IGNORECASE),
     re.compile(r"^연합인포맥스\s*$", re.IGNORECASE),
+    # Broker greeting: "안녕하세요 키움 이차전지 권준수입니다." style
+    re.compile(r"^안녕하세요\s+.{2,30}입니다[\.\s]*$"),
 ]
 
 # Noise / low-quality patterns: when matched, headline is low-investment-relevance
@@ -107,6 +109,7 @@ _NOISE_SENTENCE_RES = [
     re.compile(r"연합인포맥스", re.IGNORECASE),
     re.compile(r"S&P\s*500\s*map", re.IGNORECASE),
     re.compile(r"^(?:제목|카테고리|출처명?|증권사|원문)\s*:", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"^안녕하세요\s+.{2,30}입니다"),
 ]
 
 

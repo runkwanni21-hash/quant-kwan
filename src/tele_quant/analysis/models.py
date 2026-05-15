@@ -22,14 +22,18 @@ class SmartReaderResult:
             parts.append(self.macro_summary)
         if self.key_events:
             parts.append("핵심 이슈: " + " / ".join(self.key_events[:4]))
+        def _fmt_reason(b: dict) -> str:
+            r = b.get("reason", "")[:30]
+            return r.rstrip(",. ")
+
         if self.bullish_items:
             names = ", ".join(
-                f"{b.get('name','?')}({b.get('reason','')[:20]})" for b in self.bullish_items[:3]
+                f"{b.get('name', '?')}({_fmt_reason(b)})" for b in self.bullish_items[:3]
             )
             parts.append(f"주목 호재: {names}")
         if self.bearish_items:
             names = ", ".join(
-                f"{b.get('name','?')}({b.get('reason','')[:20]})" for b in self.bearish_items[:2]
+                f"{b.get('name', '?')}({_fmt_reason(b)})" for b in self.bearish_items[:2]
             )
             parts.append(f"주의 악재: {names}")
         if self.risks:
