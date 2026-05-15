@@ -223,6 +223,9 @@ def extract_issue_sentence(text: str, fallback_title: str = "") -> str:
     if len(cleaned) < 8:
         return ""
 
+    if is_broker_header_only(cleaned):
+        return ""
+
     # Truncate to 90 chars on a word boundary
     if len(cleaned) > 90:
         cut = cleaned[:90].rsplit(" ", 1)[0]
