@@ -1400,9 +1400,20 @@ def build_pair_watch_weekly_review(
         lines.append("※ 이 섹션은 통계적 관찰 후보의 사후 검증입니다. 실제 수익 보장 아님.")
         return "\n".join(lines)
 
-    # Split into rows with/without signal price
-    has_price = [r for r in rows if r.get("target_price_at_signal") is not None]
-    legacy_count = len(rows) - len(has_price)
+    # Split rows:
+    # - has_price: target_price_at_signal present AND price is verified (not unverified backfill)
+    # - unverified_count: rows with unverified_legacy_backfill (price may be wrong)
+    # - legacy_count: rows without price at all
+    has_price = [
+        r for r in rows
+        if r.get("target_price_at_signal") is not None
+        and r.get("backfill_status", "") != "unverified_legacy_backfill"
+    ]
+    unverified_count = sum(
+        1 for r in rows
+        if r.get("backfill_status", "") == "unverified_legacy_backfill"
+    )
+    legacy_count = len(rows) - len(has_price) - unverified_count
 
     # Deduplicate: one entry per (source, target, direction, relation_type)
     groups = _group_pair_rows(has_price)
@@ -1599,10 +1610,14 @@ def build_pair_watch_weekly_review(
         if hidden_count > 0:
             lines.append(f"  (그 외 {hidden_count}개 dedupe 후 숨김 — source·target 최대 2개 한도)")
 
-    # Legacy / no-price summary (single line each, no details)
+    # Unverified / no-price summary — single line only, no details
+    if unverified_count > 0:
+        lines.append(
+            f"- 과거 신호가 불명확한 legacy row {unverified_count}개는 성과 평가에서 제외했습니다."
+        )
     if legacy_count > 0:
         lines.append(
-            f"- 평가 대기 / 과거 가격 미기록: legacy row {legacy_count}개는 평가에서 제외했습니다."
+            f"- 평가 대기 / 가격 미기록: {legacy_count}개 제외"
         )
     if no_price_count > 0:
         lines.append(f"- 평가가 확인 불가: {no_price_count}개 제외")

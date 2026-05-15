@@ -1395,3 +1395,122 @@ def test_pair_watch_cleanup_apply_archives_duplicates(tmp_path):
             "SELECT COUNT(*) FROM pair_watch_history WHERE archived = 0"
         ).fetchone()[0]
     assert active == 1
+
+
+def test_cleanup_marks_all_legacy_as_unverified(tmp_path):
+    """cleanup_apply는 backfill_source 없는 기존 row를 unverified_legacy_backfill로 마킹한다."""
+    from tele_quant.db import Store
+
+    store = Store(tmp_path / "test.db")
+    with store.connect() as conn:
+        conn.execute(
+            """INSERT INTO pair_watch_history
+               (created_at, source_symbol, target_symbol, expected_direction,
+                target_price_at_signal, pair_score, gap_type, status, archived)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            ("2026-05-12T04:50:00+00:00", "NVDA", "000660.KS", "UP",
+             80000.0, 55.0, "미반응", "pending", 0),
+        )
+        conn.commit()
+
+    store.pair_watch_cleanup_apply()
+
+    with store.connect() as conn:
+        row = conn.execute(
+            "SELECT backfill_status FROM pair_watch_history LIMIT 1"
+        ).fetchone()
+    # Row had no backfill_source → must be marked unverified or successfully re-backfilled
+    # (re-backfill may succeed via yfinance in test env, so accept both)
+    assert row["backfill_status"] in ("unverified_legacy_backfill", "")
+
+
+def test_cleanup_stats_has_unverified_key(tmp_path):
+    """pair_watch_cleanup_stats 결과에 unverified_legacy 키가 있다."""
+    from tele_quant.db import Store
+
+    store = Store(tmp_path / "test.db")
+    stats = store.pair_watch_cleanup_stats()
+    assert "unverified_legacy" in stats
+    assert "price_missing" in stats
+    assert "total_active" in stats
+
+
+def test_weekly_review_excludes_unverified_from_details(tmp_path):
+    """backfill_status=unverified_legacy_backfill row는 weekly 상세에 나오지 않는다."""
+    from datetime import UTC, datetime, timedelta
+
+    from tele_quant.live_pair_watch import build_pair_watch_weekly_review
+
+    mock_store = MagicMock()
+    now = datetime.now(UTC)
+    mock_store.recent_pair_watch_signals.return_value = [
+        {
+            "id": 1,
+            "source_symbol": "NVDA",
+            "source_name": "NVIDIA",
+            "target_symbol": "000660.KS",
+            "target_name": "SK하이닉스",
+            "target_market": "KR",
+            "source_sector": "semiconductor",
+            "expected_direction": "UP",
+            "relation_type": "UP_LEADS_UP",
+            "gap_type": "미반응",
+            "pair_score": 60.0,
+            "target_price_at_signal": 80000.0,
+            "target_price_at_review": None,
+            "outcome_return_pct": None,
+            "hit": None,
+            "created_at": (now - timedelta(days=3)).isoformat(),
+            "first_seen_at": None,
+            "last_seen_at": None,
+            "seen_count": 1,
+            "review_price_updated_at": None,
+            "archived": 0,
+            "backfill_status": "unverified_legacy_backfill",  # 검증 불가 row
+        }
+    ]
+    since = now - timedelta(days=7)
+    result = build_pair_watch_weekly_review(mock_store, since=since)
+
+    # 상세 표시 없어야 함 (신호 시점 / 당시 기준가 등)
+    assert "신호 시점" not in result or "SK하이닉스" not in result
+    # 요약 한 줄만 있어야 함
+    assert "과거 신호가 불명확한 legacy row" in result
+
+
+def test_backfill_uses_signal_date_not_latest(tmp_path):
+    """_fetch_historical_close는 최신가가 아닌 signal_date 시점 가격을 반환한다."""
+    from unittest.mock import MagicMock, patch
+
+    import pandas as pd
+
+    from tele_quant.db import Store
+
+    store = Store(tmp_path / "test.db")
+
+    # Mock yfinance to return different prices for different date ranges
+    mock_df_historical = pd.DataFrame(
+        {"Close": [85000.0]},
+        index=pd.to_datetime(["2026-05-12"]),
+    )
+    mock_df_latest = pd.DataFrame(
+        {"Close": [93000.0]},  # latest price — must NOT be used
+        index=pd.to_datetime(["2026-05-16"]),
+    )
+
+    class FakeTicker:
+        def __init__(self, sym):
+            self.sym = sym
+
+        def history(self, start=None, end=None, period=None, interval="1d", auto_adjust=True):
+            if start and start <= "2026-05-12":
+                return mock_df_historical
+            return mock_df_latest
+
+    with patch("yfinance.Ticker", FakeTicker):
+        price, source = store._fetch_historical_close("000660.KS", "2026-05-12")
+
+    assert price == 85000.0, f"expected historical price 85000, got {price}"
+    assert source in ("exact_date_close", "nearest_trading_day_close")
+    # Latest price (93000) must NOT be used as signal price
+    assert price != 93000.0

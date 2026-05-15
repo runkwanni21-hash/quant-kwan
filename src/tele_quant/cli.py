@@ -1318,6 +1318,7 @@ def pair_watch_cleanup_cmd(
     console.print(f"  duplicate groups:            {stats['duplicate_groups']}")
     console.print(f"  archived duplicates (dry):   {stats['duplicate_rows_to_archive']}")
     console.print(f"  price missing:               {stats['price_missing']}")
+    console.print(f"  unverified legacy:           {stats['unverified_legacy']}")
 
     if dry_run:
         console.print("\n[yellow]--dry-run 모드: DB 변경 없음. --apply 옵션으로 실행하세요.[/yellow]")
@@ -1325,11 +1326,12 @@ def pair_watch_cleanup_cmd(
 
     result = store.pair_watch_cleanup_apply()
     console.print("\n[bold green]cleanup --apply 완료[/bold green]")
-    console.print(f"  archived duplicates:   {result['archived']}")
-    console.print(f"  legacy_missing_price:  {result['legacy_marked']}")
-    console.print(f"  backfilled prices:     {result['backfilled']}")
-    legacy_excluded = result["legacy_marked"] - result["backfilled"]
-    console.print(f"  legacy excluded (no price): {legacy_excluded}")
+    console.print(f"  archived duplicates:          {result['archived']}")
+    console.print(f"  legacy_missing_price marked:  {result['legacy_marked']}")
+    console.print(f"  exact backfilled:             {result['exact_backfilled']}")
+    console.print(f"  nearest-day backfilled:       {result['nearest_backfilled']}")
+    console.print(f"  failed (no historical price): {result['failed_backfill']}")
+    console.print(f"  unverified remaining:         {result['unverified_remaining']}")
 
 
 @app.command("ollama-tags")

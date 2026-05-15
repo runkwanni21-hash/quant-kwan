@@ -267,6 +267,9 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE pair_watch_history ADD COLUMN archived INTEGER DEFAULT 0",
     "ALTER TABLE pair_watch_history ADD COLUMN legacy_missing_price INTEGER DEFAULT 0",
     "ALTER TABLE pair_watch_history ADD COLUMN relation_type TEXT",
+    # backfill 출처 추적 컬럼
+    "ALTER TABLE pair_watch_history ADD COLUMN backfill_source TEXT DEFAULT ''",
+    "ALTER TABLE pair_watch_history ADD COLUMN backfill_status TEXT DEFAULT ''",
 ]
 
 # 기존 DB 백필: signal_price 컬럼 추가 후 close_price_at_report 값 복사
@@ -1033,7 +1036,9 @@ class Store:
             price_missing = conn.execute(
                 "SELECT COUNT(*) FROM pair_watch_history WHERE target_price_at_signal IS NULL AND (archived IS NULL OR archived = 0)"
             ).fetchone()[0]
-            # Duplicate groups: dedupe_key with more than 1 active row
+            unverified = conn.execute(
+                "SELECT COUNT(*) FROM pair_watch_history WHERE backfill_status='unverified_legacy_backfill' AND (archived IS NULL OR archived = 0)"
+            ).fetchone()[0]
             dup_groups = conn.execute(
                 """SELECT COUNT(*) FROM (
                     SELECT dedupe_key FROM pair_watch_history
@@ -1057,16 +1062,27 @@ class Store:
             "duplicate_groups": dup_groups,
             "duplicate_rows_to_archive": dup_rows,
             "price_missing": price_missing,
+            "unverified_legacy": unverified,
         }
 
     def pair_watch_cleanup_apply(self) -> dict[str, Any]:
-        """Archive duplicate rows and mark price-missing legacy rows. Returns stats."""
+        """Archive duplicates, mark legacy rows, backfill with historical prices."""
         archived = 0
-        backfilled = 0
         legacy_marked = 0
 
         with self.connect() as conn:
-            # Step 1: find duplicate dedupe_key groups — keep MIN(id) as representative
+            # Step 0: mark ALL existing rows without backfill_source as unverified_legacy_backfill.
+            # New rows (saved with sent=True going forward) will have backfill_source=''.
+            # Legacy rows cannot be trusted — their price source is unknown.
+            conn.execute(
+                """UPDATE pair_watch_history
+                   SET backfill_status = 'unverified_legacy_backfill'
+                   WHERE (backfill_source IS NULL OR backfill_source = '')
+                     AND backfill_status != 'unverified_legacy_backfill'
+                     AND (archived IS NULL OR archived = 0)"""
+            )
+
+            # Step 1: archive duplicate dedupe_key groups — keep MIN(id) as representative
             dup_ids = conn.execute(
                 """SELECT id FROM pair_watch_history
                    WHERE dedupe_key IS NOT NULL AND (archived IS NULL OR archived = 0)
@@ -1085,8 +1101,7 @@ class Store:
                 )
                 archived = len(ids)
 
-            # Step 2: update representative row with aggregate stats from duplicates
-            # (seen_count = total count in group, first_seen_at = MIN, last_seen_at = MAX)
+            # Step 2: update representative row seen_count/first_seen/last_seen
             rep_rows = conn.execute(
                 """SELECT MIN(id) as rep_id, dedupe_key,
                           MIN(first_seen_at) as fst, MAX(last_seen_at) as lst, COUNT(*) as cnt
@@ -1102,77 +1117,162 @@ class Store:
                     (r["fst"], r["lst"], r["cnt"], r["rep_id"]),
                 )
 
-            # Step 3: mark legacy rows with missing price
+            # Step 3: mark rows still missing price
             conn.execute(
                 """UPDATE pair_watch_history SET legacy_missing_price = 1
                    WHERE target_price_at_signal IS NULL AND (archived IS NULL OR archived = 0)"""
             )
-            legacy_marked = conn.execute(
-                "SELECT changes()"
-            ).fetchone()[0]
-
+            legacy_marked = conn.execute("SELECT changes()").fetchone()[0]
             conn.commit()
 
-        # Step 4: try yfinance backfill for price-missing active rows
-        try:
-            self._backfill_pair_watch_prices()
-            # backfilled = rows that now have price (legacy_missing_price reset to 0 by backfill)
-            with self.connect() as conn:
-                backfilled = conn.execute(
-                    "SELECT COUNT(*) FROM pair_watch_history WHERE target_price_at_signal IS NOT NULL AND (archived IS NULL OR archived = 0) AND id IN (SELECT id FROM pair_watch_history WHERE legacy_missing_price = 0 AND target_price_at_signal IS NOT NULL)"
-                ).fetchone()[0]
-                # More accurate: count rows that were backfilled = had price written in this call
-                # Use a simpler proxy: total rows with price now minus those that had price before
-                still_missing = conn.execute(
-                    "SELECT COUNT(*) FROM pair_watch_history WHERE target_price_at_signal IS NULL AND (archived IS NULL OR archived = 0)"
-                ).fetchone()[0]
-                backfilled = max(0, legacy_marked - still_missing)
-        except Exception:
-            pass
+        # Step 4: historical backfill — replace unverified prices with date-accurate prices
+        exact_cnt, nearest_cnt, failed_cnt = self._backfill_pair_watch_prices_historical()
+
+        with self.connect() as conn:
+            unverified_remaining = conn.execute(
+                "SELECT COUNT(*) FROM pair_watch_history WHERE backfill_status='unverified_legacy_backfill' AND (archived IS NULL OR archived = 0)"
+            ).fetchone()[0]
 
         return {
             "archived": archived,
             "legacy_marked": legacy_marked,
-            "backfilled": backfilled,
+            "exact_backfilled": exact_cnt,
+            "nearest_backfilled": nearest_cnt,
+            "failed_backfill": failed_cnt,
+            "unverified_remaining": unverified_remaining,
         }
 
-    def _backfill_pair_watch_prices(self) -> None:
-        """Try to backfill target_price_at_signal for price-missing rows using yfinance."""
+    @staticmethod
+    def _fetch_historical_close(
+        yf_sym: str, signal_date_str: str
+    ) -> tuple[float | None, str]:
+        """Fetch historical close at or near signal_date_str ('YYYY-MM-DD').
+
+        Returns (price, source) where source is:
+          'exact_date_close' | 'nearest_trading_day_close' | 'failed_no_price'
+        """
+        try:
+            from datetime import date as _date
+
+            import pandas as pd
+            import yfinance as yf
+
+            signal_date = _date.fromisoformat(signal_date_str)
+            end_date = signal_date + timedelta(days=8)
+
+            df = yf.Ticker(yf_sym).history(
+                start=signal_date_str,
+                end=end_date.isoformat(),
+                interval="1d",
+                auto_adjust=True,
+            )
+            if df is None or df.empty:
+                return None, "failed_no_price"
+
+            # Normalize index to plain date objects
+            idx = df.index
+            if hasattr(idx, "tz") and idx.tz is not None:
+                idx = idx.tz_localize(None)
+            df.index = pd.to_datetime(idx).date
+
+            # Try exact date
+            if signal_date in df.index:
+                price = float(df.loc[signal_date, "Close"])
+                return price, "exact_date_close"
+
+            # Nearest date on or after signal date
+            after = sorted(d for d in df.index if d >= signal_date)
+            if after:
+                price = float(df.loc[after[0], "Close"])
+                return price, "nearest_trading_day_close"
+
+            return None, "failed_no_price"
+        except Exception:
+            return None, "failed_no_price"
+
+    def _backfill_pair_watch_prices_historical(self) -> tuple[int, int, int]:
+        """Backfill target_price_at_signal using the signal date's historical close.
+
+        Targets: rows with target_price_at_signal IS NULL OR backfill_status='unverified_legacy_backfill'
+        Returns (exact_count, nearest_count, failed_count).
+        """
         with self.connect() as conn:
             rows = conn.execute(
                 """SELECT id, target_symbol, target_market, created_at
                    FROM pair_watch_history
-                   WHERE target_price_at_signal IS NULL AND (archived IS NULL OR archived = 0)
-                   ORDER BY created_at DESC LIMIT 200"""
+                   WHERE (target_price_at_signal IS NULL
+                          OR backfill_status = 'unverified_legacy_backfill')
+                     AND (archived IS NULL OR archived = 0)
+                   ORDER BY created_at DESC LIMIT 600"""
             ).fetchall()
 
         if not rows:
-            return
+            return 0, 0, 0
 
-        try:
-            import yfinance as yf
-        except ImportError:
-            return
+        # Build deduplicated fetch plan: (yf_sym, signal_date_str) → (price, source)
+        _kst = timezone(timedelta(hours=9))
+        plan: dict[tuple, tuple[float | None, str]] = {}
 
+        sym_date_to_ids: dict[tuple, list[int]] = {}
         for row in rows:
             sym = row["target_symbol"] or ""
             mkt = row["target_market"] or "US"
             if not sym:
                 continue
+            yf_sym = (
+                f"{sym}.KS"
+                if mkt.upper() == "KR" and not sym.endswith((".KS", ".KQ"))
+                else sym
+            )
             try:
-                yf_sym = f"{sym}.KS" if mkt.upper() == "KR" and not sym.endswith((".KS", ".KQ")) else sym
-                df = yf.Ticker(yf_sym).history(period="5d", interval="1d", auto_adjust=True)
-                if df is None or df.empty:
-                    continue
-                price = float(df["Close"].iloc[-1])
-                with self.connect() as conn:
-                    conn.execute(
-                        "UPDATE pair_watch_history SET target_price_at_signal = ?, legacy_missing_price = 0 WHERE id = ?",
-                        (price, row["id"]),
-                    )
-                    conn.commit()
+                dt = datetime.fromisoformat(row["created_at"])
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=datetime.UTC)
+                signal_date_str = dt.astimezone(_kst).strftime("%Y-%m-%d")
             except Exception:
-                continue
+                signal_date_str = (row["created_at"] or "")[:10]
+
+            key = (yf_sym, signal_date_str)
+            sym_date_to_ids.setdefault(key, []).append(row["id"])
+
+        # Fetch once per unique (symbol, date)
+        for key in sym_date_to_ids:
+            yf_sym, signal_date_str = key
+            if key not in plan:
+                plan[key] = self._fetch_historical_close(yf_sym, signal_date_str)
+
+        # Apply results
+        exact_cnt = nearest_cnt = failed_cnt = 0
+        for (yf_sym, signal_date_str), (price, source) in plan.items():
+            ids = sym_date_to_ids[(yf_sym, signal_date_str)]
+            with self.connect() as conn:
+                for row_id in ids:
+                    if price is not None and source in ("exact_date_close", "nearest_trading_day_close"):
+                        conn.execute(
+                            """UPDATE pair_watch_history
+                               SET target_price_at_signal = ?,
+                                   backfill_source = ?,
+                                   backfill_status = '',
+                                   legacy_missing_price = 0
+                               WHERE id = ?""",
+                            (price, source, row_id),
+                        )
+                        if source == "exact_date_close":
+                            exact_cnt += 1
+                        else:
+                            nearest_cnt += 1
+                    else:
+                        conn.execute(
+                            """UPDATE pair_watch_history
+                               SET backfill_source = 'failed_no_price',
+                                   legacy_missing_price = 1
+                               WHERE id = ?""",
+                            (row_id,),
+                        )
+                        failed_cnt += 1
+                conn.commit()
+
+        return exact_cnt, nearest_cnt, failed_cnt
 
     def update_pair_watch_review(
         self,
