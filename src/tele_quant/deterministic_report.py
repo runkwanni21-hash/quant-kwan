@@ -396,10 +396,10 @@ def _build_beginner_action_section(pack: RankedEvidencePack) -> str:
     top_neg = next(
         (c for c in pack.negative_stock if c.headline and len(c.headline) > 5), None
     )
-    if top_pos:
-        lines.append(f"지금 눈여겨볼 것: {_one_sentence(top_pos.headline, 70)}")
-    if top_neg:
-        lines.append(f"지금 조심할 것: {_one_sentence(top_neg.headline, 70)}")
+    if top_pos and (h := _safe_headline(top_pos)):
+        lines.append(f"지금 눈여겨볼 것: {h}")
+    if top_neg and (h := _safe_headline(top_neg)):
+        lines.append(f"지금 조심할 것: {h}")
 
     lines.append(
         "※ 이 가이드는 공개 정보 기반 참고용이며 투자 결정은 본인 책임입니다."

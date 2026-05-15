@@ -54,7 +54,7 @@ _TITLE_PREFIX_RE = re.compile(r"^제목\s*:\s*", re.IGNORECASE)
 _PLAIN_BROKER_HEADER_RE = re.compile(
     r"^(?:Hana\s+Global\s+Guru\s+Eye|유안타\s*리서치센터|"
     r"하나증권\s*해외주식분석|키움증권\s*미국\s*주식[^가-힣]{0,10}|"
-    r"(?:모닝|아침|저녁|일일|주간|프리마켓|애프터마켓)\s*(?:브리핑|뉴스|리포트)?)"
+    r"(?:\d{4}년\s*\d+월\s*\d+일\s*)?(?:모닝|아침|저녁|일일|주간|프리마켓|애프터마켓)\s*(?:브리핑|뉴스|리포트)?(?:\s*\([^)]{0,20}\))?)"
     r"\s*[:\-]?\s*",
     re.IGNORECASE,
 )
@@ -76,7 +76,7 @@ _HEADER_ONLY_RES = [
     re.compile(r"^유안타\s*리서치센터\s*$", re.IGNORECASE),
     re.compile(r"^하나증권\s*해외주식분석\s*$", re.IGNORECASE),
     re.compile(r"^키움증권\s*미국\s*주식\s*박기현.*$", re.IGNORECASE),
-    re.compile(r"^(?:모닝|아침|일일|프리마켓)\s*(?:브리핑|뉴스)\s*$", re.IGNORECASE),
+    re.compile(r"^(?:\d{4}년\s*\d+월\s*\d+일\s*)?(?:모닝|아침|일일|프리마켓|저녁|주간)\s*(?:브리핑|뉴스|리포트)?(?:\s*\([^)]{0,20}\))?\s*$", re.IGNORECASE),
     re.compile(r"^(?:link|카테고리|출처)\s*:\s*\S*\s*$", re.IGNORECASE),
     re.compile(r"^ShowHashtag\b", re.IGNORECASE),
     re.compile(r"^연합인포맥스\s*$", re.IGNORECASE),
@@ -223,8 +223,7 @@ _FINAL_DROP_LINE_RES = [
     re.compile(r"tel:\s*\+?\d[\d\s\-]{4,}", re.IGNORECASE),
     re.compile(r"☎️?\s*\d[\d\-\s]{4,14}"),
     re.compile(r"\(0\d{1,2}[-–]\d{3,4}[-–]\d{4}\)"),  # noqa: RUF001
-    re.compile(r"^모닝\s*브리핑\s*$", re.IGNORECASE),
-    re.compile(r"^프리마켓\s*뉴스\s*$", re.IGNORECASE),
+    re.compile(r"^(?:\d{4}년\s*\d+월\s*\d+일\s*)?(?:모닝|아침|저녁|일일|프리마켓|주간)\s*(?:브리핑|뉴스|리포트)?(?:\s*\([^)]{0,20}\))?\s*$", re.IGNORECASE),
     re.compile(r"^출처\s*:", re.IGNORECASE),
     # Broker greetings anywhere in the line: "안녕하세요 키움 이차전지 권준수입니다."
     re.compile(r"안녕하세요\s+.{2,40}입니다"),
