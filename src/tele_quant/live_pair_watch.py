@@ -1108,66 +1108,84 @@ def build_pair_watch_section(
         return "\n".join(lines)
 
     lines.append("")
-    item_count = 0
+    item_count = 0  # counts source groups shown
 
-    # Group by sector for display
-    by_sector: dict[str, list[LivePairSignal]] = {}
+    # Group displayable signals by source_symbol (preserving first-appearance order)
+    source_group_order: list[str] = []
+    by_source: dict[str, list[LivePairSignal]] = {}
     for sig in displayable:
-        by_sector.setdefault(sig.source_sector, []).append(sig)
+        if sig.source_symbol not in by_source:
+            by_source[sig.source_symbol] = []
+            source_group_order.append(sig.source_symbol)
+        by_source[sig.source_symbol].append(sig)
 
     idx = 0
-    for sector, sigs in by_sector.items():
-        if item_count >= max_items:
-            break
-        sector_label = _SECTOR_LABELS.get(sector, sector)
+    total_hidden = 0
+
+    for source_sym in source_group_order:
+        sigs = by_source[source_sym]
+        sector = sigs[0].source_sector
+
+        if item_count >= max_items or sector_counts.get(sector, 0) >= MAX_PER_SECTOR:
+            total_hidden += len(sigs)
+            continue
+
+        # Select up to MAX_PER_SOURCE targets respecting dissonance cap
+        shown: list[LivePairSignal] = []
         for sig in sigs:
-            if item_count >= max_items:
-                break
-            if sector_counts.get(sector, 0) >= MAX_PER_SECTOR:
-                break
-            if source_counts.get(sig.source_symbol, 0) >= MAX_PER_SOURCE:
+            if len(shown) >= MAX_PER_SOURCE:
+                total_hidden += 1
                 continue
             if sig.gap_type == "현재불일치" and dissonance_count >= MAX_DISSONANCE:
+                total_hidden += 1
                 continue
+            shown.append(sig)
+            if sig.gap_type == "현재불일치":
+                dissonance_count += 1
 
-            idx += 1
-            src_ret_4h = _fmt_return(sig.source_return_4h)
-            src_ret_1d = _fmt_return(sig.source_return_1d)
+        if not shown:
+            total_hidden += len(sigs)
+            continue
+
+        src = shown[0]
+        src_ret_4h = _fmt_return(src.source_return_4h)
+        src_ret_1d = _fmt_return(src.source_return_1d)
+        sector_label = _SECTOR_LABELS.get(sector, sector)
+
+        idx += 1
+        lines.append(f"{idx}. {sector_label}")
+        lines.append(
+            f"   source: {src.source_name} / {source_sym}"
+            f"  4H {src_ret_4h} / 1D {src_ret_1d}"
+        )
+
+        for sig in shown:
             tgt_ret_4h = _fmt_return(sig.target_return_4h)
             tgt_ret_1d = _fmt_return(sig.target_return_1d)
             gap_label = _GAP_LABELS.get(sig.gap_type, sig.gap_type)
             is_rule_based = sig.conditional_prob is None and sig.lift is None
             prob_str = _fmt_prob_lift(sig.conditional_prob, sig.lift, sig.event_count)
-            if is_rule_based:
-                conf_kr = "규칙기반"
-            else:
-                conf_kr = {"high": "높음", "medium": "중간", "low": "낮음"}.get(
+            conf_kr = (
+                "규칙기반"
+                if is_rule_based
+                else {"high": "높음", "medium": "중간", "low": "낮음"}.get(
                     sig.confidence, sig.confidence
                 )
-
-            lines.append(f"{idx}. {sector_label}")
-            lines.append(
-                f"   source: {sig.source_name} / {sig.source_symbol}"
-                f"  4H {src_ret_4h} / 1D {src_ret_1d}"
             )
             lines.append(
                 f"   → {gap_label}: {sig.target_name} / {sig.target_symbol}"
                 f"  4H {tgt_ret_4h} / 1D {tgt_ret_1d}"
             )
-            lines.append(f"   - 왜: {sig.rule_note or sig.explanation}")
-            lines.append(f"   - 통계: {prob_str} / 신뢰도 {conf_kr}")
-            lines.append(f"   - 현재 상태: target {gap_label}")
-            lines.append(f"   - 오늘 볼 것: {sig.watch_action}")
+            lines.append(f"     - 왜: {sig.rule_note or sig.explanation}")
+            lines.append(f"     - 통계: {prob_str} / 신뢰도 {conf_kr}")
+            lines.append(f"     - 오늘 볼 것: {sig.watch_action}")
 
-            sector_counts[sector] = sector_counts.get(sector, 0) + 1
-            source_counts[sig.source_symbol] = source_counts.get(sig.source_symbol, 0) + 1
-            if sig.gap_type == "현재불일치":
-                dissonance_count += 1
-            item_count += 1
+        sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        source_counts[source_sym] = len(shown)
+        item_count += 1
 
-    hidden_count = len(displayable) - item_count
-    if hidden_count > 0:
-        lines.append(f"  (그 외 {hidden_count}개 후보 숨김 — 소스·섹터·최대 {max_items}개 한도)")
+    if total_hidden > 0:
+        lines.append(f"  (그 외 {total_hidden}개 후보 숨김 — 소스·섹터·최대 {max_items}개 한도)")
 
     lines.append("")
     lines.append(f"※ {_DISCLAIMER}")
