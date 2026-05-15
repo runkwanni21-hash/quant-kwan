@@ -273,11 +273,11 @@ def compute_scorecard(
     ):
         total = min(total, 74.0)
 
-    # Direct evidence caps: no direct evidence → score capped below send threshold
+    # Direct evidence caps:
+    # direct_ev=0: technical/watchlist signal only — below 80 (강한 관심) but can pass send threshold
+    # direct_ev>=1: direct Telegram mention — full scoring, no cap
     if direct_ev == 0:
-        total = min(total, 44.0)  # below analysis_min_score_to_send (55)
-    elif direct_ev == 1:
-        total = min(total, 74.0)  # single direct evidence → can't reach 80
+        total = min(total, 62.0)
 
     if total >= 75:
         grade = "강한 관심"

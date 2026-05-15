@@ -491,7 +491,7 @@ class TeleQuantPipeline:
             base_candidates = fast_extract_candidates(items, self.settings)
             if not base_candidates:
                 log.info("[analysis-fast] no candidates found")
-                return None, [], {}, {}
+                return None, [], {}, {}, []
 
             # Build evidence clusters for expansion context
             clusters: list[Any] = []

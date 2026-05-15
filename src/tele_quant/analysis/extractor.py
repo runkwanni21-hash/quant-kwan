@@ -94,10 +94,14 @@ US_STOCKS: dict[str, str] = {
 }
 
 POSITIVE_WORDS = re.compile(
-    r"호재|상승|강세|급등|기대|성장|수주|수요|흑자|배당|서프라이즈|긍정|돌파|매출|확대|신고|최고"
+    r"호재|강세|급등|기대|성장|수주|수요|흑자|배당|서프라이즈|긍정|돌파|매출\s*확대|신고가|최고가"
+    r"|목표가\s*(?:상향|↑|인상)|상향\s*조정|어닝\s*서프|beat|upgrade|outperform"
+    r"|\+\d+(?:\.\d+)?%|\+\d+(?:\.\d+)?원|\▲"
 )
 NEGATIVE_WORDS = re.compile(
-    r"악재|하락|약세|급락|우려|부진|적자|감소|손실|위험|규제|제재|하향|하회|부담|약화|감산"
+    r"악재|약세|급락|우려|부진|적자|손실|위험|규제|제재|하향\s*조정|하회|부담|약화|감산|신저가"
+    r"|목표가\s*(?:하향|↓|인하)|miss|downgrade|underperform"
+    r"|-\d+(?:\.\d+)?%|-\d+(?:\.\d+)?원|\▼"
 )
 
 # Broker/source prefixes that should NOT count as stock ticker mentions

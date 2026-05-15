@@ -55,6 +55,9 @@ class ExpandedCandidate:
     risks: list[str] = field(default_factory=list)
     source_titles: list[str] = field(default_factory=list)
     mentions: int = 0
+    # Critical: must carry through for direct-evidence gate in scoring.py
+    direct_evidence_count: int = 0
+    sentiment_alpha_score: float = 0.0
 
     def to_stock_candidate(self) -> StockCandidate:
         from tele_quant.analysis.models import StockCandidate
@@ -68,6 +71,7 @@ class ExpandedCandidate:
             catalysts=self.catalysts,
             risks=self.risks,
             source_titles=self.source_titles,
+            direct_evidence_count=self.direct_evidence_count,
         )
 
 
@@ -149,6 +153,8 @@ def _to_expanded(
         risks=cand.risks,
         source_titles=cand.source_titles,
         mentions=cand.mentions,
+        direct_evidence_count=getattr(cand, "direct_evidence_count", 0),
+        sentiment_alpha_score=getattr(cand, "sentiment_alpha_score", 0.0),
     )
 
 
