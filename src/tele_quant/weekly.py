@@ -837,6 +837,91 @@ def build_daily_alpha_performance_section(
     return "\n".join(lines)
 
 
+def build_supply_chain_performance_section(
+    store: Any,
+    since: datetime,
+    until: datetime | None = None,
+) -> str:
+    """Weekly Supply-chain Alpha 성과: 연결고리별 승률 리뷰."""
+    if store is None:
+        return ""
+    try:
+        rows = store.recent_daily_alpha_picks(since=since)
+    except Exception:
+        return ""
+
+    # spillover picks only (source_symbol not empty)
+    spillover_rows = [r for r in rows if r.get("source_symbol")]
+    if not spillover_rows:
+        return ""
+
+    lines: list[str] = ["13. 🔗 Supply-chain Alpha 성과 (연결고리 기반)"]
+
+    # Chain performance by (source_symbol → sector)
+    chain_results: dict[str, list[dict]] = {}
+    for r in spillover_rows:
+        chain_key = f"{r.get('source_name') or r.get('source_symbol', '?')} → {r.get('sector', '?')}"
+        chain_results.setdefault(chain_key, []).append(r)
+
+    total_long = len([r for r in spillover_rows if r.get("side") == "LONG"])
+    total_short = len([r for r in spillover_rows if r.get("side") == "SHORT"])
+    lines.append(f"- 이번 주 spillover 후보: LONG {total_long}건 / SHORT {total_short}건")
+
+    # Try to compute returns for reviewed picks
+    evaluated: list[dict] = []
+    for r in spillover_rows[:10]:
+        sym = r.get("symbol") or ""
+        market = r.get("market") or "US"
+        signal_price = r.get("signal_price")
+        if not sym or not signal_price:
+            continue
+        current = _fetch_review_price(sym, market)
+        if not current:
+            continue
+        ret = (current - signal_price) / signal_price * 100
+        if r.get("side") == "SHORT":
+            ret = -ret
+        evaluated.append({
+            "symbol": sym,
+            "name": r.get("name") or sym,
+            "side": r.get("side", "LONG"),
+            "return_pct": ret,
+            "hit": 1 if ret > 0 else 0,
+            "chain": f"{r.get('source_name') or r.get('source_symbol', '?')} → {r.get('sector', '?')}",
+            "created_at": r.get("created_at"),
+            "market": market,
+        })
+
+    if evaluated:
+        wins = [e for e in evaluated if e["hit"]]
+        avg_ret = sum(e["return_pct"] for e in evaluated) / len(evaluated)
+        lines.append(
+            f"- 평가 가능: {len(evaluated)}건 / 승률: {len(wins)}/{len(evaluated)}"
+            f" ({len(wins)/len(evaluated)*100:.0f}%) / 평균 {avg_ret:+.1f}%"
+        )
+
+        # Best chains
+        chain_ret: dict[str, list[float]] = {}
+        for e in evaluated:
+            chain_ret.setdefault(e["chain"], []).append(e["return_pct"])
+        sorted_chains = sorted(chain_ret.items(), key=lambda x: sum(x[1]) / len(x[1]), reverse=True)
+        good = [(ch, sum(r) / len(r)) for ch, r in sorted_chains if sum(r) / len(r) > 0]
+        bad = [(ch, sum(r) / len(r)) for ch, r in sorted_chains if sum(r) / len(r) < 0]
+        if good:
+            lines.append("- 잘 맞은 연결고리:")
+            for ch, avg in good[:3]:
+                lines.append(f"  ✅ {ch}: 평균 {avg:+.1f}%")
+        if bad:
+            lines.append("- 실패한 연결고리:")
+            for ch, avg in bad[:2]:
+                lines.append(f"  ❌ {ch}: 평균 {avg:+.1f}%")
+    else:
+        lines.append("- 이번 주 가격 평가 데이터 없음 (신호 미생성 또는 가격 미확인)")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def build_weekly_deterministic_summary(
     weekly_input: WeeklyInput,
     relation_feed_data: Any = None,
@@ -1288,6 +1373,15 @@ def build_weekly_deterministic_summary(
         )
         if _da_section:
             lines.append(_da_section)
+
+        # 13. Supply-chain Alpha 연결고리 성과
+        _sc_section = build_supply_chain_performance_section(
+            daily_alpha_store,
+            since=wi.start_at,
+            until=wi.end_at,
+        )
+        if _sc_section:
+            lines.append(_sc_section)
 
     lines += [
         "─" * 30,

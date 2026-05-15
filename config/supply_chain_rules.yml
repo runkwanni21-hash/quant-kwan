@@ -1,0 +1,658 @@
+# Quantamental Surge/Crash Spillover Engine — 산업 공급망 룰북
+# version: "1.1"
+# 형식:
+#   source_symbols: [{symbol, name}]
+#   beneficiaries/victims_on_bearish: [{relation_type, sector, connection, symbols}]
+#   mover_reasons_bullish/bearish: [reason_type strings]
+
+version: "1.1"
+
+rules:
+
+  # ── 1. 건설/인프라 KR ──────────────────────────────────────────────
+  - id: construction_infra_kr
+    name: 건설/인프라 KR
+    market: KR
+    chain_name: 건설 → 철강/시멘트/건자재/건설기계
+    description: 건설·SOC 수주·정책 기대 → 원자재·기계 업체 수혜
+    source_sectors: [건설, 인프라, 부동산, SOC]
+    source_keywords: [건설, 수주, SOC, 인프라, 부동산, 규제완화, 금리인하, 착공]
+    source_symbols:
+      - {symbol: 000720.KS, name: 현대건설}
+      - {symbol: 006360.KS, name: GS건설}
+      - {symbol: 047040.KS, name: 대우건설}
+      - {symbol: 000210.KS, name: DL이앤씨}
+    beneficiaries:
+      - relation_type: SUPPLY_CHAIN_COST
+        sector: 철강
+        connection: 건설 수요 증가 → 봉형강·철근 주문 기대
+        symbols:
+          - {symbol: 005490.KS, name: POSCO홀딩스}
+          - {symbol: 004020.KS, name: 현대제철}
+          - {symbol: 001230.KS, name: 동국제강}
+          - {symbol: 001430.KS, name: 세아베스틸지주}
+      - relation_type: BENEFICIARY
+        sector: 시멘트
+        connection: SOC·건설 착공 증가 → 시멘트 수요 기대
+        symbols:
+          - {symbol: 003410.KS, name: 쌍용C&E}
+          - {symbol: 003300.KS, name: 한일시멘트}
+          - {symbol: 004980.KS, name: 성신양회}
+      - relation_type: BENEFICIARY
+        sector: 건자재
+        connection: 건설 확장 → 건자재·마감재 수요 연쇄
+        symbols:
+          - {symbol: 002380.KS, name: KCC}
+          - {symbol: 108670.KS, name: LX하우시스}
+      - relation_type: BENEFICIARY
+        sector: 건설기계
+        connection: 착공 증가 → 중장비·굴착기 수요 기대
+        symbols:
+          - {symbol: 267270.KS, name: HD현대건설기계}
+          - {symbol: 241560.KS, name: 두산밥캣}
+      - relation_type: BENEFICIARY
+        sector: 전력기기
+        connection: 인프라 투자 → 수변전·전력기기 수요 기대
+        symbols:
+          - {symbol: 267260.KS, name: HD현대일렉트릭}
+          - {symbol: 298040.KS, name: 효성중공업}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
+          - {symbol: 033100.KS, name: 제룡전기}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 철강
+        connection: 건설 수요 둔화 → 철강 수요 감소 우려
+        symbols:
+          - {symbol: 005490.KS, name: POSCO홀딩스}
+          - {symbol: 004020.KS, name: 현대제철}
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 시멘트
+        connection: 착공 감소 → 시멘트 수요 둔화 우려
+        symbols:
+          - {symbol: 003410.KS, name: 쌍용C&E}
+          - {symbol: 003300.KS, name: 한일시멘트}
+    mover_reasons_bullish: [policy_benefit, order_contract, rate_fx_macro]
+    mover_reasons_bearish: [earnings_miss, guidance_down, policy_risk, rate_fx_macro]
+
+  # ── 2. 건설/인프라 US ──────────────────────────────────────────────
+  - id: construction_infra_us
+    name: 건설/인프라 US
+    market: US
+    chain_name: 인프라 → 건자재/장비
+    description: US 인프라 투자·정책 → 건설자재·장비 수혜
+    source_sectors: [Construction, Infrastructure, Materials]
+    source_keywords: [infrastructure, construction, IRA, CHIPS, contract, housing]
+    source_symbols:
+      - {symbol: CAT, name: Caterpillar}
+      - {symbol: DE, name: Deere}
+      - {symbol: URI, name: United Rentals}
+      - {symbol: VMC, name: Vulcan Materials}
+      - {symbol: MLM, name: Martin Marietta}
+      - {symbol: EXP, name: Eagle Materials}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 건자재
+        connection: 건설 수요 확장 → 골재·시멘트·건자재 동반 수혜
+        symbols:
+          - {symbol: VMC, name: Vulcan Materials}
+          - {symbol: MLM, name: Martin Marietta}
+          - {symbol: EXP, name: Eagle Materials}
+      - relation_type: BENEFICIARY
+        sector: 건설장비
+        connection: 착공·수주 증가 → 중장비 임대·판매 수혜
+        symbols:
+          - {symbol: URI, name: United Rentals}
+          - {symbol: CAT, name: Caterpillar}
+          - {symbol: DE, name: Deere}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 건자재
+        connection: 건설 수요 둔화 → 골재·시멘트 수요 감소
+        symbols:
+          - {symbol: VMC, name: Vulcan Materials}
+          - {symbol: MLM, name: Martin Marietta}
+    mover_reasons_bullish: [policy_benefit, order_contract, earnings_beat]
+    mover_reasons_bearish: [earnings_miss, guidance_down, policy_risk]
+
+  # ── 3. 반도체/AI/데이터센터 KR ────────────────────────────────────
+  - id: semicon_ai_kr
+    name: 반도체/AI/데이터센터 KR
+    market: KR
+    chain_name: AI 데이터센터 → HBM/메모리/장비/전력기기
+    description: AI capex 확대 → HBM·반도체 장비·전력기기 연쇄 수혜
+    source_sectors: [반도체, AI, 데이터센터, IT]
+    source_keywords: [AI, 데이터센터, HBM, capex, GPU, 엔비디아, 반도체, 수출]
+    source_symbols:
+      - {symbol: 005930.KS, name: 삼성전자}
+      - {symbol: 000660.KS, name: SK하이닉스}
+      - {symbol: 042700.KS, name: 한미반도체}
+      - {symbol: 039030.KS, name: 이오테크닉스}
+      - {symbol: 361610.KS, name: SK아이이테크놀로지}
+    beneficiaries:
+      - relation_type: SUPPLY_CHAIN_COST
+        sector: 반도체 장비
+        connection: HBM·메모리 증산 → 장비·부품 발주 기대
+        symbols:
+          - {symbol: 042700.KS, name: 한미반도체}
+          - {symbol: 039030.KS, name: 이오테크닉스}
+          - {symbol: 009140.KS, name: 리노공업}
+          - {symbol: 095340.KS, name: ISC}
+          - {symbol: 389550.KS, name: 넥스틴}
+      - relation_type: BENEFICIARY
+        sector: 전력기기
+        connection: 데이터센터 전력 수요 급증 → 전력기기·변압기 수혜
+        symbols:
+          - {symbol: 267260.KS, name: HD현대일렉트릭}
+          - {symbol: 298040.KS, name: 효성중공업}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
+          - {symbol: 033100.KS, name: 제룡전기}
+          - {symbol: 012800.KS, name: 일진전기}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 반도체 장비
+        connection: 반도체 업황 둔화 → 장비 발주 감소 우려
+        symbols:
+          - {symbol: 042700.KS, name: 한미반도체}
+          - {symbol: 039030.KS, name: 이오테크닉스}
+    mover_reasons_bullish: [ai_capex, earnings_beat, product_launch, guidance_up]
+    mover_reasons_bearish: [earnings_miss, guidance_down, sector_cycle]
+
+  # ── 4. 반도체/AI/데이터센터 US ────────────────────────────────────
+  - id: semicon_ai_us
+    name: 반도체/AI/데이터센터 US
+    market: US
+    chain_name: AI GPU → 전력인프라/냉각/케이블
+    description: AI GPU capex → 전력망·냉각·데이터센터 인프라 수혜
+    source_sectors: [Semiconductors, AI, Technology]
+    source_keywords: [AI, datacenter, GPU, HBM, capex, NVDA, AMD, hyperscaler]
+    source_symbols:
+      - {symbol: NVDA, name: NVIDIA}
+      - {symbol: AMD, name: AMD}
+      - {symbol: AVGO, name: Broadcom}
+      - {symbol: MU, name: Micron}
+      - {symbol: TSM, name: TSMC}
+      - {symbol: ASML, name: ASML}
+      - {symbol: AMAT, name: Applied Materials}
+      - {symbol: LRCX, name: Lam Research}
+    beneficiaries:
+      - relation_type: BENEFICIARY
+        sector: 전력기기
+        connection: AI 데이터센터 capex → 전력망·변압기·UPS 수요 폭증
+        symbols:
+          - {symbol: ETN, name: Eaton}
+          - {symbol: PWR, name: Quanta Services}
+          - {symbol: GEV, name: GE Vernova}
+          - {symbol: SMCI, name: Super Micro}
+      - relation_type: BENEFICIARY
+        sector: 데이터센터 인프라
+        connection: 서버·스토리지 증설 → 인프라 업체 수혜
+        symbols:
+          - {symbol: SMCI, name: Super Micro}
+          - {symbol: DELL, name: Dell Technologies}
+          - {symbol: HPE, name: HPE}
+      - relation_type: PEER_MOMENTUM
+        sector: 반도체 장비
+        connection: 반도체 capex 증가 → 장비 수요 동반 상승
+        symbols:
+          - {symbol: AMAT, name: Applied Materials}
+          - {symbol: LRCX, name: Lam Research}
+          - {symbol: KLAC, name: KLA Corp}
+          - {symbol: ASML, name: ASML}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 반도체 장비
+        connection: capex 감소 → 반도체 장비 발주 축소
+        symbols:
+          - {symbol: AMAT, name: Applied Materials}
+          - {symbol: LRCX, name: Lam Research}
+    mover_reasons_bullish: [ai_capex, earnings_beat, guidance_up, product_launch]
+    mover_reasons_bearish: [earnings_miss, guidance_down, sector_cycle]
+
+  # ── 5. 전력/원전/ESS KR ───────────────────────────────────────────
+  - id: power_nuclear_kr
+    name: 전력/원전/ESS KR
+    market: KR
+    chain_name: AI 전력 수요 → 원전/전력기기/ESS/배터리
+    description: AI·탄소중립 전력 수요 → 원전·전력기기·ESS 연쇄 수혜
+    source_sectors: [전력, 원전, ESS, 에너지]
+    source_keywords: [원전, AI전력, 전력망, ESS, 탄소중립, 에너지, 전력기기]
+    source_symbols:
+      - {symbol: 034020.KS, name: 두산에너빌리티}
+      - {symbol: 267260.KS, name: HD현대일렉트릭}
+      - {symbol: 298040.KS, name: 효성중공업}
+      - {symbol: 010120.KS, name: LS ELECTRIC}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 전력기기
+        connection: 전력 수요 증가 → 변압기·차단기·전력기기 동반 수혜
+        symbols:
+          - {symbol: 267260.KS, name: HD현대일렉트릭}
+          - {symbol: 298040.KS, name: 효성중공업}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
+          - {symbol: 033100.KS, name: 제룡전기}
+          - {symbol: 012800.KS, name: 일진전기}
+      - relation_type: BENEFICIARY
+        sector: ESS/배터리
+        connection: 재생에너지·ESS 확산 → 배터리 수혜
+        symbols:
+          - {symbol: 373220.KS, name: LG에너지솔루션}
+          - {symbol: 006400.KS, name: 삼성SDI}
+          - {symbol: 247540.KS, name: 에코프로비엠}
+      - relation_type: BENEFICIARY
+        sector: 원전
+        connection: 원전 정책 → 원전 기자재·시공 수혜
+        symbols:
+          - {symbol: 034020.KS, name: 두산에너빌리티}
+          - {symbol: 289470.KS, name: 보성파워텍}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: ESS/배터리
+        connection: 전력 수요 정체 → ESS·배터리 수요 감소 우려
+        symbols:
+          - {symbol: 373220.KS, name: LG에너지솔루션}
+          - {symbol: 006400.KS, name: 삼성SDI}
+    mover_reasons_bullish: [policy_benefit, ai_capex, order_contract]
+    mover_reasons_bearish: [policy_risk, guidance_down, sector_cycle]
+
+  # ── 6. 전력/원전/ESS US ───────────────────────────────────────────
+  - id: power_nuclear_us
+    name: 전력/원전/ESS US
+    market: US
+    chain_name: AI 전력 수요 → 원전/전력망/ESS
+    description: 데이터센터 전력 폭증 → 원전·전력인프라 수혜
+    source_sectors: [Utilities, Nuclear, Energy]
+    source_keywords: [nuclear, power demand, AI power, grid, SMR, utility]
+    source_symbols:
+      - {symbol: CEG, name: Constellation Energy}
+      - {symbol: VST, name: Vistra}
+      - {symbol: NRG, name: NRG Energy}
+      - {symbol: SMR, name: NuScale Power}
+      - {symbol: BWXT, name: BWX Technologies}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 원전/유틸리티
+        connection: AI 전력 수요 → 원전 가동률·전기요금 상승 기대
+        symbols:
+          - {symbol: CEG, name: Constellation Energy}
+          - {symbol: VST, name: Vistra}
+          - {symbol: NRG, name: NRG Energy}
+          - {symbol: SMR, name: NuScale Power}
+          - {symbol: BWXT, name: BWX Technologies}
+      - relation_type: BENEFICIARY
+        sector: 전력인프라
+        connection: 전력망 투자 확대 → 전력 인프라 업체 수혜
+        symbols:
+          - {symbol: ETN, name: Eaton}
+          - {symbol: PWR, name: Quanta Services}
+          - {symbol: FLNC, name: Fluence Energy}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 유틸리티
+        connection: AI 투자 둔화 → 데이터센터 전력 수요 감소
+        symbols:
+          - {symbol: CEG, name: Constellation Energy}
+          - {symbol: VST, name: Vistra}
+    mover_reasons_bullish: [ai_capex, policy_benefit, order_contract]
+    mover_reasons_bearish: [policy_risk, earnings_miss, guidance_down]
+
+  # ── 7. 화장품/K뷰티 KR ───────────────────────────────────────────
+  - id: kbeauty_kr
+    name: 화장품/K뷰티 KR
+    market: KR
+    chain_name: K뷰티 → ODM/브랜드/면세
+    description: K뷰티 수출 호조·중국 소비 회복 → ODM·브랜드 수혜
+    source_sectors: [화장품, K뷰티, 소비재, 면세]
+    source_keywords: [화장품, K뷰티, ODM, 수출, 중국 소비, 면세, 아모레, 뷰티]
+    source_symbols:
+      - {symbol: 090430.KS, name: 아모레퍼시픽}
+      - {symbol: 051900.KS, name: LG생활건강}
+      - {symbol: 161890.KS, name: 한국콜마}
+      - {symbol: 192820.KS, name: 코스맥스}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: ODM
+        connection: K뷰티 수요 증가 → ODM 주문 확대 기대
+        symbols:
+          - {symbol: 161890.KS, name: 한국콜마}
+          - {symbol: 192820.KS, name: 코스맥스}
+      - relation_type: BENEFICIARY
+        sector: 뷰티 브랜드
+        connection: 중국·면세 소비 회복 → 브랜드 매출 개선 기대
+        symbols:
+          - {symbol: 090430.KS, name: 아모레퍼시픽}
+          - {symbol: 051900.KS, name: LG생활건강}
+          - {symbol: 237690.KS, name: 파마리서치}
+          - {symbol: 237880.KS, name: 클리오}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: ODM
+        connection: 수요 둔화 → ODM 주문 감소 우려
+        symbols:
+          - {symbol: 161890.KS, name: 한국콜마}
+          - {symbol: 192820.KS, name: 코스맥스}
+    mover_reasons_bullish: [earnings_beat, product_launch, sector_cycle]
+    mover_reasons_bearish: [earnings_miss, guidance_down, sector_cycle]
+
+  # ── 8. 화장품/K뷰티 US ───────────────────────────────────────────
+  - id: kbeauty_us
+    name: 뷰티/소비재 US
+    market: US
+    chain_name: 뷰티 → 피어 모멘텀
+    description: 뷰티 소비 트렌드 → 피어 주가 동반 수혜
+    source_sectors: [Consumer, Beauty, Retail]
+    source_keywords: [beauty, skincare, cosmetics, consumer, retail, ELF]
+    source_symbols:
+      - {symbol: ELF, name: e.l.f. Beauty}
+      - {symbol: ULTA, name: Ulta Beauty}
+      - {symbol: EL, name: Estee Lauder}
+      - {symbol: COTY, name: Coty}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 뷰티
+        connection: 뷰티 소비 트렌드 강세 → 피어 동반 수혜
+        symbols:
+          - {symbol: ELF, name: e.l.f. Beauty}
+          - {symbol: ULTA, name: Ulta Beauty}
+          - {symbol: EL, name: Estee Lauder}
+          - {symbol: COTY, name: Coty}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 뷰티
+        connection: 소비 둔화 → 뷰티 지출 감소 우려
+        symbols:
+          - {symbol: EL, name: Estee Lauder}
+          - {symbol: COTY, name: Coty}
+    mover_reasons_bullish: [earnings_beat, product_launch, sector_cycle]
+    mover_reasons_bearish: [earnings_miss, guidance_down]
+
+  # ── 9. 조선/방산 KR ──────────────────────────────────────────────
+  - id: shipbuilding_defense_kr
+    name: 조선/방산 KR
+    market: KR
+    chain_name: 조선/방산 수주 → 기자재/부품
+    description: 대형 수주·방산 수출 → 기자재·부품 업체 연쇄 수혜
+    source_sectors: [조선, 방산, 항공우주]
+    source_keywords: [수주, 방산, 조선, 함정, LNG, 항공우주, 수출]
+    source_symbols:
+      - {symbol: 009540.KS, name: HD현대중공업}
+      - {symbol: 010140.KS, name: 삼성중공업}
+      - {symbol: 042660.KS, name: 한화오션}
+      - {symbol: 012450.KS, name: 한화에어로스페이스}
+      - {symbol: 047810.KS, name: 한국항공우주}
+      - {symbol: 079550.KS, name: LIG넥스원}
+    beneficiaries:
+      - relation_type: SUPPLY_CHAIN_COST
+        sector: 조선 기자재
+        connection: 조선 수주 증가 → 기자재·엔진·의장품 주문 기대
+        symbols:
+          - {symbol: 009540.KS, name: HD현대중공업}
+          - {symbol: 010140.KS, name: 삼성중공업}
+      - relation_type: PEER_MOMENTUM
+        sector: 방산
+        connection: 방산 수출 확대 → 피어 동반 수혜
+        symbols:
+          - {symbol: 012450.KS, name: 한화에어로스페이스}
+          - {symbol: 047810.KS, name: 한국항공우주}
+          - {symbol: 079550.KS, name: LIG넥스원}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 조선 기자재
+        connection: 수주 둔화 → 기자재 주문 감소
+        symbols:
+          - {symbol: 009540.KS, name: HD현대중공업}
+          - {symbol: 010140.KS, name: 삼성중공업}
+    mover_reasons_bullish: [order_contract, policy_benefit, earnings_beat]
+    mover_reasons_bearish: [earnings_miss, guidance_down, sector_cycle]
+
+  # ── 10. 방산 US ──────────────────────────────────────────────────
+  - id: defense_us
+    name: 방산/항공우주 US
+    market: US
+    chain_name: 방산 수주 → 피어 모멘텀
+    description: 지정학 리스크·국방 예산 증가 → 방산 피어 동반 수혜
+    source_sectors: [Defense, Aerospace]
+    source_keywords: [defense, military, contract, NATO, geopolitical, aerospace]
+    source_symbols:
+      - {symbol: LMT, name: Lockheed Martin}
+      - {symbol: RTX, name: RTX}
+      - {symbol: NOC, name: Northrop Grumman}
+      - {symbol: GD, name: General Dynamics}
+      - {symbol: HII, name: Huntington Ingalls}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 방산
+        connection: 지정학 리스크·국방 예산 → 방산 업체 동반 수혜
+        symbols:
+          - {symbol: LMT, name: Lockheed Martin}
+          - {symbol: RTX, name: RTX}
+          - {symbol: NOC, name: Northrop Grumman}
+          - {symbol: GD, name: General Dynamics}
+          - {symbol: HII, name: Huntington Ingalls}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 방산
+        connection: 국방 예산 삭감 → 방산 수주 감소 우려
+        symbols:
+          - {symbol: LMT, name: Lockheed Martin}
+          - {symbol: NOC, name: Northrop Grumman}
+    mover_reasons_bullish: [order_contract, policy_benefit, earnings_beat]
+    mover_reasons_bearish: [policy_risk, earnings_miss, guidance_down]
+
+  # ── 11. 바이오/제약 KR ───────────────────────────────────────────
+  - id: bio_pharma_kr
+    name: 바이오/제약 KR
+    market: KR
+    chain_name: 바이오 임상/승인 → 피어/CDMO
+    description: FDA 승인·임상 성공 → 같은 질환군 피어·CDMO 수혜
+    source_sectors: [바이오, 제약, 의료기기]
+    source_keywords: [FDA, 임상, 승인, GLP-1, 항암, CDMO, 의료기기, 신약]
+    source_symbols:
+      - {symbol: 068270.KS, name: 셀트리온}
+      - {symbol: 207940.KS, name: 삼성바이오로직스}
+      - {symbol: 326030.KS, name: SK바이오팜}
+      - {symbol: 303720.KS, name: 에스티팜}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 바이오
+        connection: 임상 성공·승인 → 동일 질환군 피어 재평가 기대
+        symbols:
+          - {symbol: 068270.KS, name: 셀트리온}
+          - {symbol: 207940.KS, name: 삼성바이오로직스}
+          - {symbol: 326030.KS, name: SK바이오팜}
+      - relation_type: BENEFICIARY
+        sector: CDMO
+        connection: 신약 개발 성공 → 생산 위탁 CDMO 수요 기대
+        symbols:
+          - {symbol: 207940.KS, name: 삼성바이오로직스}
+          - {symbol: 303720.KS, name: 에스티팜}
+    victims_on_bearish:
+      - relation_type: PEER_MOMENTUM
+        sector: 바이오
+        connection: 임상 실패 → 동일 플랫폼 피어 신뢰도 하락
+        symbols:
+          - {symbol: 068270.KS, name: 셀트리온}
+          - {symbol: 326030.KS, name: SK바이오팜}
+    mover_reasons_bullish: [clinical_success, product_launch, earnings_beat]
+    mover_reasons_bearish: [clinical_failure, litigation_regulation, earnings_miss]
+
+  # ── 12. 바이오/제약 US ───────────────────────────────────────────
+  - id: bio_pharma_us
+    name: 바이오/제약 US
+    market: US
+    chain_name: 임상 성공/실패 → 피어/CDMO
+    description: FDA 승인·임상 결과 → 같은 질환군·CDMO 영향
+    source_sectors: [Biotech, Pharma, Healthcare]
+    source_keywords: [FDA, clinical, approval, GLP-1, oncology, CDMO, drug]
+    source_symbols:
+      - {symbol: LLY, name: Eli Lilly}
+      - {symbol: NVO, name: Novo Nordisk}
+      - {symbol: MRNA, name: Moderna}
+      - {symbol: BIIB, name: Biogen}
+      - {symbol: REGN, name: Regeneron}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 바이오
+        connection: 임상 성공·FDA 승인 → 동일 질환군 피어 재평가
+        symbols:
+          - {symbol: LLY, name: Eli Lilly}
+          - {symbol: NVO, name: Novo Nordisk}
+          - {symbol: MRNA, name: Moderna}
+          - {symbol: BIIB, name: Biogen}
+          - {symbol: REGN, name: Regeneron}
+      - relation_type: BENEFICIARY
+        sector: CDMO
+        connection: 신약 수요 → 위탁생산 CDMO 수혜
+        symbols:
+          - {symbol: CTLT, name: Catalent}
+          - {symbol: WBA, name: Walgreens}
+    victims_on_bearish:
+      - relation_type: PEER_MOMENTUM
+        sector: 바이오
+        connection: 임상 실패 → 동일 플랫폼 신뢰도 하락
+        symbols:
+          - {symbol: MRNA, name: Moderna}
+          - {symbol: BIIB, name: Biogen}
+    mover_reasons_bullish: [clinical_success, product_launch, earnings_beat]
+    mover_reasons_bearish: [clinical_failure, litigation_regulation, earnings_miss]
+
+  # ── 13. 자동차/배터리 KR ─────────────────────────────────────────
+  - id: auto_battery_kr
+    name: 자동차/배터리 KR
+    market: KR
+    chain_name: EV 판매 → 2차전지/소재/충전
+    description: EV 판매 호조·IRA → 2차전지·소재·충전인프라 수혜
+    source_sectors: [자동차, 배터리, EV]
+    source_keywords: [EV, 전기차, 배터리, IRA, 수출, 판매, 관세, 현대차]
+    source_symbols:
+      - {symbol: 005380.KS, name: 현대차}
+      - {symbol: 000270.KS, name: 기아}
+      - {symbol: 373220.KS, name: LG에너지솔루션}
+      - {symbol: 006400.KS, name: 삼성SDI}
+      - {symbol: 247540.KS, name: 에코프로비엠}
+    beneficiaries:
+      - relation_type: SUPPLY_CHAIN_COST
+        sector: 배터리 소재
+        connection: EV 판매 증가 → 배터리 소재·양극재 주문 기대
+        symbols:
+          - {symbol: 247540.KS, name: 에코프로비엠}
+          - {symbol: 373220.KS, name: LG에너지솔루션}
+          - {symbol: 006400.KS, name: 삼성SDI}
+      - relation_type: PEER_MOMENTUM
+        sector: 자동차 부품
+        connection: 완성차 수출 호조 → 부품·모듈 업체 동반 수혜
+        symbols:
+          - {symbol: 012330.KS, name: 현대모비스}
+          - {symbol: 161390.KS, name: 한국타이어앤테크놀로지}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 배터리
+        connection: EV 수요 둔화·관세 → 배터리 주문 감소 우려
+        symbols:
+          - {symbol: 373220.KS, name: LG에너지솔루션}
+          - {symbol: 006400.KS, name: 삼성SDI}
+          - {symbol: 247540.KS, name: 에코프로비엠}
+    mover_reasons_bullish: [earnings_beat, product_launch, policy_benefit, order_contract]
+    mover_reasons_bearish: [earnings_miss, guidance_down, policy_risk, rate_fx_macro]
+
+  # ── 14. 자동차/배터리 US ─────────────────────────────────────────
+  - id: auto_battery_us
+    name: 자동차/배터리 US
+    market: US
+    chain_name: EV → 배터리/충전/소재
+    description: EV 판매·정책 → 배터리·충전 업체 수혜
+    source_sectors: [Automotive, EV, Battery]
+    source_keywords: [EV, electric vehicle, battery, IRA, Tesla, GM, Ford, tariff]
+    source_symbols:
+      - {symbol: TSLA, name: Tesla}
+      - {symbol: GM, name: General Motors}
+      - {symbol: F, name: Ford Motor}
+      - {symbol: RIVN, name: Rivian}
+    beneficiaries:
+      - relation_type: BENEFICIARY
+        sector: 배터리/ESS
+        connection: EV 판매 증가 → 배터리·ESS 수요 확대
+        symbols:
+          - {symbol: TSLA, name: Tesla}
+          - {symbol: FLNC, name: Fluence Energy}
+      - relation_type: SUPPLY_CHAIN_COST
+        sector: 자동차 부품
+        connection: 완성차 생산 증가 → 부품 주문 기대
+        symbols:
+          - {symbol: APTV, name: Aptiv}
+          - {symbol: VC, name: Visteon}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: EV 부품
+        connection: EV 수요 둔화 → 배터리·부품 주문 감소
+        symbols:
+          - {symbol: APTV, name: Aptiv}
+          - {symbol: RIVN, name: Rivian}
+    mover_reasons_bullish: [earnings_beat, product_launch, policy_benefit]
+    mover_reasons_bearish: [earnings_miss, guidance_down, policy_risk, rate_fx_macro]
+
+  # ── 15. 금융/금리 KR ─────────────────────────────────────────────
+  - id: finance_rate_kr
+    name: 금융/금리 KR
+    market: KR
+    chain_name: 금리 변화 → 은행/성장주/부동산
+    description: 금리 상승/하락 → 은행·성장주·부동산·증권 차별화
+    source_sectors: [금융, 은행, 보험, 증권]
+    source_keywords: [금리, 기준금리, 은행, 보험, 증권, 한국은행, 인하, 인상]
+    source_symbols:
+      - {symbol: 105560.KS, name: KB금융}
+      - {symbol: 055550.KS, name: 신한지주}
+      - {symbol: 086790.KS, name: 하나금융지주}
+      - {symbol: 316140.KS, name: 우리금융지주}
+    beneficiaries:
+      - relation_type: BENEFICIARY
+        sector: 금융
+        connection: 금리 하락 기대 → 부동산·증권·성장주 수혜
+        symbols:
+          - {symbol: 377300.KS, name: 카카오페이}
+          - {symbol: 352820.KS, name: 하이브}
+    victims_on_bearish:
+      - relation_type: VICTIM
+        sector: 금융
+        connection: 금리 상승 → 부동산·고PER 성장주 부담
+        symbols:
+          - {symbol: 377300.KS, name: 카카오페이}
+    mover_reasons_bullish: [rate_fx_macro, earnings_beat, policy_benefit]
+    mover_reasons_bearish: [rate_fx_macro, earnings_miss, policy_risk]
+
+  # ── 16. 금융/금리 US ─────────────────────────────────────────────
+  - id: finance_rate_us
+    name: 금융/금리 US
+    market: US
+    chain_name: 금리 변화 → 은행/성장주/리츠
+    description: Fed 금리 결정 → 은행 NIM / 성장주 밸류에이션 차별화
+    source_sectors: [Financials, Banking, Insurance]
+    source_keywords: [Fed, interest rate, rate cut, rate hike, bank, NIM, treasury]
+    source_symbols:
+      - {symbol: JPM, name: JPMorgan}
+      - {symbol: BAC, name: Bank of America}
+      - {symbol: WFC, name: Wells Fargo}
+      - {symbol: GS, name: Goldman Sachs}
+      - {symbol: MS, name: Morgan Stanley}
+    beneficiaries:
+      - relation_type: BENEFICIARY
+        sector: 금융
+        connection: 금리 상승 → 은행 NIM 개선 기대
+        symbols:
+          - {symbol: JPM, name: JPMorgan}
+          - {symbol: BAC, name: Bank of America}
+          - {symbol: WFC, name: Wells Fargo}
+      - relation_type: VICTIM
+        sector: 성장주
+        connection: 금리 상승 → 고PER 성장주 밸류에이션 부담
+        symbols:
+          - {symbol: TSLA, name: Tesla}
+          - {symbol: AMZN, name: Amazon}
+    victims_on_bearish:
+      - relation_type: VICTIM
+        sector: 성장주
+        connection: 금리 하락 → 은행 NIM 압박, 성장주 재평가 유리
+        symbols:
+          - {symbol: JPM, name: JPMorgan}
+          - {symbol: BAC, name: Bank of America}
+    mover_reasons_bullish: [earnings_beat, rate_fx_macro, guidance_up]
+    mover_reasons_bearish: [earnings_miss, rate_fx_macro, guidance_down]

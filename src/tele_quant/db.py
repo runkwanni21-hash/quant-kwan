@@ -234,6 +234,13 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE scenario_history ADD COLUMN evidence_summary TEXT",
     # signal_price: close_price_at_report의 정식 alias — 성과 평가 가격 컬럼명 통일
     "ALTER TABLE scenario_history ADD COLUMN signal_price REAL",
+    # daily_alpha_picks: spillover engine 컬럼
+    "ALTER TABLE daily_alpha_picks ADD COLUMN source_symbol TEXT",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN source_name TEXT",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN source_return REAL",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN relation_type TEXT",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN rule_id TEXT",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN spillover_score REAL",
 ]
 
 # 기존 DB 백필: signal_price 컬럼 추가 후 close_price_at_report 값 복사
@@ -977,9 +984,11 @@ class Store:
                          style, valuation_reason, sentiment_reason, technical_reason,
                          catalyst_reason, entry_zone, invalidation_level, target_zone,
                          signal_price, signal_price_source, evidence_count,
-                         direct_evidence_count, sector, rank, sent, status)
+                         direct_evidence_count, sector, rank, sent, status,
+                         source_symbol, source_name, source_return,
+                         relation_type, rule_id, spillover_score)
                         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                               ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending'
+                               ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, ?, ?, ?, ?
                         WHERE NOT EXISTS (
                             SELECT 1 FROM daily_alpha_picks
                             WHERE session=? AND market=? AND side=? AND symbol=?
@@ -999,6 +1008,13 @@ class Store:
                             pick.signal_price, pick.signal_price_source,
                             pick.evidence_count, pick.direct_evidence_count,
                             pick.sector, pick.rank,
+                            # Spillover fields
+                            getattr(pick, "source_symbol", "") or "",
+                            getattr(pick, "source_name", "") or "",
+                            getattr(pick, "source_return", 0.0) or 0.0,
+                            getattr(pick, "relation_type", "") or "",
+                            getattr(pick, "rule_id", "") or "",
+                            getattr(pick, "spillover_score", 0.0) or 0.0,
                             # WHERE NOT EXISTS params
                             session, market, pick.side, pick.symbol,
                             f"{today_prefix}%",

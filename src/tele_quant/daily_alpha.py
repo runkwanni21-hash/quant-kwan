@@ -80,6 +80,14 @@ class DailyAlphaPick:
     sent: bool = False
     price_status: str = ""  # OK | PRICE_MISSING
     created_at: datetime | None = None
+    # Spillover engine fields (empty for regular picks)
+    source_symbol: str = ""
+    source_name: str = ""
+    source_return: float = 0.0
+    relation_type: str = ""
+    rule_id: str = ""
+    spillover_score: float = 0.0
+    connection_reason: str = ""
 
 
 # ── Universe builders ─────────────────────────────────────────────────────────
@@ -816,12 +824,17 @@ def _batch_daily(symbols: list[str], days: int = 25) -> dict[str, dict[str, Any]
                         result[sym] = {"rsi": None, "obv": "데이터 부족", "bb_pct": None, "close": None, "vol_ratio": None}
                         continue
 
+                    ret1d = (
+                        float((close.iloc[-1] / close.iloc[-2] - 1) * 100)
+                        if len(close) >= 2 else None
+                    )
                     result[sym] = {
                         "rsi": _rsi(close),
                         "obv": _obv_trend(close, volume),
                         "bb_pct": _bb_pct(close),
                         "close": float(close.iloc[-1]),
                         "vol_ratio": _volume_ratio(volume),
+                        "return_1d": ret1d,
                     }
                 except Exception:
                     result[sym] = {"rsi": None, "obv": "데이터 부족", "bb_pct": None, "close": None, "vol_ratio": None}
@@ -907,17 +920,50 @@ def run_daily_alpha(
     long_picks = _deep_score(long_candidates, "LONG")
     short_picks = _deep_score(short_candidates, "SHORT")
 
-    # 6. Filter by minimum score threshold (relaxed to 55 so we always get 4 candidates)
+    # 6. Filter by minimum score threshold
     long_picks = [p for p in long_picks if p.final_score >= 55.0]
     short_picks = [p for p in short_picks if p.final_score >= 55.0]
 
-    # 7. Rank and take top N
+    # 7. Spillover engine — 공급망 2차 수혜/피해 후보 추가
+    symbols_info = {sym: (name, sec) for sym, name, sec in universe}
+    try:
+        from tele_quant.supply_chain_alpha import run_spillover_engine
+        sp_long, sp_short = run_spillover_engine(
+            market=market,
+            store=store,
+            daily_data=daily_data,
+            symbols_info=symbols_info,
+            top_n=top_n,
+        )
+        long_picks = _merge_picks(long_picks, sp_long, top_n)
+        short_picks = _merge_picks(short_picks, sp_short, top_n)
+    except Exception as exc:
+        log.warning("[daily-alpha] spillover engine error: %s", exc)
+
+    # 8. Rank final
     for rank, pick in enumerate(long_picks[:top_n], 1):
         pick.rank = rank
     for rank, pick in enumerate(short_picks[:top_n], 1):
         pick.rank = rank
 
     return long_picks[:top_n], short_picks[:top_n]
+
+
+def _merge_picks(
+    base: list[DailyAlphaPick],
+    spillover: list[DailyAlphaPick],
+    top_n: int,
+) -> list[DailyAlphaPick]:
+    """Merge base + spillover candidates, deduplicate by symbol (highest score wins)."""
+    seen: dict[str, DailyAlphaPick] = {}
+    for p in base:
+        seen[p.symbol] = p
+    for sp in spillover:
+        existing = seen.get(sp.symbol)
+        if existing is None or sp.final_score > existing.final_score:
+            seen[sp.symbol] = sp
+    merged = sorted(seen.values(), key=lambda p: -p.final_score)
+    return merged[:top_n]
 
 
 # ── Report builder ────────────────────────────────────────────────────────────
@@ -953,10 +999,17 @@ def build_daily_alpha_report(
     for pick in long_picks:
         is_kr = market == "KR"
         price_str = f"{pick.signal_price:,.0f}원" if (is_kr and pick.signal_price) else (f"${pick.signal_price:.2f}" if pick.signal_price else "가격 미확인")
-        lines += [
+        pick_lines = [
             f"\n{pick.rank}. {pick.name} / {pick.symbol}",
             f"   스타일: {pick.style}",
             f"   최종점수: {pick.final_score:.1f}  (감성 {pick.sentiment_score:.0f} / 가치 {pick.value_score:.0f} / 4H기술 {pick.technical_4h_score:.0f} / 3D기술 {pick.technical_3d_score:.0f})",
+        ]
+        if pick.source_symbol:
+            pick_lines += [
+                f"   source mover: {pick.source_name} {pick.source_return:+.1f}%",
+                f"   연결고리: {pick.connection_reason}",
+            ]
+        pick_lines += [
             f"   감성: {pick.sentiment_reason}",
             f"   가치: {pick.valuation_reason}",
             f"   4H 기술: {pick.catalyst_reason}",
@@ -967,7 +1020,8 @@ def build_daily_alpha_report(
             f"   1차 관찰 목표: {pick.target_zone}",
         ]
         if pick.sector:
-            lines.append(f"   섹터: {pick.sector}")
+            pick_lines.append(f"   섹터: {pick.sector}")
+        lines += pick_lines
 
     lines.append("")
 
@@ -978,10 +1032,17 @@ def build_daily_alpha_report(
     for pick in short_picks:
         is_kr = market == "KR"
         price_str = f"{pick.signal_price:,.0f}원" if (is_kr and pick.signal_price) else (f"${pick.signal_price:.2f}" if pick.signal_price else "가격 미확인")
-        lines += [
+        short_lines = [
             f"\n{pick.rank}. {pick.name} / {pick.symbol}",
             f"   스타일: {pick.style}",
             f"   최종점수: {pick.final_score:.1f}  (감성 {pick.sentiment_score:.0f} / 과열 {pick.value_score:.0f} / 4H기술 {pick.technical_4h_score:.0f} / 3D기술 {pick.technical_3d_score:.0f})",
+        ]
+        if pick.source_symbol:
+            short_lines += [
+                f"   source mover: {pick.source_name} {pick.source_return:+.1f}%",
+                f"   연결고리: {pick.connection_reason}",
+            ]
+        short_lines += [
             f"   감성: {pick.sentiment_reason}",
             f"   과열/가치: {pick.valuation_reason}",
             f"   4H 기술: {pick.catalyst_reason}",
@@ -992,7 +1053,8 @@ def build_daily_alpha_report(
             f"   1차 관찰 목표: {pick.target_zone}",
         ]
         if pick.sector:
-            lines.append(f"   섹터: {pick.sector}")
+            short_lines.append(f"   섹터: {pick.sector}")
+        lines += short_lines
 
     lines.append("")
     lines.append(_DISCLAIMER)
