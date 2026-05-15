@@ -334,7 +334,7 @@ def _build_category_news_section(pack: RankedEvidencePack) -> str:
     for cluster in all_clusters:
         text = (cluster.headline + " " + cluster.summary_hint).lower()
         pol_icon = "🟢" if cluster.polarity == "positive" else ("🔴" if cluster.polarity == "negative" else "⚪")
-        headline = _one_sentence(cluster.headline, max_len=50)
+        headline = _safe_headline(cluster)
         if not headline or headline in seen_headlines:
             continue
         for cat, kws in _CATEGORY_KW.items():

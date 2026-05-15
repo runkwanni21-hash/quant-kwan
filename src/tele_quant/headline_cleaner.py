@@ -143,6 +143,9 @@ def is_low_quality_headline(text: str) -> bool:
     return any(pat.search(text) for pat in _LOW_QUALITY_RES)
 
 
+_LEADING_ANY_BRACKET_RE = re.compile(r"^(?:\[[^\]]{0,40}\]\s*)+")
+
+
 def clean_source_header(text: str) -> str:
     """Remove broker/channel header patterns, source suffixes, phone numbers, and URLs."""
     result = text.strip()
@@ -150,6 +153,8 @@ def clean_source_header(text: str) -> str:
     result = _LENTICULAR_RE.sub("", result)
     result = _MAILBOX_BRACKET_RE.sub("", result)
     result = _BROKER_BRACKET_RE.sub("", result)
+    # Strip any remaining leading [word] tags (e.g. [두산테스나] after [기업] was removed)
+    result = _LEADING_ANY_BRACKET_RE.sub("", result)
     result = _GLOBAL_RESEARCH_RE.sub("", result)
     result = _PLAIN_BROKER_HEADER_RE.sub("", result)
     result = _METADATA_PREFIX_RE.sub("", result)
@@ -223,8 +228,8 @@ _FINAL_DROP_LINE_RES = [
     re.compile(r"^출처\s*:", re.IGNORECASE),
     # Broker greetings anywhere in the line: "안녕하세요 키움 이차전지 권준수입니다."
     re.compile(r"안녕하세요\s+.{2,40}입니다"),
-    # "Web발신" SMS/fax noise
-    re.compile(r"^\s*Web발신\s*$"),
+    # "Web발신" SMS/fax noise (anywhere in the line)
+    re.compile(r"Web발신"),
     # Malformed bracket artifacts: "[기업][종목명]" style
     re.compile(r"^\s*기업\s*\]\s*\["),
 ]
