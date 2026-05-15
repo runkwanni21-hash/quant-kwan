@@ -112,6 +112,33 @@ class DailyAlphaPick:
     alert_sent: int = 0  # 0=없음 1=목표가도달 2=무효화이탈
 
 
+# ── Market index ──────────────────────────────────────────────────────────────
+
+_INDEX_SYMBOLS: dict[str, list[tuple[str, str]]] = {
+    "KR": [("^KS11", "KOSPI"), ("^KOSDAQ", "KOSDAQ")],
+    "US": [("^GSPC", "S&P500"), ("^IXIC", "NASDAQ")],
+}
+_INDEX_WARN_THRESHOLD = -1.5  # 지수 등락률 경고 임계 (%)
+
+
+def _fetch_market_index(market: str) -> dict[str, float]:
+    """당일 주요 지수 등락률. {지수명: 등락률%}. 조회 실패 시 빈 dict."""
+    try:
+        import yfinance as yf
+        result: dict[str, float] = {}
+        for sym, name in _INDEX_SYMBOLS.get(market, []):
+            data = yf.Ticker(sym).history(period="2d", auto_adjust=True)
+            if len(data) >= 2:
+                prev = float(data["Close"].iloc[-2])
+                curr = float(data["Close"].iloc[-1])
+                if prev > 0:
+                    result[name] = round((curr - prev) / prev * 100, 2)
+        return result
+    except Exception as exc:
+        log.debug("market index fetch failed: %s", exc)
+        return {}
+
+
 # ── Universe builders ─────────────────────────────────────────────────────────
 
 
@@ -1124,8 +1151,16 @@ def build_daily_alpha_report(
     time_str = session_label or now_kst.strftime("%H:%M KST")
     market_label = "KR 한국장" if market == "KR" else "US 미국장"
 
+    # 지수 방향 필터
+    index_data = _fetch_market_index(market)
+    index_parts = [f"{n} {v:+.1f}%" for n, v in index_data.items()]
+    index_line = "  ".join(index_parts) if index_parts else "지수 조회 불가"
+    bad_indices = [n for n, v in index_data.items() if v < _INDEX_WARN_THRESHOLD]
+    index_warn = f"  ⚠ 지수 하락장 ({', '.join(bad_indices)}) — LONG 후보 신중히" if bad_indices else ""
+
     lines: list[str] = [
         f"🎯 Daily Alpha Picks {market} — {time_str}",
+        f"📊 지수: {index_line}{index_warn}",
         f"- 대상: {market_label} 전체 커버리지 기계적 스크리닝",
         "- 데이터: Telegram sentiment + 가격/거래량 + 가치 + 4H/3D 기술",
         f"- {_DISCLAIMER}",

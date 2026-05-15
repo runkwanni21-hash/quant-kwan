@@ -2362,3 +2362,51 @@ def price_alert_cmd(
         console.print(f"\n[green]{len(triggered)}건 알림 처리됨[/green]")
     else:
         console.print("[dim]트리거 없음 (장중 시간 아님이거나 도달 종목 없음)[/dim]")
+
+
+@app.command("alpha-review")
+def alpha_review_cmd(
+    market: Annotated[
+        str, typer.Option("--market", help="시장 (KR 또는 US)")
+    ] = "KR",
+    days: Annotated[
+        int, typer.Option("--days", help="몇 일치 추천 성과를 볼지 (기본 1=당일)")
+    ] = 1,
+    send: Annotated[
+        bool, typer.Option("--send/--no-send", help="텔레그램 전송 여부")
+    ] = False,
+) -> None:
+    """장 마감 후 당일/최근 N일 추천 종목 성과 중간 요약.
+
+    Example: uv run tele-quant alpha-review --market KR --send
+             uv run tele-quant alpha-review --market US --days 3 --no-send
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.alpha_review import build_alpha_review
+    from tele_quant.db import Store as _Store
+
+    market = market.upper()
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    console.print(f"[bold]Alpha Review[/bold] market={market} days={days} send={send}")
+
+    report = build_alpha_review(store, market=market, days_back=days)
+
+    if not report:
+        console.print("[dim]성과 데이터 없음 (추천 기록 없거나 가격 조회 실패)[/dim]")
+        return
+
+    console.print("\n" + report)
+
+    if send:
+        async def _send() -> None:
+            from tele_quant.telegram_sender import TelegramSender
+            sender = TelegramSender(settings)
+            await sender.send(report)
+
+        asyncio.run(_send())
+        console.print("[green]전송 완료[/green]")
+    else:
+        console.print("[dim](--no-send: 미리보기만)[/dim]")
