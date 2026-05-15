@@ -82,6 +82,8 @@ _HEADER_ONLY_RES = [
     re.compile(r"^연합인포맥스\s*$", re.IGNORECASE),
     # Broker greeting: "안녕하세요 키움 이차전지 권준수입니다." style
     re.compile(r"^안녕하세요\s+.{2,30}입니다[\.\s]*$"),
+    # Short newsletter/channel name only headlines with no investment content
+    re.compile(r"^국장\s+마이너리티\s+리포트\s*$"),
 ]
 
 # Noise / low-quality patterns: when matched, headline is low-investment-relevance
@@ -170,6 +172,12 @@ def clean_source_header(text: str) -> str:
     result = _LEADING_ANY_BRACKET_RE.sub("", result)
     # Strip leading "▶ " triangle bullet used by broker channels
     result = _TRIANGLE_BULLET_RE.sub("", result)
+    # Mid-text ▶: "채널명 (5/15) ▶#1. content" or "■ 섹터명 ▶content" → take content after ▶
+    if "▶" in result:
+        _before, _, _after = result.partition("▶")
+        _after = _after.lstrip("#0123456789. ").strip()
+        if len(_after) >= 10:
+            result = _after
     # Strip inline Korean broker recommendation brackets e.g. "[Buy, TP 12,500원]"
     result = _INLINE_KR_BROKER_REC_RE.sub("", result)
     # "1Q26 Review 보고서링크: 실적은..." → "1Q26 Review: 실적은..."
@@ -252,6 +260,8 @@ _FINAL_DROP_LINE_RES = [
     re.compile(r"Web발신"),
     # Malformed bracket artifacts: "[기업][종목명]" style
     re.compile(r"^\s*기업\s*\]\s*\["),
+    # Short channel-name-only headlines with no investment content
+    re.compile(r"국장\s+마이너리티\s+리포트"),
 ]
 
 # Inline patterns to strip from lines (rather than drop the whole line)
