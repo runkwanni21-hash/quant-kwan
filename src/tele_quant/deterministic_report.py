@@ -95,8 +95,9 @@ def _one_sentence(text: str, max_len: int = 80) -> str:
     text = _strip_urls(text).replace("\n", " ").strip()
     text = _FORBIDDEN_RE.sub("", text).strip()
     if len(text) > max_len:
-        cut = text[:max_len].rsplit(" ", 1)[0]
-        text = (cut or text[:max_len]) + "…"
+        cut = text[:max_len].rsplit(" ", 1)[0] or text[:max_len]
+        cut = re.sub(r"\s*\[[^\]]*$", "", cut)  # strip trailing unclosed bracket
+        text = cut + "…"
     return text
 
 

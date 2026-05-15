@@ -151,6 +151,12 @@ _INLINE_KR_BROKER_REC_RE = re.compile(
 )
 # Leading triangle bullet used by broker channels: "▶ " at start
 _TRIANGLE_BULLET_RE = re.compile(r"^▶\s*")
+# Inline "보고서링크:" label in Korean broker reports: "1Q26 Review 보고서링크: 실적은..."
+_INLINE_REPORT_LABEL_RE = re.compile(r"\s+보고서링크\s*:", re.IGNORECASE)
+# "2026.5.15(금) (Report) -" date+report marker in broker report headlines
+_DATE_REPORT_MARKER_RE = re.compile(
+    r"\s+\d{4}[\.\-]\d{1,2}[\.\-]\d{1,2}\([월화수목금토일]\)\s*\(Report\)\s*[-–]?\s*",  # noqa: RUF001
+)
 
 
 def clean_source_header(text: str) -> str:
@@ -166,6 +172,10 @@ def clean_source_header(text: str) -> str:
     result = _TRIANGLE_BULLET_RE.sub("", result)
     # Strip inline Korean broker recommendation brackets e.g. "[Buy, TP 12,500원]"
     result = _INLINE_KR_BROKER_REC_RE.sub("", result)
+    # "1Q26 Review 보고서링크: 실적은..." → "1Q26 Review: 실적은..."
+    result = _INLINE_REPORT_LABEL_RE.sub(":", result)
+    # "고군분투 2026.5.15(금) (Report) - 연결 영업적자" → "고군분투 연결 영업적자"
+    result = _DATE_REPORT_MARKER_RE.sub(" ", result)
     result = _GLOBAL_RESEARCH_RE.sub("", result)
     result = _PLAIN_BROKER_HEADER_RE.sub("", result)
     result = _METADATA_PREFIX_RE.sub("", result)
