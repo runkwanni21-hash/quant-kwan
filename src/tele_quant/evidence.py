@@ -120,6 +120,12 @@ _NEG_KW: frozenset[str] = frozenset(
 
 _RESEARCH_RE = re.compile(r"리서치|Research|증권|투자증권|리포트|analyst|securities", re.IGNORECASE)
 
+# Explicit broker Buy recommendation — hard positive override regardless of negative word count
+_BUY_REC_RE = re.compile(
+    r"\[Buy[\],\s]|Buy\s*(?:유지|개시|등급)|투자의견\s*(?:Buy|매수)",
+    re.IGNORECASE,
+)
+
 
 def normalize_text_for_dedupe(text: str) -> str:
     """Normalize text for deduplication hashing and fuzzy matching."""
@@ -155,6 +161,8 @@ def _detect_themes(text: str) -> list[str]:
 
 
 def _detect_polarity(text: str) -> Polarity:
+    if _BUY_REC_RE.search(text):
+        return "positive"
     neg = sum(1 for kw in _NEG_KW if kw in text)
     pos = sum(1 for kw in _POS_KW if kw in text)
     if neg > pos:

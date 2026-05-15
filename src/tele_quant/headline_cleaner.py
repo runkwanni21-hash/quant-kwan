@@ -144,6 +144,13 @@ def is_low_quality_headline(text: str) -> bool:
 
 
 _LEADING_ANY_BRACKET_RE = re.compile(r"^(?:\[[^\]]{0,40}\]\s*)+")
+# Korean broker report format: "[Buy, TP 12,500원]" anywhere in headline
+_INLINE_KR_BROKER_REC_RE = re.compile(
+    r"\s*\[(?:Buy|Sell|Hold|매수|매도|중립|비중확대|비중축소|Overweight|Underweight)\s*,\s*TP\s*[\d,]+원\]",
+    re.IGNORECASE,
+)
+# Leading triangle bullet used by broker channels: "▶ " at start
+_TRIANGLE_BULLET_RE = re.compile(r"^▶\s*")
 
 
 def clean_source_header(text: str) -> str:
@@ -155,6 +162,10 @@ def clean_source_header(text: str) -> str:
     result = _BROKER_BRACKET_RE.sub("", result)
     # Strip any remaining leading [word] tags (e.g. [두산테스나] after [기업] was removed)
     result = _LEADING_ANY_BRACKET_RE.sub("", result)
+    # Strip leading "▶ " triangle bullet used by broker channels
+    result = _TRIANGLE_BULLET_RE.sub("", result)
+    # Strip inline Korean broker recommendation brackets e.g. "[Buy, TP 12,500원]"
+    result = _INLINE_KR_BROKER_REC_RE.sub("", result)
     result = _GLOBAL_RESEARCH_RE.sub("", result)
     result = _PLAIN_BROKER_HEADER_RE.sub("", result)
     result = _METADATA_PREFIX_RE.sub("", result)
