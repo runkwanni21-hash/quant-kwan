@@ -110,6 +110,13 @@ class DailyAlphaPick:
     target_price: float | None = None
     invalidation_price: float | None = None
     alert_sent: int = 0  # 0=없음 1=목표가도달 2=무효화이탈
+    # Scenario alpha v3 fields
+    scenario_type: str = ""
+    scenario_score: float = 0.0
+    reason_quality: float = 50.0
+    source_reason: str = ""        # detailed reason text for source mover
+    relation_path: str = ""        # e.g. "NVDA → HBM 공급 → SK하이닉스"
+    data_quality: str = "medium"   # high / medium / low
 
 
 # ── Market index ──────────────────────────────────────────────────────────────
@@ -1107,7 +1114,21 @@ def run_daily_alpha(
     except Exception as exc:
         log.warning("[daily-alpha] spillover engine error: %s", exc)
 
-    # 9. Rank final
+    # 9. Scenario enrichment (in-place) + dedup
+    try:
+        from tele_quant.scenario_alpha import (
+            dedup_picks_by_source_relation,
+            enrich_picks_with_scenario,
+        )
+
+        enrich_picks_with_scenario(long_picks, d3_cache=daily_data)
+        enrich_picks_with_scenario(short_picks, d3_cache=daily_data)
+        long_picks = dedup_picks_by_source_relation(long_picks)
+        short_picks = dedup_picks_by_source_relation(short_picks)
+    except Exception as exc:
+        log.warning("[daily-alpha] scenario enrichment error: %s", exc)
+
+    # 10. Rank final
     for rank, pick in enumerate(long_picks[:top_n], 1):
         pick.rank = rank
     for rank, pick in enumerate(short_picks[:top_n], 1):
@@ -1175,27 +1196,28 @@ def build_daily_alpha_report(
         return "가격 미확인"
 
     def _pick_block(pick: DailyAlphaPick, side_label: str) -> list[str]:
+        from tele_quant.scenario_alpha import build_scenario_narrative
+
         spec_tag = " ⚠ 고위험" if pick.is_speculative else ""
+        narrative = build_scenario_narrative(pick)
         block = [
             f"\n{pick.rank}. {pick.name} / {pick.symbol}{spec_tag}",
-            f"   스타일: {pick.style}",
+            f"   시나리오: {narrative['시나리오']}",
             f"   최종점수: {pick.final_score:.1f}  (감성 {pick.sentiment_score:.0f} / {side_label} {pick.value_score:.0f} / 4H기술 {pick.technical_4h_score:.0f} / 3D기술 {pick.technical_3d_score:.0f})",
         ]
-        if pick.source_symbol:
-            block += [
-                f"   source mover: {pick.source_name} {pick.source_return:+.1f}%",
-                f"   source 이유: {pick.source_reason_type or '이유 불명'}",
-                f"   연결고리: {pick.connection_reason}",
-            ]
+        if "source" in narrative:
+            block.append(f"   source: {narrative['source']}")
+        if "연결고리" in narrative:
+            block.append(f"   연결고리: {narrative['연결고리']}")
         block += [
+            f"   왜 지금: {narrative['왜지금']}",
             f"   감성: {pick.sentiment_reason}",
             f"   {'가치' if pick.side == 'LONG' else '과열/가치'}: {pick.valuation_reason}",
-            f"   4H 기술: {pick.catalyst_reason}",
-            f"   3D 기술: {pick.technical_reason}",
             f"   기준가: {_pick_price_str(pick)}",
-            f"   관찰 진입 구간: {pick.entry_zone}",
-            f"   무효화: {pick.invalidation_level}",
+            f"   진입 트리거: {narrative['진입트리거']}",
+            f"   무효화: {narrative['무효화']}",
             f"   1차 관찰 목표: {pick.target_zone}",
+            f"   위험요인: {narrative['위험요인']}",
         ]
         if pick.is_speculative and pick.side == "SHORT":
             block.append("   ※ 실제 숏 가능 여부(borrow) 별도 확인 필요")

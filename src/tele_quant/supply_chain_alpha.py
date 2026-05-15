@@ -549,12 +549,21 @@ def run_spillover_engine(
     }
 
     def _deep_score(targets: list[SpilloverTarget], side: str) -> list[DailyAlphaPick]:
+        from tele_quant.scenario_alpha import compute_reason_quality
+
         picks: list[DailyAlphaPick] = []
         seen: set[str] = set()
+        # Dedup by (source, target, relation_type) within this batch
+        seen_key: set[tuple[str, str, str]] = set()
         for t in targets[:25]:  # max 25 deep fetches per side
             if t.symbol in seen:
                 continue
+            # Skip duplicate source+target+relation combinations
+            key = (t.source.symbol, t.symbol, t.relation_type)
+            if key in seen_key:
+                continue
             seen.add(t.symbol)
+            seen_key.add(key)
             d3 = daily_data.get(t.symbol, _empty_d3)
             d4h = _fetch_4h_data(t.symbol)
             f = _fetch_fundamentals(t.symbol)
@@ -562,8 +571,14 @@ def run_spillover_engine(
             if sc < _MIN_SPILLOVER_SCORE:
                 continue
             pick = _build_pick(t, side, sc, d3, d4h, f, store)
+            # reason_quality gate: < 50 → mark as speculative (추적 후보만)
+            src_confidence = t.source.confidence
+            rq = compute_reason_quality(t.source.reason_type, src_confidence)
+            pick.reason_quality = rq
+            if rq < 50:
+                pick.is_speculative = True
             picks.append(pick)
-            log.debug("[spillover] %s %s %.1f src=%s", side, t.symbol, sc, t.source.symbol)
+            log.debug("[spillover] %s %s %.1f src=%s rq=%.0f", side, t.symbol, sc, t.source.symbol, rq)
         picks.sort(key=lambda p: -p.final_score)
         return picks
 

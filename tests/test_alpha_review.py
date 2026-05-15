@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
-import pytest
-
-from tele_quant.alpha_review import build_alpha_review, _fetch_prices
+from tele_quant.alpha_review import build_alpha_review
 
 
 class _FakeStore:
@@ -158,8 +156,9 @@ def test_fetch_market_index_returns_dict():
 
 
 def test_build_daily_alpha_report_has_index_line():
-    from tele_quant.daily_alpha import DailyAlphaPick, _fetch_market_index, build_daily_alpha_report
     import unittest.mock as mock
+
+    from tele_quant.daily_alpha import build_daily_alpha_report
 
     with mock.patch(
         "tele_quant.daily_alpha._fetch_market_index",
@@ -173,8 +172,9 @@ def test_build_daily_alpha_report_has_index_line():
 
 
 def test_build_daily_alpha_report_warns_on_down_index():
-    from tele_quant.daily_alpha import build_daily_alpha_report
     import unittest.mock as mock
+
+    from tele_quant.daily_alpha import build_daily_alpha_report
 
     with mock.patch(
         "tele_quant.daily_alpha._fetch_market_index",

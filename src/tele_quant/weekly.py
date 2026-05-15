@@ -854,10 +854,18 @@ def build_daily_alpha_performance_section(
         for e in all_reviewed:
             style_groups.setdefault(e["style"], []).append(e["return_pct"])
         lines.append("\n▸ 스타일별 성과")
+        suggestions: list[str] = []
         for sty, rets in sorted(style_groups.items(), key=lambda x: -sum(x[1]) / len(x[1])):
             avg = sum(rets) / len(rets)
             wins = sum(1 for r in rets if r > 0)
-            lines.append(f"  {sty}: {avg:+.1f}% 평균 / 승률 {wins}/{len(rets)}")
+            win_pct = wins / len(rets) * 100
+            lines.append(f"  {sty}: {avg:+.1f}% 평균 / 승률 {wins}/{len(rets)} ({win_pct:.0f}%)")
+            if win_pct >= 60:
+                suggestions.append(f"{sty} ↑ 비중 확대 고려")
+            elif win_pct <= 40 and len(rets) >= 2:
+                suggestions.append(f"{sty} ↓ 비중 축소 고려")
+        if suggestions:
+            lines.append("💡 다음 주 제안: " + " / ".join(suggestions[:3]))
 
     if len(lines) == 1:
         return ""

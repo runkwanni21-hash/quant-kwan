@@ -128,6 +128,33 @@ def build_alpha_review(
                 f"{fmt_ret(eff_ret)}  [{signal_date}]"
             )
 
+    # Style-based performance breakdown with next-week suggestions
+    all_entries: list[tuple[dict, float]] = [
+        (p, r) for p, _, r in rows_long + rows_short
+    ]
+    if len(all_entries) >= 2:
+        style_groups: dict[str, list[float]] = {}
+        for pick, ret in all_entries:
+            sty = (pick.get("style") or "기타").split(" + ")[0]
+            style_groups.setdefault(sty, []).append(ret)
+
+        lines.append("")
+        lines.append("  📊 스타일별 성과")
+        suggestions: list[str] = []
+        for sty, rets in sorted(style_groups.items(), key=lambda x: -sum(x[1]) / len(x[1])):
+            avg_r = sum(rets) / len(rets)
+            wins = sum(1 for r in rets if r > 0)
+            win_pct = wins / len(rets) * 100
+            lines.append(
+                f"    {sty}: 평균 {avg_r:+.1f}%  승률 {wins}/{len(rets)} ({win_pct:.0f}%)"
+            )
+            if win_pct >= 60:
+                suggestions.append(f"{sty} ↑ 비중 확대 고려")
+            elif win_pct <= 40 and len(rets) >= 2:
+                suggestions.append(f"{sty} ↓ 비중 축소 고려")
+        if suggestions:
+            lines.append("  💡 다음 주 제안: " + " / ".join(suggestions[:3]))
+
     lines.append("")
     lines.append("  ※ 기계적 스크리닝 성과 요약. 실제 투자 판단은 본인 책임.")
     return "\n".join(lines)

@@ -249,6 +249,13 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE daily_alpha_picks ADD COLUMN target_price REAL",
     "ALTER TABLE daily_alpha_picks ADD COLUMN invalidation_price REAL",
     "ALTER TABLE daily_alpha_picks ADD COLUMN alert_sent INTEGER DEFAULT 0",
+    # daily_alpha_picks: 시나리오 알파 엔진 컬럼 (v3)
+    "ALTER TABLE daily_alpha_picks ADD COLUMN scenario_type TEXT",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN scenario_score REAL",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN reason_quality REAL",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN source_reason TEXT",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN relation_path TEXT",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN data_quality TEXT",
 ]
 
 # 기존 DB 백필: signal_price 컬럼 추가 후 close_price_at_report 값 복사
@@ -996,10 +1003,12 @@ class Store:
                          source_symbol, source_name, source_return,
                          relation_type, rule_id, spillover_score,
                          source_reason_type, style_detail, is_speculative,
-                         target_price, invalidation_price, alert_sent)
+                         target_price, invalidation_price, alert_sent,
+                         scenario_type, scenario_score, reason_quality,
+                         source_reason, relation_path, data_quality)
                         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                                ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, ?, ?, ?, ?,
-                               ?, ?, ?, ?, ?, 0
+                               ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?
                         WHERE NOT EXISTS (
                             SELECT 1 FROM daily_alpha_picks
                             WHERE session=? AND market=? AND side=? AND symbol=?
@@ -1033,6 +1042,13 @@ class Store:
                             # price alert fields
                             getattr(pick, "target_price", None),
                             getattr(pick, "invalidation_price", None),
+                            # scenario alpha v3 fields
+                            getattr(pick, "scenario_type", "") or "",
+                            getattr(pick, "scenario_score", 0.0) or 0.0,
+                            getattr(pick, "reason_quality", 50.0) or 50.0,
+                            getattr(pick, "source_reason", "") or "",
+                            getattr(pick, "relation_path", "") or "",
+                            getattr(pick, "data_quality", "medium") or "medium",
                             # WHERE NOT EXISTS params
                             session, market, pick.side, pick.symbol,
                             f"{today_prefix}%",

@@ -381,7 +381,7 @@ def test_report_shows_source_mover_when_spillover():
         connection_reason="현대건설 +12.3% (정책 수혜) → 철강 수요 기대",
     )
     report = build_daily_alpha_report([pick], [], "KR", "KR_0700")
-    assert "source mover" in report
+    assert "source:" in report
     assert "현대건설" in report
     assert "+12.3%" in report
     assert "연결고리" in report
@@ -396,7 +396,7 @@ def test_report_no_source_for_regular_pick():
         side="LONG", final_score=72.0, rank=1,
     )
     report = build_daily_alpha_report([pick], [], "KR", "KR_0700")
-    assert "source mover" not in report
+    assert "source:" not in report
 
 
 # ── DB integration ────────────────────────────────────────────────────────────

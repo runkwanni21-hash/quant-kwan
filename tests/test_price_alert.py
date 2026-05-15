@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from tele_quant.price_alert import (
-    _fetch_current_prices,
     _format_alert,
     _is_kr_market_hours,
     _is_us_market_hours,
@@ -218,7 +215,7 @@ def test_daily_alpha_pick_has_alert_fields():
 
 def test_price_zones_returns_numeric_prices():
     from tele_quant.daily_alpha import _price_zones
-    entry, invalid, target, inv_price, tgt_price = _price_zones(50000.0, True, "LONG")
+    _entry, _invalid, _target, inv_price, tgt_price = _price_zones(50000.0, True, "LONG")
     assert inv_price is not None and inv_price < 50000.0
     assert tgt_price is not None and tgt_price > 50000.0
 
@@ -232,6 +229,6 @@ def test_price_zones_short_returns_numeric_prices():
 
 def test_price_zones_none_close_returns_none_prices():
     from tele_quant.daily_alpha import _price_zones
-    entry, invalid, target, inv_price, tgt_price = _price_zones(None, True, "LONG")
+    _entry, _invalid, _target, inv_price, tgt_price = _price_zones(None, True, "LONG")
     assert inv_price is None
     assert tgt_price is None

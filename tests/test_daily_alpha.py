@@ -462,8 +462,8 @@ def test_report_source_reason_type_shown():
     pick.connection_reason = "AI 데이터센터 capex → 전력망 수요"
     pick.rank = 1
     report = build_daily_alpha_report([pick], [], "US")
-    assert "source 이유" in report
-    assert "ai_capex" in report
+    assert "source:" in report
+    assert "NVIDIA" in report
 
 
 # ── Sentiment news fallback tests ─────────────────────────────────────────────
@@ -503,7 +503,7 @@ def test_sentiment_bullish_news_returns_high_score():
     store = _FakeStore([
         _FakeItem("TSLA 급등", "테슬라 상승 돌파 반등 계약 수주"),
     ])
-    score, reason, ev, _de, missing = _score_sentiment("TSLA", store, name="테슬라")
+    score, _reason, ev, _de, missing = _score_sentiment("TSLA", store, name="테슬라")
     assert missing is False
     assert score > 50.0
     assert ev >= 1
@@ -516,7 +516,7 @@ def test_sentiment_bearish_news_returns_low_score():
     store = _FakeStore([
         _FakeItem("LG전자 급락", "LG전자 하락 악재 이탈 붕괴 실적 부진"),
     ])
-    score, reason, _ev, _de, missing = _score_sentiment("066570.KS", store, name="LG전자")
+    score, _reason, _ev, _de, missing = _score_sentiment("066570.KS", store, name="LG전자")
     assert missing is False
     assert score < 50.0
 
@@ -536,7 +536,7 @@ def test_sentiment_no_store_still_missing():
     """store=None always → sentiment_missing=True."""
     from tele_quant.daily_alpha import _score_sentiment
 
-    score, reason, _ev, _de, missing = _score_sentiment("AAPL", None, name="Apple")
+    _score, _reason, _ev, _de, missing = _score_sentiment("AAPL", None, name="Apple")
     assert missing is True
 
 
@@ -559,8 +559,7 @@ class _StoreWithRepeats:
 
 
 def test_repeat_short_penalty_applied():
-    """Symbol appearing 3× as SHORT in last 3 days → penalty 8*(3-1)=16."""
-    from tele_quant.daily_alpha import _BULLISH_KEYWORDS, _score_sentiment
+    """Symbol appearing 3x as SHORT in last 3 days -> penalty 8*(3-1)=16."""
 
     rows = [
         {"symbol": "066570.KS", "side": "SHORT"},
