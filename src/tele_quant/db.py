@@ -4,7 +4,7 @@ import contextlib
 import json
 import sqlite3
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -256,6 +256,17 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE daily_alpha_picks ADD COLUMN source_reason TEXT",
     "ALTER TABLE daily_alpha_picks ADD COLUMN relation_path TEXT",
     "ALTER TABLE daily_alpha_picks ADD COLUMN data_quality TEXT",
+    # pair_watch_history: dedupe + sent 플래그 + review 가격 메타 컬럼
+    "ALTER TABLE pair_watch_history ADD COLUMN sent INTEGER DEFAULT 0",
+    "ALTER TABLE pair_watch_history ADD COLUMN save_mode TEXT DEFAULT ''",
+    "ALTER TABLE pair_watch_history ADD COLUMN dedupe_key TEXT",
+    "ALTER TABLE pair_watch_history ADD COLUMN first_seen_at TEXT",
+    "ALTER TABLE pair_watch_history ADD COLUMN last_seen_at TEXT",
+    "ALTER TABLE pair_watch_history ADD COLUMN seen_count INTEGER DEFAULT 1",
+    "ALTER TABLE pair_watch_history ADD COLUMN review_price_updated_at TEXT",
+    "ALTER TABLE pair_watch_history ADD COLUMN archived INTEGER DEFAULT 0",
+    "ALTER TABLE pair_watch_history ADD COLUMN legacy_missing_price INTEGER DEFAULT 0",
+    "ALTER TABLE pair_watch_history ADD COLUMN relation_type TEXT",
 ]
 
 # 기존 DB 백필: signal_price 컬럼 추가 후 close_price_at_report 값 복사
@@ -868,69 +879,142 @@ class Store:
             )
             conn.commit()
 
-    def save_pair_watch_signals(self, signals: list[Any]) -> int:
-        """Persist LivePairSignal list to pair_watch_history. Returns inserted count.
+    def save_pair_watch_signals(
+        self,
+        signals: list[Any],
+        sent: bool = False,
+        save_mode: str = "",
+    ) -> int:
+        """Persist LivePairSignal list to pair_watch_history using dedupe_key upsert.
 
-        Uses target_price_at_signal from each signal object (populated by compute_signals).
+        Same source-target-direction-relation per KST date → single representative row.
+        Returns the number of rows inserted (new) or upserted (seen_count incremented).
         """
         if not signals:
             return 0
-        now = utc_now().isoformat()
-        inserted = 0
+        now = utc_now()
+        now_iso = now.isoformat()
+        sent_int = 1 if sent else 0
+        affected = 0
         with self.connect() as conn:
             for sig in signals:
-                try:
+                src_sym = getattr(sig, "source_symbol", "")
+                tgt_sym = getattr(sig, "target_symbol", "")
+                exp_dir = getattr(sig, "expected_direction", "UP")
+                rel_type = getattr(sig, "relation_type", "") or ""
+                # KST date for dedupe key
+                _kst = timezone(timedelta(hours=9))
+                signal_date = now.astimezone(_kst).strftime("%Y-%m-%d")
+                dedupe_key = f"{src_sym}|{tgt_sym}|{exp_dir}|{rel_type}|{signal_date}"
+
+                # Check if row with this dedupe_key already exists
+                existing = conn.execute(
+                    "SELECT id, seen_count, target_price_at_signal, first_seen_at FROM pair_watch_history WHERE dedupe_key = ? AND archived = 0 LIMIT 1",
+                    (dedupe_key,),
+                ).fetchone()
+
+                tgt_price = getattr(sig, "target_price_at_signal", None)
+                pair_score = getattr(sig, "pair_score", None)
+
+                if existing:
+                    new_count = (existing["seen_count"] or 1) + 1
+                    # Fill missing target_price_at_signal from first valid value
+                    fill_price = existing["target_price_at_signal"]
+                    if fill_price is None and tgt_price is not None:
+                        fill_price = tgt_price
                     conn.execute(
-                        """
-                        INSERT OR IGNORE INTO pair_watch_history
-                        (created_at, source_symbol, source_name, source_market, source_sector,
-                         source_return_4h, source_return_1d, source_volume_ratio,
-                         target_symbol, target_name, target_market, target_sector,
-                         target_return_at_signal, target_price_at_signal,
-                         expected_direction, pair_score, confidence, gap_type, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
+                        """UPDATE pair_watch_history
+                           SET last_seen_at = ?, seen_count = ?,
+                               target_price_at_signal = COALESCE(target_price_at_signal, ?),
+                               pair_score = CASE WHEN ? > COALESCE(pair_score, 0) THEN ? ELSE pair_score END,
+                               sent = MAX(sent, ?)
+                           WHERE id = ?""",
                         (
-                            now,
-                            getattr(sig, "source_symbol", ""),
-                            getattr(sig, "source_name", None),
-                            getattr(sig, "source_market", None),
-                            getattr(sig, "source_sector", None),
-                            getattr(sig, "source_return_4h", None),
-                            getattr(sig, "source_return_1d", None),
-                            getattr(sig, "source_volume_ratio", None),
-                            getattr(sig, "target_symbol", ""),
-                            getattr(sig, "target_name", None),
-                            getattr(sig, "target_market", None),
-                            getattr(sig, "target_sector", None),
-                            getattr(sig, "target_return_4h", None)
-                            or getattr(sig, "target_return_1d", None),
-                            getattr(sig, "target_price_at_signal", None),
-                            getattr(sig, "expected_direction", "UP"),
-                            getattr(sig, "pair_score", None),
-                            getattr(sig, "confidence", None),
-                            getattr(sig, "gap_type", None),
-                            "pending",
+                            now_iso,
+                            new_count,
+                            tgt_price,
+                            pair_score,
+                            pair_score,
+                            sent_int,
+                            existing["id"],
                         ),
                     )
-                    inserted += conn.execute("SELECT changes()").fetchone()[0]
-                except sqlite3.IntegrityError:
-                    continue
+                    affected += 1
+                else:
+                    try:
+                        conn.execute(
+                            """
+                            INSERT INTO pair_watch_history
+                            (created_at, source_symbol, source_name, source_market, source_sector,
+                             source_return_4h, source_return_1d, source_volume_ratio,
+                             target_symbol, target_name, target_market, target_sector,
+                             target_return_at_signal, target_price_at_signal,
+                             expected_direction, relation_type, pair_score, confidence,
+                             gap_type, status, sent, save_mode,
+                             dedupe_key, first_seen_at, last_seen_at, seen_count,
+                             archived, legacy_missing_price)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            """,
+                            (
+                                now_iso,
+                                src_sym,
+                                getattr(sig, "source_name", None),
+                                getattr(sig, "source_market", None),
+                                getattr(sig, "source_sector", None),
+                                getattr(sig, "source_return_4h", None),
+                                getattr(sig, "source_return_1d", None),
+                                getattr(sig, "source_volume_ratio", None),
+                                tgt_sym,
+                                getattr(sig, "target_name", None),
+                                getattr(sig, "target_market", None),
+                                getattr(sig, "target_sector", None),
+                                getattr(sig, "target_return_4h", None)
+                                or getattr(sig, "target_return_1d", None),
+                                tgt_price,
+                                exp_dir,
+                                rel_type,
+                                pair_score,
+                                getattr(sig, "confidence", None),
+                                getattr(sig, "gap_type", None),
+                                "pending",
+                                sent_int,
+                                save_mode,
+                                dedupe_key,
+                                now_iso,
+                                now_iso,
+                                1,
+                                0,
+                                1 if tgt_price is None else 0,
+                            ),
+                        )
+                        affected += conn.execute("SELECT changes()").fetchone()[0]
+                    except sqlite3.IntegrityError:
+                        pass
             conn.commit()
-        return inserted
+        return affected
 
     def recent_pair_watch_signals(
         self,
         since: datetime,
         until: datetime | None = None,
         limit: int = 500,
+        sent_only: bool = False,
+        exclude_archived: bool = True,
     ) -> list[dict[str, Any]]:
-        """Query pair_watch_history for weekly review."""
+        """Query pair_watch_history.
+
+        sent_only=True: only rows with sent=1 (post-fix scheduled sends).
+        exclude_archived=True: skip rows marked archived=1 by cleanup.
+        """
         clauses = ["created_at >= ?"]
         params: list[Any] = [since.isoformat()]
         if until is not None:
             clauses.append("created_at <= ?")
             params.append(until.isoformat())
+        if sent_only:
+            clauses.append("sent = 1")
+        if exclude_archived:
+            clauses.append("(archived IS NULL OR archived = 0)")
         params.append(limit)
         sql = (
             f"SELECT * FROM pair_watch_history WHERE {' AND '.join(clauses)}"
@@ -939,6 +1023,149 @@ class Store:
         with self.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    def pair_watch_cleanup_stats(self) -> dict[str, Any]:
+        """Return cleanup statistics without modifying DB."""
+        with self.connect() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM pair_watch_history WHERE (archived IS NULL OR archived = 0)"
+            ).fetchone()[0]
+            price_missing = conn.execute(
+                "SELECT COUNT(*) FROM pair_watch_history WHERE target_price_at_signal IS NULL AND (archived IS NULL OR archived = 0)"
+            ).fetchone()[0]
+            # Duplicate groups: dedupe_key with more than 1 active row
+            dup_groups = conn.execute(
+                """SELECT COUNT(*) FROM (
+                    SELECT dedupe_key FROM pair_watch_history
+                    WHERE dedupe_key IS NOT NULL AND (archived IS NULL OR archived = 0)
+                    GROUP BY dedupe_key HAVING COUNT(*) > 1
+                )"""
+            ).fetchone()[0]
+            dup_rows = conn.execute(
+                """SELECT COUNT(*) FROM (
+                    SELECT id FROM pair_watch_history
+                    WHERE dedupe_key IS NOT NULL AND (archived IS NULL OR archived = 0)
+                    AND id NOT IN (
+                        SELECT MIN(id) FROM pair_watch_history
+                        WHERE dedupe_key IS NOT NULL AND (archived IS NULL OR archived = 0)
+                        GROUP BY dedupe_key
+                    )
+                )"""
+            ).fetchone()[0]
+        return {
+            "total_active": total,
+            "duplicate_groups": dup_groups,
+            "duplicate_rows_to_archive": dup_rows,
+            "price_missing": price_missing,
+        }
+
+    def pair_watch_cleanup_apply(self) -> dict[str, Any]:
+        """Archive duplicate rows and mark price-missing legacy rows. Returns stats."""
+        archived = 0
+        backfilled = 0
+        legacy_marked = 0
+
+        with self.connect() as conn:
+            # Step 1: find duplicate dedupe_key groups — keep MIN(id) as representative
+            dup_ids = conn.execute(
+                """SELECT id FROM pair_watch_history
+                   WHERE dedupe_key IS NOT NULL AND (archived IS NULL OR archived = 0)
+                   AND id NOT IN (
+                       SELECT MIN(id) FROM pair_watch_history
+                       WHERE dedupe_key IS NOT NULL AND (archived IS NULL OR archived = 0)
+                       GROUP BY dedupe_key
+                   )"""
+            ).fetchall()
+            if dup_ids:
+                placeholders = ",".join("?" * len(dup_ids))
+                ids = [r[0] for r in dup_ids]
+                conn.execute(
+                    f"UPDATE pair_watch_history SET archived = 1 WHERE id IN ({placeholders})",
+                    ids,
+                )
+                archived = len(ids)
+
+            # Step 2: update representative row with aggregate stats from duplicates
+            # (seen_count = total count in group, first_seen_at = MIN, last_seen_at = MAX)
+            rep_rows = conn.execute(
+                """SELECT MIN(id) as rep_id, dedupe_key,
+                          MIN(first_seen_at) as fst, MAX(last_seen_at) as lst, COUNT(*) as cnt
+                   FROM pair_watch_history
+                   WHERE dedupe_key IS NOT NULL
+                   GROUP BY dedupe_key HAVING COUNT(*) > 1"""
+            ).fetchall()
+            for r in rep_rows:
+                conn.execute(
+                    """UPDATE pair_watch_history
+                       SET first_seen_at = ?, last_seen_at = ?, seen_count = ?
+                       WHERE id = ?""",
+                    (r["fst"], r["lst"], r["cnt"], r["rep_id"]),
+                )
+
+            # Step 3: mark legacy rows with missing price
+            conn.execute(
+                """UPDATE pair_watch_history SET legacy_missing_price = 1
+                   WHERE target_price_at_signal IS NULL AND (archived IS NULL OR archived = 0)"""
+            )
+            legacy_marked = conn.execute(
+                "SELECT changes()"
+            ).fetchone()[0]
+
+            conn.commit()
+
+        # Step 4: try yfinance backfill for price-missing active rows
+        try:
+            self._backfill_pair_watch_prices()
+            with self.connect() as conn:
+                backfilled = conn.execute(
+                    "SELECT COUNT(*) FROM pair_watch_history WHERE legacy_missing_price = 1 AND target_price_at_signal IS NOT NULL"
+                ).fetchone()[0]
+        except Exception:
+            pass
+
+        return {
+            "archived": archived,
+            "legacy_marked": legacy_marked,
+            "backfilled": backfilled,
+        }
+
+    def _backfill_pair_watch_prices(self) -> None:
+        """Try to backfill target_price_at_signal for price-missing rows using yfinance."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT id, target_symbol, target_market, created_at
+                   FROM pair_watch_history
+                   WHERE target_price_at_signal IS NULL AND (archived IS NULL OR archived = 0)
+                   ORDER BY created_at DESC LIMIT 200"""
+            ).fetchall()
+
+        if not rows:
+            return
+
+        try:
+            import yfinance as yf
+        except ImportError:
+            return
+
+        for row in rows:
+            sym = row["target_symbol"] or ""
+            mkt = row["target_market"] or "US"
+            if not sym:
+                continue
+            try:
+                yf_sym = f"{sym}.KS" if mkt.upper() == "KR" and not sym.endswith((".KS", ".KQ")) else sym
+                df = yf.Ticker(yf_sym).history(period="5d", interval="1d", auto_adjust=True)
+                if df is None or df.empty:
+                    continue
+                price = float(df["Close"].iloc[-1])
+                with self.connect() as conn:
+                    conn.execute(
+                        "UPDATE pair_watch_history SET target_price_at_signal = ?, legacy_missing_price = 0 WHERE id = ?",
+                        (price, row["id"]),
+                    )
+                    conn.commit()
+            except Exception:
+                continue
 
     def update_pair_watch_review(
         self,

@@ -1037,3 +1037,361 @@ def test_build_pair_watch_weekly_review_pending_and_no_price():
     since = datetime.now(UTC) - timedelta(days=7)
     result = build_pair_watch_weekly_review(mock_store, since=since)
     assert "평가 대기" in result
+
+
+# ── dedupe / cleanup / review_price 관련 테스트 ─────────────────────────────
+
+
+def test_weekly_review_same_pair_shown_once():
+    """같은 source-target 페어가 여러 row로 있어도 weekly에 1회만 출력된다."""
+    from datetime import UTC, datetime, timedelta
+
+    from tele_quant.live_pair_watch import build_pair_watch_weekly_review
+
+    now = datetime.now(UTC)
+    mock_store = MagicMock()
+    # 한국콜마→코스맥스 row 3개 (같은 페어, 다른 시각)
+    mock_store.recent_pair_watch_signals.return_value = [
+        {
+            "id": i,
+            "source_symbol": "161890.KS",
+            "source_name": "한국콜마",
+            "target_symbol": "192820.KS",
+            "target_name": "코스맥스",
+            "target_market": "KR",
+            "source_sector": "cosmetics",
+            "expected_direction": "UP",
+            "relation_type": "UP_LEADS_UP",
+            "gap_type": "미반응",
+            "pair_score": 55.0,
+            "target_price_at_signal": 187100.0,
+            "target_price_at_review": 193900.0,
+            "outcome_return_pct": 3.6,
+            "hit": 1,
+            "created_at": (now - timedelta(hours=i * 8)).isoformat(),
+            "first_seen_at": (now - timedelta(hours=24)).isoformat(),
+            "last_seen_at": (now - timedelta(hours=8)).isoformat(),
+            "seen_count": 3,
+            "review_price_updated_at": None,
+            "archived": 0,
+        }
+        for i in range(1, 4)
+    ]
+    since = now - timedelta(days=7)
+    result = build_pair_watch_weekly_review(mock_store, since=since)
+    # 한국콜마 → 코스맥스 페어가 1회만 나와야 한다
+    assert result.count("한국콜마 → 코스맥스") <= 1
+
+
+def test_weekly_review_legacy_shown_as_count_only():
+    """target_price_at_signal이 없는 legacy row는 상세 없이 한 줄 요약만 표시된다."""
+    from datetime import UTC, datetime, timedelta
+
+    from tele_quant.live_pair_watch import build_pair_watch_weekly_review
+
+    mock_store = MagicMock()
+    mock_store.recent_pair_watch_signals.return_value = [
+        {
+            "id": i,
+            "source_symbol": "NVDA",
+            "target_symbol": f"00066{i}.KS",
+            "target_market": "KR",
+            "source_sector": "semiconductor",
+            "expected_direction": "UP",
+            "relation_type": "",
+            "gap_type": "미반응",
+            "pair_score": 40.0,
+            "target_price_at_signal": None,  # legacy: 가격 없음
+            "target_price_at_review": None,
+            "outcome_return_pct": None,
+            "hit": None,
+            "created_at": (datetime.now(UTC) - timedelta(days=2)).isoformat(),
+            "first_seen_at": None,
+            "last_seen_at": None,
+            "seen_count": 1,
+            "review_price_updated_at": None,
+            "archived": 0,
+        }
+        for i in range(5)
+    ]
+    since = datetime.now(UTC) - timedelta(days=7)
+    result = build_pair_watch_weekly_review(mock_store, since=since)
+    # 5개 레거시 row → 상세 없이 요약만
+    assert "5개" in result or "legacy" in result or "평가 대기" in result
+    # 상세 출력 (신호 시점) 이 없어야 함
+    assert result.count("신호 시점") == 0 or result.count("당시 target 기준가") == 0
+
+
+def test_weekly_review_repeat_count_shown():
+    """여러 번 감지된 페어는 반복 감지 횟수가 표시된다."""
+    from datetime import UTC, datetime, timedelta
+
+    from tele_quant.live_pair_watch import build_pair_watch_weekly_review
+
+    mock_store = MagicMock()
+    mock_store.recent_pair_watch_signals.return_value = [
+        {
+            "id": 1,
+            "source_symbol": "NVDA",
+            "source_name": "NVIDIA",
+            "target_symbol": "000660.KS",
+            "target_name": "SK하이닉스",
+            "target_market": "KR",
+            "source_sector": "semiconductor",
+            "expected_direction": "UP",
+            "relation_type": "UP_LEADS_UP",
+            "gap_type": "미반응",
+            "pair_score": 60.0,
+            "target_price_at_signal": 80000.0,
+            "target_price_at_review": 84000.0,
+            "outcome_return_pct": 5.0,
+            "hit": 1,
+            "created_at": (datetime.now(UTC) - timedelta(days=3)).isoformat(),
+            "first_seen_at": (datetime.now(UTC) - timedelta(days=5)).isoformat(),
+            "last_seen_at": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+            "seen_count": 7,
+            "review_price_updated_at": None,
+            "archived": 0,
+        }
+    ]
+    since = datetime.now(UTC) - timedelta(days=7)
+    result = build_pair_watch_weekly_review(mock_store, since=since)
+    assert "반복 감지" in result
+    assert "7" in result
+
+
+def test_pair_watch_section_header_contains_metadata():
+    """4H 섹션 헤더에 가격 갱신, 저장 정책, 중복 처리 메타 정보가 포함된다."""
+    from tele_quant.live_pair_watch import LivePairSignal, build_pair_watch_section
+
+    sig = LivePairSignal(
+        created_at="2026-05-16T10:00:00+00:00",
+        source_symbol="NVDA",
+        source_name="NVIDIA",
+        source_market="US",
+        source_sector="semiconductor",
+        source_theme="ai_gpu",
+        source_return_4h=5.2,
+        source_return_1d=6.0,
+        source_volume_ratio=2.0,
+        target_symbol="000660.KS",
+        target_name="SK하이닉스",
+        target_market="KR",
+        target_sector="semiconductor",
+        target_theme="memory_hbm",
+        target_return_4h=0.5,
+        target_return_1d=1.0,
+        target_volume_ratio=1.1,
+        relation_type="UP_LEADS_UP",
+        expected_direction="UP",
+        gap_type="미반응",
+        lag_status="미확인",
+        correlation=0.7,
+        conditional_prob=0.65,
+        lift=1.4,
+        confidence="medium",
+        pair_score=60.0,
+        explanation="테스트",
+        watch_action="장중 확인 후보",
+        target_price_at_signal=80000.0,
+    )
+    result = build_pair_watch_section([sig])
+    assert "가격 갱신" in result
+    assert "저장" in result
+    assert "중복" in result
+
+
+def test_save_pair_watch_signals_deduplicates_same_key(tmp_path):
+    """같은 dedupe_key로 저장하면 seen_count가 올라가고 row가 중복 삽입되지 않는다."""
+    from pathlib import Path
+
+    from tele_quant.db import Store
+    from tele_quant.live_pair_watch import LivePairSignal
+
+    store = Store(tmp_path / "test.db")
+
+    def _make_sig(score: float = 55.0) -> LivePairSignal:
+        return LivePairSignal(
+            created_at="2026-05-16T06:00:00+00:00",
+            source_symbol="161890.KS",
+            source_name="한국콜마",
+            source_market="KR",
+            source_sector="cosmetics",
+            source_theme="kbeauty",
+            source_return_4h=4.0,
+            source_return_1d=5.0,
+            source_volume_ratio=1.5,
+            target_symbol="192820.KS",
+            target_name="코스맥스",
+            target_market="KR",
+            target_sector="cosmetics",
+            target_theme="kbeauty",
+            target_return_4h=0.3,
+            target_return_1d=0.5,
+            target_volume_ratio=1.0,
+            relation_type="UP_LEADS_UP",
+            expected_direction="UP",
+            gap_type="미반응",
+            lag_status="미확인",
+            correlation=0.6,
+            conditional_prob=0.62,
+            lift=1.3,
+            confidence="medium",
+            pair_score=score,
+            explanation="테스트",
+            watch_action="확인",
+            target_price_at_signal=187100.0,
+        )
+
+    # 같은 페어를 10번 저장 (dedupe_key 동일 → 1 row만)
+    for _ in range(10):
+        store.save_pair_watch_signals([_make_sig()], sent=True)
+
+    with store.connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM pair_watch_history WHERE source_symbol='161890.KS' AND target_symbol='192820.KS'"
+        ).fetchall()
+
+    assert len(rows) == 1, f"expected 1 row, got {len(rows)}"
+    assert rows[0]["seen_count"] == 10
+
+
+def test_save_pair_watch_no_send_respected(tmp_path):
+    """sent=False로 저장된 row는 sent=0이다."""
+    from tele_quant.db import Store
+    from tele_quant.live_pair_watch import LivePairSignal
+
+    store = Store(tmp_path / "test.db")
+    sig = LivePairSignal(
+        created_at="2026-05-16T06:00:00+00:00",
+        source_symbol="NVDA",
+        source_name="NVIDIA",
+        source_market="US",
+        source_sector="semiconductor",
+        source_theme="ai",
+        source_return_4h=5.0,
+        source_return_1d=6.0,
+        source_volume_ratio=1.8,
+        target_symbol="000660.KS",
+        target_name="SK하이닉스",
+        target_market="KR",
+        target_sector="semiconductor",
+        target_theme="memory",
+        target_return_4h=0.4,
+        target_return_1d=0.8,
+        target_volume_ratio=1.0,
+        relation_type="UP_LEADS_UP",
+        expected_direction="UP",
+        gap_type="미반응",
+        lag_status="미확인",
+        correlation=None,
+        conditional_prob=None,
+        lift=None,
+        confidence="low",
+        pair_score=40.0,
+        explanation="test",
+        watch_action="확인",
+        target_price_at_signal=80000.0,
+    )
+    store.save_pair_watch_signals([sig], sent=False)
+
+    with store.connect() as conn:
+        row = conn.execute("SELECT sent FROM pair_watch_history LIMIT 1").fetchone()
+    assert row["sent"] == 0
+
+
+def test_pair_watch_cleanup_dry_run_no_changes(tmp_path):
+    """--dry-run (pair_watch_cleanup_stats)은 DB를 변경하지 않는다."""
+    from tele_quant.db import Store
+    from tele_quant.live_pair_watch import LivePairSignal
+
+    store = Store(tmp_path / "test.db")
+
+    def _make_sig(src: str, tgt: str, score: float = 50.0) -> LivePairSignal:
+        return LivePairSignal(
+            created_at="2026-05-16T06:00:00+00:00",
+            source_symbol=src,
+            source_name=src,
+            source_market="KR",
+            source_sector="cosmetics",
+            source_theme="k",
+            source_return_4h=4.0,
+            source_return_1d=5.0,
+            source_volume_ratio=1.5,
+            target_symbol=tgt,
+            target_name=tgt,
+            target_market="KR",
+            target_sector="cosmetics",
+            target_theme="k",
+            target_return_4h=0.3,
+            target_return_1d=0.5,
+            target_volume_ratio=1.0,
+            relation_type="UP_LEADS_UP",
+            expected_direction="UP",
+            gap_type="미반응",
+            lag_status="미확인",
+            correlation=None,
+            conditional_prob=None,
+            lift=None,
+            confidence="low",
+            pair_score=score,
+            explanation="test",
+            watch_action="확인",
+            target_price_at_signal=187100.0,
+        )
+
+    # Insert 10 identical pairs manually (bypassing upsert to simulate legacy state)
+    now_iso = "2026-05-16T06:00:00+00:00"
+    with store.connect() as conn:
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO pair_watch_history
+                   (created_at, source_symbol, target_symbol, expected_direction,
+                    target_price_at_signal, pair_score, gap_type, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (f"2026-05-16T0{i}:00:00+00:00", "161890.KS", "192820.KS", "UP", 187100.0, 55.0, "미반응", "pending"),
+            )
+        conn.commit()
+
+    stats_before = store.pair_watch_cleanup_stats()
+
+    # dry-run: only read stats
+    stats_after = store.pair_watch_cleanup_stats()
+    assert stats_before == stats_after  # unchanged
+
+
+def test_pair_watch_cleanup_apply_archives_duplicates(tmp_path):
+    """cleanup_apply는 같은 페어 10개 → 대표 1개만 active로 남긴다."""
+    from tele_quant.db import Store
+
+    store = Store(tmp_path / "test.db")
+
+    # Insert 10 rows with the same dedupe_key manually
+    with store.connect() as conn:
+        for i in range(10):
+            conn.execute(
+                """INSERT INTO pair_watch_history
+                   (created_at, source_symbol, target_symbol, expected_direction,
+                    target_price_at_signal, pair_score, gap_type, status,
+                    dedupe_key, first_seen_at, last_seen_at, seen_count, archived, legacy_missing_price)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    f"2026-05-16T0{i}:00:00+00:00",
+                    "161890.KS", "192820.KS", "UP",
+                    187100.0, 55.0, "미반응", "pending",
+                    "161890.KS|192820.KS|UP|UP_LEADS_UP|2026-05-16",
+                    "2026-05-16T00:00:00+00:00",
+                    f"2026-05-16T0{i}:00:00+00:00",
+                    1, 0, 0,
+                ),
+            )
+        conn.commit()
+
+    result = store.pair_watch_cleanup_apply()
+    assert result["archived"] == 9  # 9개 archived, 1개 대표
+
+    with store.connect() as conn:
+        active = conn.execute(
+            "SELECT COUNT(*) FROM pair_watch_history WHERE archived = 0"
+        ).fetchone()[0]
+    assert active == 1

@@ -1186,9 +1186,11 @@ class TeleQuantPipeline:
                         log.info("[pipeline] mover_chain saved: %d rows", saved_chains)
                 except Exception as _mc_exc:
                     log.debug("[pipeline] mover_chain save failed: %s", _mc_exc)
-            if pair_watch_signals:
+            if send and pair_watch_signals:
                 try:
-                    saved_pw = self.store.save_pair_watch_signals(pair_watch_signals)
+                    saved_pw = self.store.save_pair_watch_signals(
+                        pair_watch_signals, sent=True, save_mode="scheduled"
+                    )
                     if saved_pw:
                         log.info("[pipeline] pair_watch saved: %d signals", saved_pw)
                 except Exception as _pw_exc:

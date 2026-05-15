@@ -1100,10 +1100,14 @@ def build_pair_watch_section(
     source_counts: dict[str, int] = {}
     dissonance_count = 0
 
+    now_kst = datetime.now(_KST).strftime("%Y-%m-%d %H:%M KST")
     lines: list[str] = ["🔗 선행·후행 페어 관찰"]
     lines.append(
         "- 데이터: Yahoo/yfinance 1h" + (" + 일부 가격 캐시 사용" if used_stale_cache else "")
     )
+    lines.append(f"- 가격 갱신: {now_kst}")
+    lines.append("- 저장: 실제 전송 리포트만 성과 DB 저장")
+    lines.append("- 중복: 같은 source-target은 하루 1회 대표 신호로 관리")
     lines.append("- 기준: 최근 4시간/1일 source 급등락 대비 target 반응 차이")
     lines.append("- 주의: 매수·매도 지시 아님, 통계적 관찰 후보")
 
@@ -1331,19 +1335,59 @@ def run_pair_watch(
 # ── Weekly Performance Review ────────────────────────────────────────────────
 
 
+def _fetch_review_price_yf(sym: str, mkt: str) -> float | None:
+    """Fetch latest close price from yfinance (force fresh, no cache)."""
+    if not sym:
+        return None
+    try:
+        import yfinance as yf
+
+        yf_sym = f"{sym}.KS" if (mkt or "").upper() == "KR" and not sym.endswith((".KS", ".KQ")) else sym
+        df = yf.Ticker(yf_sym).history(period="2d", interval="1d", auto_adjust=True)
+        if df is not None and not df.empty:
+            return float(df["Close"].iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+def _group_pair_rows(rows: list[dict]) -> dict[tuple, list[dict]]:
+    """Group rows by (source_symbol, target_symbol, expected_direction, relation_type)."""
+    groups: dict[tuple, list[dict]] = {}
+    for row in rows:
+        key = (
+            row.get("source_symbol", ""),
+            row.get("target_symbol", ""),
+            row.get("expected_direction", "UP"),
+            row.get("relation_type", "") or "",
+        )
+        groups.setdefault(key, []).append(row)
+    return groups
+
+
+def _best_rep_row(group_rows: list[dict]) -> dict:
+    """Pick the representative row with highest pair_score (or first)."""
+    return max(group_rows, key=lambda r: r.get("pair_score") or 0.0)
+
+
 def build_pair_watch_weekly_review(
     store: Any,
     since: Any,
     settings: Any = None,
 ) -> str:
-    """Build the weekly pair-watch performance review section."""
+    """Build the weekly pair-watch performance review section.
+
+    Deduplicates by (source, target, direction, relation_type) to show each pair once.
+    Legacy rows with missing target_price_at_signal are shown as aggregate count only.
+    """
     lines: list[str] = []
     lines.append("📈 선행·후행 페어 관찰 성과")
     lines.append("- 평가 기준: pair-watch 신호 시점 target 가격 vs 주간 리포트 시점 가격")
+    lines.append("- 신호가: 최초 신호 시점 기준가 (고정) / 평가가: 주간 리포트 생성 시점 최신 가격")
     lines.append("- 주의: 실제 매매 수익이 아니라 통계 후보 사후 검증이며 매수·매도 권장 아님")
 
     try:
-        rows = store.recent_pair_watch_signals(since=since)
+        rows = store.recent_pair_watch_signals(since=since, exclude_archived=True)
     except Exception as exc:
         lines.append(f"- DB 조회 실패: {exc}")
         lines.append("")
@@ -1356,56 +1400,82 @@ def build_pair_watch_weekly_review(
         lines.append("※ 이 섹션은 통계적 관찰 후보의 사후 검증입니다. 실제 수익 보장 아님.")
         return "\n".join(lines)
 
-    evaluable: list[dict] = []
-    pending: list[dict] = []
-    no_price: list[dict] = []
+    # Split into rows with/without signal price
+    has_price = [r for r in rows if r.get("target_price_at_signal") is not None]
+    legacy_count = len(rows) - len(has_price)
 
-    for row in rows:
-        signal_price = row.get("target_price_at_signal")
+    # Deduplicate: one entry per (source, target, direction, relation_type)
+    groups = _group_pair_rows(has_price)
+    rep_rows: list[dict] = [_best_rep_row(g) for g in groups.values()]
+
+    # For each representative row, get aggregated seen stats
+    group_meta: dict[tuple, dict] = {}
+    for key, group_rows in groups.items():
+        first_seen = min((r.get("first_seen_at") or r.get("created_at") or "") for r in group_rows)
+        last_seen = max((r.get("last_seen_at") or r.get("created_at") or "") for r in group_rows)
+        seen_total = sum(r.get("seen_count") or 1 for r in group_rows)
+        group_meta[key] = {
+            "first_seen": first_seen,
+            "last_seen": last_seen,
+            "seen_total": seen_total,
+        }
+
+    now_kst_str = datetime.now(_KST).strftime("%Y-%m-%d %H:%M KST")
+
+    # Fetch review prices (force refresh from yfinance)
+    evaluable: list[dict] = []
+    no_price_count = 0
+
+    for rep in rep_rows:
+        signal_price = rep.get("target_price_at_signal")
         if signal_price is None:
-            pending.append(row)
+            continue  # already counted in legacy_count
+
+        sym = rep.get("target_symbol", "")
+        mkt = rep.get("target_market", "US")
+
+        review_price = rep.get("target_price_at_review")
+        review_updated = rep.get("review_price_updated_at") or ""
+
+        # Always try to refresh review price
+        fresh_price = _fetch_review_price_yf(sym, mkt)
+        if fresh_price is not None:
+            review_price = fresh_price
+            review_updated = now_kst_str
+            with contextlib.suppress(Exception):
+                store.update_pair_watch_review(
+                    rep["id"],
+                    review_price,
+                    _calc_outcome(signal_price, review_price, (rep.get("expected_direction") or "UP").upper()),
+                    _calc_hit(signal_price, review_price, (rep.get("expected_direction") or "UP").upper()),
+                )
+
+        if review_price is None:
+            no_price_count += 1
             continue
 
-        review_price = row.get("target_price_at_review")
-        if review_price is None:
-            try:
-                import yfinance as yf
+        expected = (rep.get("expected_direction") or "UP").upper()
+        outcome = _calc_outcome(signal_price, review_price, expected)
+        hit = _calc_hit(signal_price, review_price, expected)
 
-                sym = row.get("target_symbol", "")
-                mkt = row.get("target_market", "US")
-                yf_sym = (
-                    f"{sym}.KS" if mkt.upper() == "KR" and not sym.endswith((".KS", ".KQ")) else sym
-                )
-                df = yf.Ticker(yf_sym).history(period="2d", auto_adjust=True)
-                if df is not None and not df.empty:
-                    review_price = float(df["Close"].iloc[-1])
-                    expected = (row.get("expected_direction") or "UP").upper()
-                    if expected == "UP":
-                        outcome = (review_price - signal_price) / signal_price * 100
-                        hit = 1 if review_price > signal_price else 0
-                    else:
-                        outcome = (signal_price - review_price) / signal_price * 100
-                        hit = 1 if review_price < signal_price else 0
-                    with contextlib.suppress(Exception):
-                        store.update_pair_watch_review(row["id"], review_price, outcome, hit)
-                    evaluable.append(
-                        {
-                            **row,
-                            "target_price_at_review": review_price,
-                            "outcome_return_pct": outcome,
-                            "hit": hit,
-                        }
-                    )
-                else:
-                    no_price.append(row)
-            except Exception:
-                no_price.append(row)
-        else:
-            evaluable.append(dict(row))
+        key = (
+            rep.get("source_symbol", ""),
+            rep.get("target_symbol", ""),
+            rep.get("expected_direction", "UP"),
+            rep.get("relation_type", "") or "",
+        )
+        evaluable.append({
+            **rep,
+            "target_price_at_review": review_price,
+            "review_price_updated_at": review_updated,
+            "outcome_return_pct": outcome,
+            "hit": hit,
+            "_meta": group_meta.get(key, {}),
+        })
 
-    total = len(rows)
+    total_groups = len(rep_rows)
     eval_count = len(evaluable)
-    lines.append(f"- 이번 주 pair-watch 신호: {total}개")
+    lines.append(f"- 이번 주 pair-watch 신호 (dedupe 기준): {total_groups}개 페어")
     lines.append(f"- 평가 가능: {eval_count}개")
 
     if evaluable:
@@ -1450,7 +1520,7 @@ def build_pair_watch_weekly_review(
                 f" {lo_ret:.1f}%"
             )
 
-        # Best sector for next week
+        # Best sector
         sector_hits: dict[str, list[float]] = {}
         for r in evaluable:
             sec = r.get("source_sector") or "기타"
@@ -1464,10 +1534,30 @@ def build_pair_watch_weekly_review(
             top_sector = _SECTOR_LABELS.get(best_sectors[0][0], best_sectors[0][0])
             lines.append(f"- 다음 주 반복 관찰 테마: {top_sector} (이번 주 성과 기준)")
 
-        # Per-signal detail block
+        # Per-pair detail block — with display limits
         lines.append("")
         lines.append("[종목별 페어 성과]")
-        for i, row in enumerate(winners[:10], 1):
+
+        # Limits: max 8 pairs, max 2 per source_symbol, max 2 per target_symbol
+        shown_pairs: list[dict] = []
+        source_counts: dict[str, int] = {}
+        target_counts: dict[str, int] = {}
+        hidden_count = 0
+        for row in winners:
+            src_sym = row.get("source_symbol", "?")
+            tgt_sym = row.get("target_symbol", "?")
+            if (
+                len(shown_pairs) >= 8
+                or source_counts.get(src_sym, 0) >= 2
+                or target_counts.get(tgt_sym, 0) >= 2
+            ):
+                hidden_count += 1
+                continue
+            shown_pairs.append(row)
+            source_counts[src_sym] = source_counts.get(src_sym, 0) + 1
+            target_counts[tgt_sym] = target_counts.get(tgt_sym, 0) + 1
+
+        for i, row in enumerate(shown_pairs, 1):
             src_sym = row.get("source_symbol", "?")
             tgt_sym = row.get("target_symbol", "?")
             src_name = row.get("source_name") or src_sym
@@ -1478,8 +1568,13 @@ def build_pair_watch_weekly_review(
             hit = row.get("hit")
             sp = row.get("target_price_at_signal")
             rp = row.get("target_price_at_review")
+            rv_upd = row.get("review_price_updated_at") or "?"
+            meta = row.get("_meta") or {}
 
-            kst_str = _fmt_kst(row.get("created_at", ""))
+            first_seen_str = _fmt_kst(meta.get("first_seen") or row.get("created_at", ""))
+            last_seen_str = _fmt_kst(meta.get("last_seen") or row.get("last_seen_at") or row.get("created_at", ""))
+            seen_total = meta.get("seen_total") or row.get("seen_count") or 1
+
             sp_str = _fmt_price_simple(sp, mkt)
             rp_str = _fmt_price_simple(rp, mkt)
             out_str = (
@@ -1490,18 +1585,40 @@ def build_pair_watch_weekly_review(
             hit_str = "✅ 후행 반응 적중" if hit == 1 else "❌ 미확인"
 
             lines.append(f"{i}. {src_name} → {tgt_name} ({tgt_sym})")
-            lines.append(f"   - 신호 시점: {kst_str}")
+            lines.append(f"   - 최초 신호 시점: {first_seen_str}")
+            if seen_total > 1:
+                lines.append(f"   - 마지막 재등장: {last_seen_str}")
+                lines.append(f"   - 반복 감지: {seen_total}회")
             lines.append(f"   - 상태: {gap_type}")
             lines.append(f"   - 당시 target 기준가: {sp_str}")
             lines.append(f"   - 평가 기준가: {rp_str}")
+            lines.append(f"   - 평가가 갱신: {rv_upd}")
             lines.append(f"   - 가상 성과: {out_str}")
             lines.append(f"   - 결과: {hit_str}")
 
-    if pending:
-        lines.append(f"- 평가 대기: {len(pending)}개 (신호 시점 가격 미기록)")
-    if no_price:
-        lines.append(f"- 가격 확인 불가: {len(no_price)}개 제외")
+        if hidden_count > 0:
+            lines.append(f"  (그 외 {hidden_count}개 dedupe 후 숨김 — source·target 최대 2개 한도)")
+
+    # Legacy / no-price summary (single line each, no details)
+    if legacy_count > 0:
+        lines.append(
+            f"- 평가 대기 / 과거 가격 미기록: legacy row {legacy_count}개는 평가에서 제외했습니다."
+        )
+    if no_price_count > 0:
+        lines.append(f"- 평가가 확인 불가: {no_price_count}개 제외")
 
     lines.append("")
     lines.append("※ 이 섹션은 통계적 관찰 후보의 사후 검증입니다. 실제 수익 보장 아님.")
     return "\n".join(lines)
+
+
+def _calc_outcome(signal_price: float, review_price: float, expected: str) -> float:
+    if expected == "UP":
+        return (review_price - signal_price) / signal_price * 100
+    return (signal_price - review_price) / signal_price * 100
+
+
+def _calc_hit(signal_price: float, review_price: float, expected: str) -> int:
+    if expected == "UP":
+        return 1 if review_price > signal_price else 0
+    return 1 if review_price < signal_price else 0

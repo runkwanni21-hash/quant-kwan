@@ -1293,6 +1293,45 @@ def pair_watch_cmd(
     asyncio.run(run())
 
 
+@app.command("pair-watch-cleanup")
+def pair_watch_cleanup_cmd(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run/--apply", help="--dry-run: 변경 없이 통계만 / --apply: 실제 정리"),
+    ] = True,
+) -> None:
+    """pair_watch_history 중복 제거 및 레거시 가격 미기록 row 정리.
+
+    예:
+      uv run tele-quant pair-watch-cleanup --dry-run
+      uv run tele-quant pair-watch-cleanup --apply
+    """
+    from tele_quant.db import Store
+
+    settings = _settings()
+    store = Store(settings.sqlite_path)
+
+    stats = store.pair_watch_cleanup_stats()
+
+    console.print("\n[bold cyan]Pair-watch cleanup[/bold cyan]")
+    console.print(f"  total rows (active):         {stats['total_active']}")
+    console.print(f"  duplicate groups:            {stats['duplicate_groups']}")
+    console.print(f"  archived duplicates (dry):   {stats['duplicate_rows_to_archive']}")
+    console.print(f"  price missing:               {stats['price_missing']}")
+
+    if dry_run:
+        console.print("\n[yellow]--dry-run 모드: DB 변경 없음. --apply 옵션으로 실행하세요.[/yellow]")
+        return
+
+    result = store.pair_watch_cleanup_apply()
+    console.print("\n[bold green]cleanup --apply 완료[/bold green]")
+    console.print(f"  archived duplicates:   {result['archived']}")
+    console.print(f"  legacy_missing_price:  {result['legacy_marked']}")
+    console.print(f"  backfilled prices:     {result['backfilled']}")
+    legacy_excluded = result["legacy_marked"] - result["backfilled"]
+    console.print(f"  legacy excluded (no price): {legacy_excluded}")
+
+
 @app.command("ollama-tags")
 def ollama_tags() -> None:
     """Ollama에 설치된 모델 목록을 보여줍니다."""
