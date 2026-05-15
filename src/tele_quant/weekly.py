@@ -853,19 +853,41 @@ def build_daily_alpha_performance_section(
         style_groups: dict[str, list[float]] = {}
         for e in all_reviewed:
             style_groups.setdefault(e["style"], []).append(e["return_pct"])
-        lines.append("\n▸ 스타일별 성과")
-        suggestions: list[str] = []
+        lines.append("\n▸ style별 성과 (스타일 기반)")
+        weight_suggest: list[str] = []
         for sty, rets in sorted(style_groups.items(), key=lambda x: -sum(x[1]) / len(x[1])):
             avg = sum(rets) / len(rets)
             wins = sum(1 for r in rets if r > 0)
             win_pct = wins / len(rets) * 100
             lines.append(f"  {sty}: {avg:+.1f}% 평균 / 승률 {wins}/{len(rets)} ({win_pct:.0f}%)")
             if win_pct >= 60:
-                suggestions.append(f"{sty} ↑ 비중 확대 고려")
+                weight_suggest.append(f"{sty} +5%")
             elif win_pct <= 40 and len(rets) >= 2:
-                suggestions.append(f"{sty} ↓ 비중 축소 고려")
-        if suggestions:
-            lines.append("💡 다음 주 제안: " + " / ".join(suggestions[:3]))
+                weight_suggest.append(f"{sty} -5%")
+        if weight_suggest:
+            lines.append("💡 다음 주 가중치 제안: " + " / ".join(weight_suggest[:3]) + " (참고용, 자동 적용 안 됨)")
+
+        # scenario_type별 성과 (DB에 저장된 경우)
+        sc_groups: dict[str, list[float]] = {}
+        for r in rows[:20]:
+            sym = r.get("symbol") or ""
+            mkt = r.get("market") or "KR"
+            sp = r.get("signal_price")
+            cp = _fetch_review_price(sym, mkt)
+            side = r.get("side") or "LONG"
+            sc = r.get("scenario_type") or ""
+            if not sp or not cp or not sc:
+                continue
+            ret = (cp - sp) / sp * 100
+            if side == "SHORT":
+                ret = -ret
+            sc_groups.setdefault(sc, []).append(ret)
+        if len(sc_groups) >= 2:
+            lines.append("\n▸ scenario_type별 성과")
+            for sc, rets in sorted(sc_groups.items(), key=lambda x: -sum(x[1]) / len(x[1])):
+                avg = sum(rets) / len(rets)
+                wins = sum(1 for r in rets if r > 0)
+                lines.append(f"  {sc}: {avg:+.1f}% / 승률 {wins}/{len(rets)}")
 
     if len(lines) == 1:
         return ""

@@ -1207,6 +1207,14 @@ def build_daily_alpha_report(
         ]
         if "source" in narrative:
             block.append(f"   source: {narrative['source']}")
+            src_reason = getattr(pick, "source_reason_type", "") or ""
+            if src_reason:
+                try:
+                    from tele_quant.supply_chain_alpha import _REASON_KO
+                    reason_ko = _REASON_KO.get(src_reason, src_reason)
+                except Exception:
+                    reason_ko = src_reason
+                block.append(f"   이유: {reason_ko}")
         if "연결고리" in narrative:
             block.append(f"   연결고리: {narrative['연결고리']}")
         block += [
