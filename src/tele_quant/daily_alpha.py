@@ -28,10 +28,10 @@ SESSION_US = "US_2200"
 _MIN_UNIVERSE = 20
 _TOP_N = 4  # LONG 4 + SHORT 4
 
-# 저유동성 penalty 기준
-_LOW_VOL_THRESHOLD_KR = 50_000      # 거래량 5만주 미만
-_LOW_VOL_THRESHOLD_US = 100_000     # 거래량 10만주 미만
-_LOW_MCAP_KR_B = 30                 # 시총 300억원 미만 (단위: 억원)
+# 유동성 게이트 (거래대금 기준)
+_US_PRICE_FLOOR = 2.0               # US $2 미만 제외
+_US_MIN_TURNOVER = 5_000_000.0      # US 일평균 거래대금 $5M 미만 → speculative
+_KR_MIN_TURNOVER = 2_000_000_000.0  # KR 일평균 거래대금 20억원 미만 → speculative
 
 # Style labels
 STYLE_VALUE_REBOUND = "저평가 반등"
@@ -42,6 +42,9 @@ STYLE_OVERHEAT_SHORT = "과열 숏"
 STYLE_CATALYST_SHORT = "악재 숏"
 STYLE_DISTRIBUTION = "분배 숏"
 STYLE_BREAKDOWN = "추세 붕괴"
+
+# Sentiment missing penalty
+_SENTIMENT_MISSING_PENALTY = 5.0
 
 
 @dataclass
@@ -88,6 +91,11 @@ class DailyAlphaPick:
     rule_id: str = ""
     spillover_score: float = 0.0
     connection_reason: str = ""
+    source_reason_type: str = ""
+    style_detail: str = ""
+    is_speculative: bool = False
+    sentiment_missing: bool = False
+    avg_daily_turnover: float | None = None
 
 
 # ── Universe builders ─────────────────────────────────────────────────────────
@@ -213,6 +221,22 @@ def _volume_ratio(volume: pd.Series, period: int = 20) -> float | None:
     if avg == 0:
         return None
     return float(volume.iloc[-1] / avg)
+
+
+def _compute_atr(
+    high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
+) -> float | None:
+    """Average True Range over `period` bars."""
+    if len(close) < period + 1:
+        return None
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    val = tr.rolling(period).mean().iloc[-1]
+    return float(val) if not pd.isna(val) else None
 
 
 # ── 4H technical via yfinance ─────────────────────────────────────────────────
@@ -567,18 +591,18 @@ def _score_volume(vol_ratio: float | None, side: str) -> tuple[float, str]:
 
 def _score_sentiment(
     symbol: str, store: Store | None, hours: int = 12
-) -> tuple[float, str, int, int]:
+) -> tuple[float, str, int, int, bool]:
     """DB sentiment_history + scenario_history 기반 감성 점수.
-    returns (score, reason, evidence_count, direct_ev_count)"""
+    returns (score, reason, evidence_count, direct_ev_count, sentiment_missing)"""
     if store is None:
-        return 50.0, "감성 데이터 없음", 0, 0
+        return 50.0, "감성 중립/확인 불가 (DB없음)", 0, 0, True
 
     try:
         from datetime import timedelta
         since = datetime.now(UTC) - timedelta(hours=hours)
         scenarios = store.recent_scenarios(since=since, symbol=symbol)
         if not scenarios:
-            return 50.0, "최근 언급 없음", 0, 0
+            return 50.0, "감성 중립/확인 불가 (언급 없음)", 0, 0, True
 
         # Most recent scenario for this symbol
         latest = scenarios[0]
@@ -594,11 +618,11 @@ def _score_sentiment(
             sentiment = min(100.0, 40.0 + (score_raw - 44) * 1.0)
             reason = f"긍정 감성 언급 (점수 {score_raw:.0f})"
 
-        return max(0.0, sentiment), reason, len(scenarios), direct_ev
+        return max(0.0, sentiment), reason, len(scenarios), direct_ev, False
 
     except Exception as exc:
         log.debug("Sentiment score %s failed: %s", symbol, exc)
-        return 50.0, "감성 조회 실패", 0, 0
+        return 50.0, "감성 중립/확인 불가 (조회 오류)", 0, 0, True
 
 
 def _risk_penalty(
@@ -663,28 +687,34 @@ def _detect_style_short(
 
 
 def _price_zones(
-    close: float | None, is_kr: bool, side: str
+    close: float | None, is_kr: bool, side: str, atr: float | None = None
 ) -> tuple[str, str, str]:
-    """entry_zone, invalidation_level, target_zone 계산."""
+    """entry_zone, invalidation_level, target_zone — ATR 기반 우선, 없으면 % 기반."""
     if close is None:
-        return "시장가 인근", "지지선 이탈 시", "단기 저항선"
+        inval_word = "하향 이탈 시 무효" if side == "LONG" else "상향 돌파 시 무효"
+        return "시장가 인근", inval_word, "단기 저항/지지선"
 
     fmt = (lambda v: f"{v:,.0f}원") if is_kr else (lambda v: f"${v:.2f}")
+    basis = "(ATR 기반)" if atr is not None else "(±%)"
 
     if side == "LONG":
         entry = fmt(close * 0.99)
-        invalid = fmt(close * 0.96)
-        target = fmt(close * 1.05)
+        invalid_price = (close - 1.0 * atr) if atr else (close * 0.96)
+        target_price = (close + 1.5 * atr) if atr else (close * 1.05)
+        return (
+            f"~{entry} (현재가 -1% 이내)",
+            f"{fmt(invalid_price)} 하향 이탈 시 무효",
+            f"{fmt(target_price)} 부근 {basis}",
+        )
     else:  # SHORT
         entry = fmt(close * 1.005)
-        invalid = fmt(close * 1.03)
-        target = fmt(close * 0.95)
-
-    return (
-        f"~{entry} (현재가 -1% 이내)",
-        f"{invalid} 돌파 시 무효",
-        f"{target} 부근 (±1~2%)",
-    )
+        invalid_price = (close + 1.0 * atr) if atr else (close * 1.03)
+        target_price = (close - 1.5 * atr) if atr else (close * 0.95)
+        return (
+            f"~{entry} (현재가 +0.5% 이내)",
+            f"{fmt(invalid_price)} 상향 돌파 시 무효",
+            f"{fmt(target_price)} 부근 {basis}",
+        )
 
 
 # ── Main scoring pipeline ─────────────────────────────────────────────────────
@@ -705,11 +735,14 @@ def _score_candidate(
     is_kr = market == "KR"
 
     # Sentiment
-    sent_score, sent_reason, ev_cnt, dir_ev = _score_sentiment(symbol, store)
+    sent_score, sent_reason, ev_cnt, dir_ev, sent_missing = _score_sentiment(symbol, store)
 
     # Volume
     vol_ratio = d3.get("vol_ratio") or d4h.get("vol_ratio")
     vol_score, _vol_reason = _score_volume(vol_ratio, side)
+
+    # ATR for price zones
+    atr = d3.get("atr")
 
     # Technical
     if side == "LONG":
@@ -717,6 +750,8 @@ def _score_candidate(
         val_score, val_reason = _score_value_long(f)
         cat_score = min(100.0, sent_score * 0.6 + vol_score * 0.4)  # proxy
         penalty = _risk_penalty(symbol, d4h.get("rsi"), vol_ratio, market, "LONG")
+        if sent_missing:
+            penalty += _SENTIMENT_MISSING_PENALTY
         final = (
             sent_score * 0.20
             + val_score * 0.20
@@ -733,6 +768,8 @@ def _score_candidate(
         val_score, val_reason = _score_value_short(f)
         cat_score = min(100.0, (100 - sent_score) * 0.6 + vol_score * 0.4)
         penalty = _risk_penalty(symbol, d4h.get("rsi"), vol_ratio, market, "SHORT")
+        if sent_missing:
+            penalty += _SENTIMENT_MISSING_PENALTY
         final = (
             (100 - sent_score) * 0.25  # bearish sentiment
             + tech4 * 0.25
@@ -745,7 +782,7 @@ def _score_candidate(
         style = _detect_style_short(val_score, tech4, tech3, cat_score, d4h)
 
     close_price = d4h.get("close") or d3.get("close")
-    entry, invalid, target = _price_zones(close_price, is_kr, side)
+    entry, invalid, target = _price_zones(close_price, is_kr, side, atr)
 
     return DailyAlphaPick(
         session=session,
@@ -777,6 +814,8 @@ def _score_candidate(
         sector=sector,
         price_status="OK" if close_price else "PRICE_MISSING",
         created_at=datetime.now(UTC),
+        sentiment_missing=sent_missing,
+        avg_daily_turnover=d3.get("avg_turnover"),
     )
 
 
@@ -824,10 +863,16 @@ def _batch_daily(symbols: list[str], days: int = 25) -> dict[str, dict[str, Any]
                         result[sym] = {"rsi": None, "obv": "데이터 부족", "bb_pct": None, "close": None, "vol_ratio": None}
                         continue
 
+                    high = df["High"].reindex(close.index)
+                    low = df["Low"].reindex(close.index)
                     ret1d = (
                         float((close.iloc[-1] / close.iloc[-2] - 1) * 100)
                         if len(close) >= 2 else None
                     )
+                    atr = _compute_atr(high, low, close)
+                    vol_aligned = volume.reindex(close.index).fillna(0)
+                    avg_turnover_raw = (close * vol_aligned).rolling(20).mean().iloc[-1]
+                    avg_turnover = float(avg_turnover_raw) if not pd.isna(avg_turnover_raw) else None
                     result[sym] = {
                         "rsi": _rsi(close),
                         "obv": _obv_trend(close, volume),
@@ -835,6 +880,8 @@ def _batch_daily(symbols: list[str], days: int = 25) -> dict[str, dict[str, Any]
                         "close": float(close.iloc[-1]),
                         "vol_ratio": _volume_ratio(volume),
                         "return_1d": ret1d,
+                        "atr": atr,
+                        "avg_turnover": avg_turnover,
                     }
                 except Exception:
                     result[sym] = {"rsi": None, "obv": "데이터 부족", "bb_pct": None, "close": None, "vol_ratio": None}
@@ -872,8 +919,12 @@ def run_daily_alpha(
     daily_data = _batch_daily(symbols)
     log.info("[daily-alpha] daily data fetched: %d/%d", len(daily_data), len(symbols))
 
-    # 3. Pre-filter: drop symbols with no data
-    valid = [(sym, name, sec) for sym, name, sec in universe if daily_data.get(sym, {}).get("close") is not None]
+    # 3. Pre-filter: drop symbols with no data + US $2 price floor
+    valid = [
+        (sym, name, sec) for sym, name, sec in universe
+        if daily_data.get(sym, {}).get("close") is not None
+        and (market != "US" or (daily_data.get(sym, {}).get("close") or 0) >= _US_PRICE_FLOOR)
+    ]
     log.info("[daily-alpha] valid after data filter: %d", len(valid))
 
     # 4. Quick RSI pre-filter — top 40 LONG (RSI < 70) + top 40 SHORT (RSI > 45)
@@ -920,9 +971,23 @@ def run_daily_alpha(
     long_picks = _deep_score(long_candidates, "LONG")
     short_picks = _deep_score(short_candidates, "SHORT")
 
-    # 6. Filter by minimum score threshold
-    long_picks = [p for p in long_picks if p.final_score >= 55.0]
-    short_picks = [p for p in short_picks if p.final_score >= 55.0]
+    # 6. Classify: 70+ = main, 60-70 = speculative; mark low-liquidity as speculative
+    _main_threshold = 70.0
+    _spec_threshold = 60.0
+
+    def _mark_speculative(picks: list[DailyAlphaPick]) -> list[DailyAlphaPick]:
+        min_turnover = _KR_MIN_TURNOVER if market == "KR" else _US_MIN_TURNOVER
+        for p in picks:
+            if p.final_score < _main_threshold:
+                p.is_speculative = True
+            t = daily_data.get(p.symbol, {}).get("avg_turnover")
+            if t is not None and t < min_turnover:
+                p.is_speculative = True
+            p.avg_daily_turnover = t
+        return picks
+
+    long_picks = [p for p in _mark_speculative(long_picks) if p.final_score >= _spec_threshold]
+    short_picks = [p for p in _mark_speculative(short_picks) if p.final_score >= _spec_threshold]
 
     # 7. Spillover engine — 공급망 2차 수혜/피해 후보 추가
     symbols_info = {sym: (name, sec) for sym, name, sec in universe}
@@ -992,69 +1057,76 @@ def build_daily_alpha_report(
         "",
     ]
 
-    # LONG section
-    lines.append("🟢 LONG 관찰 후보")
-    if not long_picks:
-        lines.append("  - 조건 충족 후보 없음")
-    for pick in long_picks:
-        is_kr = market == "KR"
-        price_str = f"{pick.signal_price:,.0f}원" if (is_kr and pick.signal_price) else (f"${pick.signal_price:.2f}" if pick.signal_price else "가격 미확인")
-        pick_lines = [
-            f"\n{pick.rank}. {pick.name} / {pick.symbol}",
+    is_kr = market == "KR"
+
+    def _pick_price_str(pick: DailyAlphaPick) -> str:
+        if pick.signal_price:
+            return f"{pick.signal_price:,.0f}원" if is_kr else f"${pick.signal_price:.2f}"
+        return "가격 미확인"
+
+    def _pick_block(pick: DailyAlphaPick, side_label: str) -> list[str]:
+        spec_tag = " ⚠ 고위험" if pick.is_speculative else ""
+        block = [
+            f"\n{pick.rank}. {pick.name} / {pick.symbol}{spec_tag}",
             f"   스타일: {pick.style}",
-            f"   최종점수: {pick.final_score:.1f}  (감성 {pick.sentiment_score:.0f} / 가치 {pick.value_score:.0f} / 4H기술 {pick.technical_4h_score:.0f} / 3D기술 {pick.technical_3d_score:.0f})",
+            f"   최종점수: {pick.final_score:.1f}  (감성 {pick.sentiment_score:.0f} / {side_label} {pick.value_score:.0f} / 4H기술 {pick.technical_4h_score:.0f} / 3D기술 {pick.technical_3d_score:.0f})",
         ]
         if pick.source_symbol:
-            pick_lines += [
+            block += [
                 f"   source mover: {pick.source_name} {pick.source_return:+.1f}%",
+                f"   source 이유: {pick.source_reason_type or '이유 불명'}",
                 f"   연결고리: {pick.connection_reason}",
             ]
-        pick_lines += [
+        block += [
             f"   감성: {pick.sentiment_reason}",
-            f"   가치: {pick.valuation_reason}",
+            f"   {'가치' if pick.side == 'LONG' else '과열/가치'}: {pick.valuation_reason}",
             f"   4H 기술: {pick.catalyst_reason}",
             f"   3D 기술: {pick.technical_reason}",
-            f"   기준가: {price_str}",
+            f"   기준가: {_pick_price_str(pick)}",
             f"   관찰 진입 구간: {pick.entry_zone}",
             f"   무효화: {pick.invalidation_level}",
             f"   1차 관찰 목표: {pick.target_zone}",
         ]
+        if pick.is_speculative and pick.side == "SHORT":
+            block.append("   ※ 실제 숏 가능 여부(borrow) 별도 확인 필요")
         if pick.sector:
-            pick_lines.append(f"   섹터: {pick.sector}")
-        lines += pick_lines
+            block.append(f"   섹터: {pick.sector}")
+        return block
+
+    # Split main vs speculative
+    main_long = [p for p in long_picks if not p.is_speculative]
+    spec_long = [p for p in long_picks if p.is_speculative]
+    main_short = [p for p in short_picks if not p.is_speculative]
+    spec_short = [p for p in short_picks if p.is_speculative]
+
+    # LONG section — main
+    lines.append("🟢 LONG 관찰 후보")
+    if not main_long:
+        lines.append("  - 정식 후보 부족 (70점 미만 또는 유동성 미달)")
+    for i, pick in enumerate(main_long, 1):
+        pick.rank = i
+        lines += _pick_block(pick, "가치")
 
     lines.append("")
 
-    # SHORT section
+    # SHORT section — main
     lines.append("🔴 SHORT 관찰 후보")
-    if not short_picks:
-        lines.append("  - 조건 충족 후보 없음")
-    for pick in short_picks:
-        is_kr = market == "KR"
-        price_str = f"{pick.signal_price:,.0f}원" if (is_kr and pick.signal_price) else (f"${pick.signal_price:.2f}" if pick.signal_price else "가격 미확인")
-        short_lines = [
-            f"\n{pick.rank}. {pick.name} / {pick.symbol}",
-            f"   스타일: {pick.style}",
-            f"   최종점수: {pick.final_score:.1f}  (감성 {pick.sentiment_score:.0f} / 과열 {pick.value_score:.0f} / 4H기술 {pick.technical_4h_score:.0f} / 3D기술 {pick.technical_3d_score:.0f})",
-        ]
-        if pick.source_symbol:
-            short_lines += [
-                f"   source mover: {pick.source_name} {pick.source_return:+.1f}%",
-                f"   연결고리: {pick.connection_reason}",
-            ]
-        short_lines += [
-            f"   감성: {pick.sentiment_reason}",
-            f"   과열/가치: {pick.valuation_reason}",
-            f"   4H 기술: {pick.catalyst_reason}",
-            f"   3D 기술: {pick.technical_reason}",
-            f"   기준가: {price_str}",
-            f"   관찰 진입 구간: {pick.entry_zone}",
-            f"   무효화: {pick.invalidation_level}",
-            f"   1차 관찰 목표: {pick.target_zone}",
-        ]
-        if pick.sector:
-            short_lines.append(f"   섹터: {pick.sector}")
-        lines += short_lines
+    if not main_short:
+        lines.append("  - 정식 후보 부족 (70점 미만 또는 유동성 미달)")
+    for i, pick in enumerate(main_short, 1):
+        pick.rank = i
+        lines += _pick_block(pick, "과열")
+
+    # Speculative section (combined)
+    if spec_long or spec_short:
+        lines.append("")
+        lines.append("⚠ 고위험 추적 후보 (60~69점 또는 저유동성)")
+        for i, pick in enumerate(spec_long, 1):
+            pick.rank = i
+            lines += _pick_block(pick, "가치")
+        for i, pick in enumerate(spec_short, 1):
+            pick.rank = i
+            lines += _pick_block(pick, "과열")
 
     lines.append("")
     lines.append(_DISCLAIMER)

@@ -241,6 +241,10 @@ _COLUMN_MIGRATIONS: list[str] = [
     "ALTER TABLE daily_alpha_picks ADD COLUMN relation_type TEXT",
     "ALTER TABLE daily_alpha_picks ADD COLUMN rule_id TEXT",
     "ALTER TABLE daily_alpha_picks ADD COLUMN spillover_score REAL",
+    # daily_alpha_picks: v2 품질 게이트 컬럼
+    "ALTER TABLE daily_alpha_picks ADD COLUMN source_reason_type TEXT",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN style_detail TEXT",
+    "ALTER TABLE daily_alpha_picks ADD COLUMN is_speculative INTEGER DEFAULT 0",
 ]
 
 # 기존 DB 백필: signal_price 컬럼 추가 후 close_price_at_report 값 복사
@@ -986,9 +990,11 @@ class Store:
                          signal_price, signal_price_source, evidence_count,
                          direct_evidence_count, sector, rank, sent, status,
                          source_symbol, source_name, source_return,
-                         relation_type, rule_id, spillover_score)
+                         relation_type, rule_id, spillover_score,
+                         source_reason_type, style_detail, is_speculative)
                         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                               ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, ?, ?, ?, ?
+                               ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?, ?, ?, ?, ?,
+                               ?, ?, ?
                         WHERE NOT EXISTS (
                             SELECT 1 FROM daily_alpha_picks
                             WHERE session=? AND market=? AND side=? AND symbol=?
@@ -1015,6 +1021,10 @@ class Store:
                             getattr(pick, "relation_type", "") or "",
                             getattr(pick, "rule_id", "") or "",
                             getattr(pick, "spillover_score", 0.0) or 0.0,
+                            # v2 quality fields
+                            getattr(pick, "source_reason_type", "") or "",
+                            getattr(pick, "style_detail", "") or "",
+                            1 if getattr(pick, "is_speculative", False) else 0,
                             # WHERE NOT EXISTS params
                             session, market, pick.side, pick.symbol,
                             f"{today_prefix}%",

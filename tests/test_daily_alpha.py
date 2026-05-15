@@ -222,7 +222,7 @@ def test_build_report_contains_disclaimer():
 def test_build_report_empty_picks_no_crash():
     report = build_daily_alpha_report([], [], "US", "US_2200")
     assert "Daily Alpha Picks" in report
-    assert "조건 충족 후보 없음" in report
+    assert "정식 후보 부족" in report
 
 
 def test_build_report_us_market():
@@ -357,3 +357,103 @@ def test_weekly_daily_alpha_section_with_data(tmp_path):
     result = build_daily_alpha_performance_section(store, since=since)
     # Either we get a section or empty string — no exception either way
     assert isinstance(result, str)
+
+
+# ── v2 quality gate tests ─────────────────────────────────────────────────────
+
+def test_pick_is_speculative_field_default():
+    pick = DailyAlphaPick(session=SESSION_KR, market="KR", symbol="A", name="A", side="LONG", final_score=65.0)
+    assert pick.is_speculative is False
+    assert pick.sentiment_missing is False
+
+
+def test_pick_speculative_flag_set():
+    pick = DailyAlphaPick(
+        session=SESSION_KR, market="KR", symbol="A", name="A",
+        side="LONG", final_score=65.0, is_speculative=True,
+    )
+    assert pick.is_speculative is True
+
+
+def test_report_speculative_tag_shown():
+    pick = _make_pick("LONG", "KR", 65.0, 50000.0)
+    pick.is_speculative = True
+    pick.rank = 1
+    report = build_daily_alpha_report([pick], [], "KR")
+    assert "고위험" in report
+
+
+def test_report_main_long_no_speculative_tag():
+    pick = _make_pick("LONG", "KR", 75.0, 50000.0)
+    pick.rank = 1
+    report = build_daily_alpha_report([pick], [], "KR")
+    assert "고위험" not in report.split("🟢 LONG 관찰 후보")[1].split("🔴")[0]
+
+
+def test_compute_atr_basic():
+    import numpy as np
+    import pandas as pd
+
+    from tele_quant.daily_alpha import _compute_atr
+
+    n = 30
+    idx = pd.date_range("2026-01-01", periods=n, freq="D")
+    close = pd.Series(100.0 + np.sin(np.arange(n) * 0.3) * 5, index=idx)
+    high = close + 1.0
+    low = close - 1.0
+    atr = _compute_atr(high, low, close)
+    assert atr is not None
+    assert atr > 0
+
+
+def test_price_zones_long_uses_atr():
+    from tele_quant.daily_alpha import _price_zones
+
+    _entry, invalid, target = _price_zones(100.0, is_kr=False, side="LONG", atr=5.0)
+    assert "95" in invalid  # 100 - 1*5 = 95
+    assert "107" in target or "108" in target  # 100 + 1.5*5 = 107.5
+    assert "하향 이탈 시 무효" in invalid
+
+
+def test_price_zones_short_uses_atr():
+    from tele_quant.daily_alpha import _price_zones
+
+    _entry, invalid, _target = _price_zones(100.0, is_kr=False, side="SHORT", atr=5.0)
+    assert "105" in invalid  # 100 + 1*5 = 105
+    assert "상향 돌파 시 무효" in invalid
+
+
+def test_price_zones_long_wording_no_atr():
+    from tele_quant.daily_alpha import _price_zones
+
+    _, invalid, _ = _price_zones(50000.0, is_kr=True, side="LONG")
+    assert "하향 이탈 시 무효" in invalid
+
+
+def test_price_zones_short_wording_no_atr():
+    from tele_quant.daily_alpha import _price_zones
+
+    _, invalid, _ = _price_zones(100.0, is_kr=False, side="SHORT")
+    assert "상향 돌파 시 무효" in invalid
+
+
+def test_sentiment_missing_returns_true_when_no_store():
+    from tele_quant.daily_alpha import _score_sentiment
+
+    score, reason, _ev, _direct_ev, missing = _score_sentiment("NVDA", None)
+    assert missing is True
+    assert score == 50.0
+    assert "확인 불가" in reason
+
+
+def test_report_source_reason_type_shown():
+    pick = _make_pick("LONG", "US", 72.0, 400.0)
+    pick.source_symbol = "NVDA"
+    pick.source_name = "NVIDIA"
+    pick.source_return = 8.5
+    pick.source_reason_type = "ai_capex"
+    pick.connection_reason = "AI 데이터센터 capex → 전력망 수요"
+    pick.rank = 1
+    report = build_daily_alpha_report([pick], [], "US")
+    assert "source 이유" in report
+    assert "ai_capex" in report

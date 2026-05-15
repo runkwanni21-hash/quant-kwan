@@ -830,6 +830,35 @@ def build_daily_alpha_performance_section(
             else:
                 lines.append("- 이번 주 가격 평가 데이터 없음 (신호 미생성 또는 가격 미확인)")
 
+    # Style-based performance breakdown (across all markets)
+    all_reviewed: list[dict] = []
+    for r in rows[:20]:
+        sym = r.get("symbol") or ""
+        mkt = r.get("market") or "KR"
+        signal_price = r.get("signal_price")
+        current_price = _fetch_review_price(sym, mkt)
+        side = r.get("side") or "LONG"
+        if not signal_price or not current_price:
+            continue
+        ret = (current_price - signal_price) / signal_price * 100
+        if side == "SHORT":
+            ret = -ret
+        all_reviewed.append({
+            "style": (r.get("style") or "기타").split(" + ")[0],
+            "return_pct": ret,
+            "hit": 1 if ret > 0 else 0,
+        })
+
+    if all_reviewed:
+        style_groups: dict[str, list[float]] = {}
+        for e in all_reviewed:
+            style_groups.setdefault(e["style"], []).append(e["return_pct"])
+        lines.append("\n▸ 스타일별 성과")
+        for sty, rets in sorted(style_groups.items(), key=lambda x: -sum(x[1]) / len(x[1])):
+            avg = sum(rets) / len(rets)
+            wins = sum(1 for r in rets if r > 0)
+            lines.append(f"  {sty}: {avg:+.1f}% 평균 / 승률 {wins}/{len(rets)}")
+
     if len(lines) == 1:
         return ""
 

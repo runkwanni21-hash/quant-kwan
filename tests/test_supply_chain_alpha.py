@@ -481,3 +481,52 @@ def test_supply_chain_section_with_spillover(tmp_path):
     assert isinstance(result, str)
     if result:
         assert "Supply-chain Alpha" in result
+
+
+# ── v2 quality gate tests ─────────────────────────────────────────────────────
+
+def test_style_long_unknown_price_only_no_2nd_wave():
+    style = _style_long("BENEFICIARY", val=80.0, tech4=80.0, source_reason="unknown_price_only")
+    assert "2차 수혜 확산" not in style
+    assert "이유 불명" in style
+
+
+def test_style_long_unknown_price_only_peer():
+    style = _style_long("PEER_MOMENTUM", val=50.0, tech4=60.0, source_reason="unknown_price_only")
+    assert "2차 수혜 확산" not in style
+
+
+def test_style_short_unknown_price_only_no_2nd_wave():
+    style = _style_short("VICTIM", val=70.0, tech4=70.0, source_reason="unknown_price_only")
+    assert "2차 피해 확산" not in style
+    assert "이유 불명" in style
+
+
+def test_style_long_lagging_beneficiary():
+    style = _style_long("LAGGING_BENEFICIARY", val=60.0, tech4=60.0)
+    assert "피어 후행" in style or "수혜" in style
+
+
+def test_relevance_score_includes_lagging():
+    from tele_quant.supply_chain_alpha import _RELEVANCE_SCORE
+
+    assert "LAGGING_BENEFICIARY" in _RELEVANCE_SCORE
+    assert _RELEVANCE_SCORE["LAGGING_BENEFICIARY"] < _RELEVANCE_SCORE["BENEFICIARY"]
+
+
+def test_unknown_source_penalty_constant():
+    from tele_quant.supply_chain_alpha import _UNKNOWN_SOURCE_PENALTY
+
+    assert _UNKNOWN_SOURCE_PENALTY >= 10.0
+
+
+def test_pick_has_source_reason_type_field():
+    from tele_quant.daily_alpha import SESSION_KR, DailyAlphaPick
+
+    pick = DailyAlphaPick(
+        session=SESSION_KR, market="KR",
+        symbol="004020.KS", name="현대제철",
+        side="LONG", final_score=72.0,
+        source_reason_type="policy_benefit",
+    )
+    assert pick.source_reason_type == "policy_benefit"

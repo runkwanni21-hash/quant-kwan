@@ -75,7 +75,11 @@ _RELEVANCE_SCORE: dict[str, float] = {
     "DEMAND_SLOWDOWN": 80.0,
     "VICTIM": 80.0,
     "PEER_MOMENTUM": 70.0,
+    "LAGGING_BENEFICIARY": 65.0,
 }
+
+# unknown_price_only source는 spillover 신뢰도를 크게 낮춤
+_UNKNOWN_SOURCE_PENALTY = 20.0
 
 
 # ── Data models ───────────────────────────────────────────────────────────────
@@ -339,11 +343,14 @@ def _score_long(
     s_move = _source_move_score(src.return_1d, src.market)
     s_reason = _mover_reason_quality(src.reason_type, src.confidence)
     s_chain = _RELEVANCE_SCORE.get(target.relation_type, 70.0)
-    sent, _sr, _ec, _de = _score_sentiment(target.symbol, store)
+    sent, _sr, _ec, _de, _sm = _score_sentiment(target.symbol, store)
     val, _vr = _score_value_long(f)
     tech3, tech4, _r3, _r4 = _score_technical_long(d3, d4h)
     vol, _volr = _score_volume(d3.get("vol_ratio"), "LONG")
     penalty = _risk_penalty(target.symbol, d4h.get("rsi"), d3.get("vol_ratio"), src.market, "LONG")
+    # unknown_price_only source는 신뢰도 대폭 감점
+    if src.reason_type == "unknown_price_only":
+        penalty += _UNKNOWN_SOURCE_PENALTY
     return min(100.0, max(0.0,
         s_move * 0.15 + s_reason * 0.15 + s_chain * 0.15
         + sent * 0.10 + val * 0.15 + tech4 * 0.15
@@ -370,11 +377,13 @@ def _score_short(
     s_move = _source_move_score(src.return_1d, src.market)
     s_reason = _mover_reason_quality(src.reason_type, src.confidence)
     s_chain = _RELEVANCE_SCORE.get(target.relation_type, 70.0)
-    sent, _sr, _ec, _de = _score_sentiment(target.symbol, store)
+    sent, _sr, _ec, _de, _sm = _score_sentiment(target.symbol, store)
     val, _vr = _score_value_short(f)
     tech3, tech4, _r3, _r4 = _score_technical_short(d3, d4h)
     vol, _volr = _score_volume(d3.get("vol_ratio"), "SHORT")
     penalty = _risk_penalty(target.symbol, d4h.get("rsi"), d3.get("vol_ratio"), src.market, "SHORT")
+    if src.reason_type == "unknown_price_only":
+        penalty += _UNKNOWN_SOURCE_PENALTY
     return min(100.0, max(0.0,
         s_move * 0.15 + s_reason * 0.15 + s_chain * 0.15
         + (100 - sent) * 0.10 + val * 0.15 + tech4 * 0.15
@@ -384,15 +393,26 @@ def _score_short(
 
 # ── Style labels ──────────────────────────────────────────────────────────────
 
-def _style_long(relation_type: str, val: float, tech4: float) -> str:
+def _style_long(relation_type: str, val: float, tech4: float, source_reason: str = "") -> str:
+    # unknown_price_only source로는 "2차 수혜 확산" 금지
+    if source_reason == "unknown_price_only":
+        if relation_type in ("BENEFICIARY", "SUPPLY_CHAIN_COST"):
+            return "공급망 반사수혜 (이유 불명 source)"
+        return "관찰 후보 (이유 불명 source)"
     if relation_type in ("BENEFICIARY", "SUPPLY_CHAIN_COST"):
         return "2차 수혜 확산 + 저평가 반등" if val >= 65 else "공급망 반사수혜"
+    if relation_type == "LAGGING_BENEFICIARY":
+        return "피어 후행 수혜"
     if relation_type == "PEER_MOMENTUM":
         return "피어 후행반응"
     return "수혜 확산"
 
 
-def _style_short(relation_type: str, val: float, tech4: float) -> str:
+def _style_short(relation_type: str, val: float, tech4: float, source_reason: str = "") -> str:
+    if source_reason == "unknown_price_only":
+        if relation_type in ("VICTIM", "DEMAND_SLOWDOWN"):
+            return "공급망 피해 (이유 불명 source)"
+        return "관찰 후보 (이유 불명 source)"
     if relation_type in ("VICTIM", "DEMAND_SLOWDOWN"):
         return "2차 피해 확산 + 과열 숏" if val >= 65 else "공급망 비용 부담"
     if relation_type == "PEER_MOMENTUM":
@@ -430,23 +450,25 @@ def _build_pick(
     market = target.source.market
     is_kr = market == "KR"
     session = SESSION_KR if is_kr else SESSION_US
-    sent, sent_r, ev_cnt, dir_ev = _score_sentiment(target.symbol, store)
+    sent, sent_r, ev_cnt, dir_ev, sent_missing = _score_sentiment(target.symbol, store)
     vol_r = d3.get("vol_ratio")
+    src_reason = target.source.reason_type
 
     if side == "LONG":
         tech3, tech4, r3, r4 = _score_technical_long(d3, d4h)
         val, val_r = _score_value_long(f)
-        style = _style_long(target.relation_type, val, tech4)
+        style = _style_long(target.relation_type, val, tech4, src_reason)
         penalty = _risk_penalty(target.symbol, d4h.get("rsi"), vol_r, market, "LONG")
     else:
         tech3, tech4, r3, r4 = _score_technical_short(d3, d4h)
         val, val_r = _score_value_short(f)
-        style = _style_short(target.relation_type, val, tech4)
+        style = _style_short(target.relation_type, val, tech4, src_reason)
         penalty = _risk_penalty(target.symbol, d4h.get("rsi"), vol_r, market, "SHORT")
 
     vol_score, _vr = _score_volume(vol_r, side)
     close_price = d4h.get("close") or d3.get("close")
-    entry, invalid, tgt_zone = _price_zones(close_price, is_kr, side)
+    atr = d3.get("atr")
+    entry, invalid, tgt_zone = _price_zones(close_price, is_kr, side, atr)
     src = target.source
     connection_str = (
         f"{src.name} {src.return_1d:+.1f}% ({src.reason_ko}) → {target.connection}"
@@ -489,6 +511,8 @@ def _build_pick(
         rule_id=target.rule_id,
         spillover_score=score,
         connection_reason=connection_str,
+        source_reason_type=src.reason_type,
+        sentiment_missing=sent_missing,
     )
 
 
