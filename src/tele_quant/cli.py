@@ -815,6 +815,7 @@ def weekly(
             short_entries=short_entries if short_entries else None,
             narratives=weekly_narratives,
             fear_greed_history=weekly_fear_greed,
+            daily_alpha_store=store,
         )
 
         if mode == "deep_polish":
