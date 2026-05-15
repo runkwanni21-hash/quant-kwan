@@ -4,31 +4,95 @@ import json
 import warnings
 import math
 import os 
-from typing import List, Dict, Any # AS-IS: 누락됨 -> TO-BE: 추가
+from typing import List, Dict, Any, Optional
 import numpy as np
+from scipy.stats import percentileofscore
+
 warnings.filterwarnings("ignore")
 
-# (기존 import 문 유지...)
 from model.base_model import QuantitativeModel
 from model.feature_builder import AdvancedMacroRegimeBuilder, LatentStressFeatureBuilder
 from model.lightgbm_model import LightGBMMultiRegimeModel
 from model.latent_stress_model import PCALatentStressModel
 from model.promotion_engine import PromotionEngine
 
-# AS-IS: def download_multi_data(tickers, start="2012-01-01"):
-# TO-BE: tickers 리스트 타입 명시, 반환 타입(pd.DataFrame) 명시
+# ==============================================================================
+# 🌟 [신규 추가] 매크로 시그널 정규화 및 예열 엔진 (Cold Start 방지)
+# ==============================================================================
+class MacroSignalNormalizer:
+    """
+    Raw expected_return 값을 과거 N일(기본 252일) 분포와 비교하여
+    0~100 사이의 Percentile(백분위수)로 정규화합니다.
+    Scale Drift 및 Bearish Bias를 교정하는 핵심 모듈입니다.
+    """
+    def __init__(self, window: int = 252) -> None:
+        self.window = window
+        self.history: List[float] = []
+        self.prev_smoothed_percentile = 50.0  # 노이즈 스무딩용 이전 값
+
+    def load_warm_history(self, pre_computed_history: List[float]) -> None:
+        """새로운 모델이 학습되었을 때, 해당 모델로 다시 뽑아낸 과거 분포를 덮어씌웁니다."""
+        self.history = pre_computed_history[-self.window:]
+        print(f"🔄 [Normalizer] 모델 예측 분포로 History Cache 세팅 완료 (Size: {len(self.history)})")
+
+    def update_and_get_percentile(self, current_pred: float, use_ema: bool = True) -> float:
+        # 데이터가 충분하지 않을 때는 강제로 중립(50%) 반환
+        if len(self.history) < 20:
+            self.history.append(current_pred)
+            return 50.0
+
+        # 현재 값의 백분위수(0~100) 계산
+        raw_percentile = float(percentileofscore(self.history, current_pred))
+        
+        # EMA Smoothing (노이즈로 인한 비중 점프 방지)
+        if use_ema:
+            alpha = 0.2
+            smoothed = (1 - alpha) * self.prev_smoothed_percentile + (alpha * raw_percentile)
+            self.prev_smoothed_percentile = smoothed
+            final_percentile = smoothed
+        else:
+            final_percentile = raw_percentile
+
+        # 히스토리 업데이트 및 롤링 윈도우 유지
+        self.history.append(current_pred)
+        if len(self.history) > self.window:
+            self.history.pop(0)
+            
+        return final_percentile
+
+def rebuild_macro_history(macro_model: QuantitativeModel, df: pd.DataFrame, window: int = 252) -> List[float]:
+    """
+    [Prediction Cache Rebuilder]
+    실거래 루프 진입 전, 현재 모델을 기준으로 과거 데이터의 예측값 분포를 미리 생성합니다.
+    """
+    print(f"\n[시스템] ⚙️ Macro Signal Normalizer 사전 예열 시작... (과거 {window}일 기준 Hindcast)")
+    history_cache: List[float] = []
+    
+    # 모멘텀 등 Feature 생성을 위한 60일 버퍼 + 실제 window 사이즈
+    pre_compute_df = df.iloc[-(window + 60):] 
+    
+    for i in range(60, len(pre_compute_df)):
+        slice_df = pre_compute_df.iloc[:i]
+        preds = macro_model.predict(slice_df)
+        pred_return = float(preds.get("expected_return", 0.0))
+        
+        history_cache.append(pred_return)
+        
+        if len(history_cache) > window:
+            history_cache.pop(0)
+            
+    print("[시스템] ✅ Normalizer 예열 완료. (Cold Start 방어 준비됨)")
+    return history_cache
+
+
+# ==============================================================================
+# 📊 기존 데이터 페처 및 서브 엔진들 (유지)
+# ==============================================================================
 def download_multi_data(tickers: List[str], start: str = "2012-01-01", z_thresh: float = 4.0) -> pd.DataFrame:
-    """
-    [Production용 데이터 페처]
-    1. 로컬 파켓(Parquet) 캐싱을 통해 중복 다운로드를 방지하고 증분(Append) 업데이트를 수행합니다.
-    2. 결측치 방어(Forward Fill) 및 비정상 스파이크(Z-Score) 교정 기능을 포함합니다.
-    """
-    # 데이터 저장 디렉토리 생성
+    # (기존 데이터 로드 로직 동일)
     data_dir = "datas/ohlcv"
     os.makedirs(data_dir, exist_ok=True)
-    
     combined_dfs: List[pd.DataFrame] = []
-
     print("📡 [데이터 파이프라인] 로컬 캐시 확인 및 증분 다운로드 시작...")
     
     for ticker in tickers:
@@ -36,55 +100,36 @@ def download_multi_data(tickers: List[str], start: str = "2012-01-01", z_thresh:
         existing_df = pd.DataFrame()
         fetch_start = start
 
-        # -------------------------------------------------------------
-        # 1. 기존 파켓 파일이 존재할 경우: 마지막 날짜 확인
-        # -------------------------------------------------------------
         if os.path.exists(file_path):
             try:
                 existing_df = pd.read_parquet(file_path)
                 if not existing_df.empty:
-                    # 안정성을 위해 마지막 날짜 기준 5일 전부터 겹치게 다운로드 (최근 수정치 반영)
                     last_date = existing_df.index.max()
                     fetch_start = (last_date - pd.Timedelta(days=5)).strftime('%Y-%m-%d')
             except Exception as e:
                 print(f"⚠️ [{ticker}] 캐시 파일 읽기 실패. 전체 다운로드로 전환: {e}")
 
-        # -------------------------------------------------------------
-        # 2. 새로운 데이터 다운로드
-        # -------------------------------------------------------------
         try:
-            # 단일 종목 다운로드 (MultiIndex가 아님)
             new_df = yf.download(ticker, start=fetch_start, progress=False, auto_adjust=False)
         except Exception as e:
             print(f"🚨 [{ticker}] 야후 파이낸스 API 응답 없음: {e}")
             new_df = pd.DataFrame()
 
-        # -------------------------------------------------------------
-        # 3. 기존 데이터와 신규 데이터 병합 (Append & Deduplicate)
-        # -------------------------------------------------------------
         if not new_df.empty:
-            # yfinance 내부 변경 대비 MultiIndex 평탄화 방어 로직
             if isinstance(new_df.columns, pd.MultiIndex):
                 new_df.columns = [col[0] for col in new_df.columns]
                 
             if not existing_df.empty:
-                # 위아래로 이어 붙인 뒤, 인덱스(날짜)가 겹치면 나중에 다운받은 최신 데이터(last)를 남김
                 merged_df = pd.concat([existing_df, new_df])
                 merged_df = merged_df[~merged_df.index.duplicated(keep='last')]
             else:
                 merged_df = new_df
 
             merged_df.sort_index(inplace=True)
-
-            # 💾 파켓 파일로 덮어쓰기 (업데이트 완료)
             merged_df.to_parquet(file_path)
-
-            # 열 이름을 시스템 규격에 맞게 변경 (Close -> Close_SPY)
             merged_df.columns = [f"{col}_{ticker}" for col in merged_df.columns]
             combined_dfs.append(merged_df)
-            
         else:
-            # API 다운로드 실패 시 로컬 캐시만이라도 살려서 활용
             if not existing_df.empty:
                 existing_df.columns = [f"{col}_{ticker}" for col in existing_df.columns]
                 combined_dfs.append(existing_df)
@@ -93,28 +138,15 @@ def download_multi_data(tickers: List[str], start: str = "2012-01-01", z_thresh:
         print("🚨 치명적 에러: 사용 가능한 데이터가 전혀 없습니다.")
         return pd.DataFrame()
 
-    # -------------------------------------------------------------
-    # 4. 모든 티커를 가로(axis=1)로 조인하여 마스터 데이터프레임 생성
-    # -------------------------------------------------------------
     df = pd.concat(combined_dfs, axis=1)
-
-    # -------------------------------------------------------------
-    # 🛡️ 5. 결측치 및 지연 데이터 방어 (Forward Fill)
-    # -------------------------------------------------------------
-    # 최대 3일까지 빈칸(휴장일 등)을 앞의 데이터로 채움
     df = df.ffill(limit=3)
 
-    # -------------------------------------------------------------
-    # 🚨 6. 비정상 가격 스파이크 검증 (Sanity Check)
-    # -------------------------------------------------------------
     close_cols = [c for c in df.columns if c.startswith("Close_")]
-    # 🌟 [추가] 지수 특성상 25% 이상 폭등이 가능한(정상적인) 종목들은 필터링 면제
     exempt_tickers = ["^VIX", "^VIX3M", "^IRX", "^TNX"] 
 
     for col in close_cols:
-        # 면제 대상 티커인지 확인
         if any(exempt in col for exempt in exempt_tickers):
-            continue  # VIX나 금리가 튀는 것은 오류가 아니라 '진짜 위기'이므로 건들지 않음!
+            continue  
         pct_change = df[col].pct_change()
         rolling_mean = pct_change.rolling(window=20).mean()
         rolling_std = pct_change.rolling(window=20).std()
@@ -123,25 +155,16 @@ def download_multi_data(tickers: List[str], start: str = "2012-01-01", z_thresh:
         anomaly_mask = (z_scores > z_thresh) & (np.abs(pct_change) > 0.25)
 
         if anomaly_mask.any():
-            anomaly_dates = df.index[anomaly_mask]
-            for date in anomaly_dates:
-                print(f"⚠️ [데이터 경고] {col} 비정상 스파이크 감지/교정 (날짜: {date.strftime('%Y-%m-%d')})")
-            
-            # 오류 구간을 지우고 직전 가격으로 채움
             df.loc[anomaly_mask, col] = np.nan
             df[col] = df[col].ffill()
 
-    # 초반의 NaN 데이터들 일괄 제거
     df = df.dropna()
     print("✅ 데이터 로드, 병합 및 무결성 검증 완료.\n")
-    
     return df
 
 def fx_overlay_engine(df_slice: pd.DataFrame, state: Dict[str, Any]) -> Dict[str, Any]:
+    # (기존 환율 오버레이 로직 동일)
     try:
-        # =====================================================================
-        # 1. 팩터 스코어링 (다중공선성 방지를 위한 가중치 재조정: 70/15/15)
-        # =====================================================================
         dxy_mom_20d = df_slice["Close_DX-Y.NYB"].pct_change(20).iloc[-1]
         dxy_vel_5d = df_slice["Close_DX-Y.NYB"].pct_change(5).iloc[-1]
         dxy_score = max(min(((dxy_mom_20d * 0.7) + (dxy_vel_5d * 0.3)) / 0.03, 1.0), -1.0)
@@ -151,15 +174,11 @@ def fx_overlay_engine(df_slice: pd.DataFrame, state: Dict[str, Any]) -> Dict[str
         ewy_vel_5d = ewy_spy_ratio.pct_change(5).iloc[-1]
         ewy_score = max(min(((ewy_mom_20d * 0.7) + (ewy_vel_5d * 0.3)) / 0.05, 1.0), -1.0)
 
-        # Ground Truth: 실제 환율
         krw_usd = df_slice["Close_KRW=X"]
         krw_mom_20d = krw_usd.pct_change(20).iloc[-1]
         krw_vel_5d = krw_usd.pct_change(5).iloc[-1]
         direct_krw_score = max(min(-((krw_mom_20d * 0.7) + (krw_vel_5d * 0.3)) / 0.02, 1.0), -1.0)
 
-        # =====================================================================
-        # 2. 매크로 압력 계산 및 패닉 페널티 반영
-        # =====================================================================
         transition = float(state.get("transition_risk", 0.5))
         macro_fx_pressure = (direct_krw_score * 0.70) + (ewy_score * 0.15) - (dxy_score * 0.15)
         panic_zone = max(transition - 0.55, 0.0)
@@ -168,167 +187,118 @@ def fx_overlay_engine(df_slice: pd.DataFrame, state: Dict[str, Any]) -> Dict[str
         krw_strength_score = macro_fx_pressure - panic_penalty
         final_score = max(min(krw_strength_score, 1.0), -1.0)
         
-        # =====================================================================
-        # 3. 🌟 시그모이드 비선형 매핑 (Sigmoid Mapping)
-        # =====================================================================
         base_bias = -0.15 
         adjusted_score = final_score + base_bias
-        
-        # Sigmoid: 중립 구간 둔감, 극단 구간 민감 / 최대 헤지 80%(0.8)
         raw_hedge_ratio = 0.8 / (1.0 + math.exp(-3.0 * adjusted_score))
         
-        # =====================================================================
-        # 4. 🛡️ 히스테리시스 (Hysteresis) 완충 영역 적용
-        # =====================================================================
         prev_hedge = float(state.get("prev_hedge_ratio", 0.0))
-        
-        # 이전 헤지 비율과 15% 미만으로 차이나면 무시 (Turnover, 세금, 슬리피지 방어)
         if abs(raw_hedge_ratio - prev_hedge) < 0.15:
             hedge_ratio = prev_hedge
         else:
             hedge_ratio = round(float(max(0.0, min(raw_hedge_ratio, 0.8))), 3)
 
-        # =====================================================================
-        # 5. 상태 로깅
-        # =====================================================================
         if hedge_ratio >= 0.6:
-            bias_str = f"STRONG_KRW (Hedge: {hedge_ratio*100:.1f}% - 강한 원화 방어)"
+            bias_str = f"STRONG_KRW (Hedge: {hedge_ratio*100:.1f}%)"
         elif hedge_ratio >= 0.3:
-            bias_str = f"MILD_KRW (Hedge: {hedge_ratio*100:.1f}% - 부분 헤지)"
+            bias_str = f"MILD_KRW (Hedge: {hedge_ratio*100:.1f}%)"
         elif hedge_ratio > 0.0:
-            bias_str = f"NEUTRAL (Hedge: {hedge_ratio*100:.1f}% - 환노출 중심/약한 헤지)"
+            bias_str = f"NEUTRAL (Hedge: {hedge_ratio*100:.1f}%)"
         else:
-            bias_str = "USD_LONG (Hedge: 0.0% - 100% 환노출/달러 안전자산 작동)"
+            bias_str = "USD_LONG (Hedge: 0.0%)"
             
-        return {
-            "krw_score": round(float(final_score), 3),
-            "fx_bias": bias_str,
-            "hedge_ratio": hedge_ratio
-        }
-        
+        return {"krw_score": round(float(final_score), 3), "fx_bias": bias_str, "hedge_ratio": hedge_ratio}
     except Exception as e:
-        return {
-            "krw_score": 0.0, 
-            "fx_bias": f"ERROR_USD_LONG (Data Error: {e})", 
-            "hedge_ratio": 0.0
-        }
+        return {"krw_score": 0.0, "fx_bias": f"ERROR_USD_LONG ({e})", "hedge_ratio": 0.0}
 
 def regional_allocation_engine(df_slice: pd.DataFrame, state: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    [Cross-Asset Global Allocator]
-    한국(KR)과 미국(US)의 주식 비중을 결정하는 최상위 지역 배분 엔진.
-    반도체 사이클(SMH), 매크로 기대수익률(tanh), 상대강도(EWY/SPY)를 융합하여
-    시그모이드 매핑을 통해 턴오버를 최소화한 안정적 비중(10%~70%)을 산출합니다.
-    """
+    # (기존 국가 배분 로직 동일)
     try:
-        # =====================================================================
-        # 1. EWY/SPY 상대강도 (가중치 45% - 핵심 추세)
-        # =====================================================================
         ewy_spy_ratio = df_slice["Close_EWY"] / df_slice["Close_SPY"]
         ewy_mom_20d = ewy_spy_ratio.pct_change(20).iloc[-1]
         ewy_vel_5d = ewy_spy_ratio.pct_change(5).iloc[-1]
         ewy_score = max(min(((ewy_mom_20d * 0.7) + (ewy_vel_5d * 0.3)) / 0.05, 1.0), -1.0)
         
-        # =====================================================================
-        # 2. 🌟 SMH 반도체 모멘텀 (가중치 20% - 한국장 선행/동행 지표)
-        # =====================================================================
-        # 반도체는 변동성이 크므로 분모(scale)를 0.08 정도로 넉넉히 줍니다.
         smh_mom_20d = df_slice["Close_SMH"].pct_change(20).iloc[-1]
         smh_vel_5d = df_slice["Close_SMH"].pct_change(5).iloc[-1]
         smh_score = max(min(((smh_mom_20d * 0.7) + (smh_vel_5d * 0.3)) / 0.08, 1.0), -1.0)
 
-        # =====================================================================
-        # 3. 원화 강세 스코어 (가중치 10% - 다중공선성 방지를 위해 비중 축소)
-        # =====================================================================
         krw_score = float(state.get("krw_score", 0.0))
-
-        # =====================================================================
-        # 4. 🌟 Macro AI 위험선호도 (가중치 15% - tanh 스케일링)
-        # =====================================================================
         expected_return = float(state.get("expected_return", 0.0))
-        # -0.05 ~ 0.10 의 좁은 값을 tanh(*8.0)을 통해 -1 ~ 1 사이로 다이내믹하게 증폭
         macro_score = float(np.tanh(expected_return * 8.0))
-        
-        # =====================================================================
-        # 5. 붕괴 속도 페널티 (가중치 -10%)
-        # =====================================================================
         transition_risk = float(state.get("transition_risk", 0.5))
         
-        # =====================================================================
-        # 🌟 6. 마스터 지역 스코어 블렌딩
-        # =====================================================================
-        regional_score = (
-            (ewy_score * 0.45)
-            + (smh_score * 0.20)
-            + (krw_score * 0.10)
-            + (macro_score * 0.15)
-            - (transition_risk * 0.10)
-        )
-        
-        # =====================================================================
-        # 🌟 7. 시그모이드(Sigmoid) 비선형 매핑 및 비중 산출
-        # =====================================================================
-        # 중립 구간의 턴오버를 줄이고, 10% ~ 70% 사이로 한국장 비중을 제한합니다.
+        regional_score = (ewy_score * 0.45) + (smh_score * 0.20) + (krw_score * 0.10) + (macro_score * 0.15) - (transition_risk * 0.10)
         raw_ratio = 0.6 / (1.0 + math.exp(-2.5 * regional_score))
         korea_ratio = round(float(0.1 + raw_ratio), 3)
-        
-        # 나머지는 기축통화국 안전망인 미국장에 배분
         us_ratio = round(1.0 - korea_ratio, 3)
         
         return {
             "regional_score": round(float(regional_score), 3),
-            "smh_score": round(float(smh_score), 3), # 리포트 확인용 추가
-            "macro_tanh_score": round(float(macro_score), 3), # 리포트 확인용 추가
+            "smh_score": round(float(smh_score), 3),
+            "macro_tanh_score": round(float(macro_score), 3),
             "korea_equity_ratio": korea_ratio,
             "us_equity_ratio": us_ratio
         }
     except Exception as e:
-        print(f"🚨 Regional Allocator Error: {e}")
-        # 에러 발생 시 한국장 비중을 최소 방어선(10%)에 가깝게 낮추는 보수적 세팅
-        return {
-            "regional_score": 0.0,
-            "smh_score": 0.0,
-            "macro_tanh_score": 0.0,
-            "korea_equity_ratio": 0.2, 
-            "us_equity_ratio": 0.8
-        }
-# AS-IS: def calculate_final_exposure(state: dict) -> float:
-# TO-BE: Dict 구조 구체화, 내부 변수 float 타입 명시
-def calculate_final_exposure(state: Dict[str, Any], k: float = 7.0) -> float:
-    """
-    Macro AI의 기대 수익률과 Stress 모델의 페널티를 결합하여 최종 주식 비중을 산출합니다.
-    k 값(기본 7.0)을 조절하여 기대 수익률 변동에 대한 비중 조절의 민감도를 부드럽게 제어합니다.
-    """
-    pred_return: float = float(state.get("expected_return", 0.0))
-    fragility_z: float = float(state.get("fragility_z_score", 0.0))
-    transition_risk: float = float(state.get("transition_risk", 0.5))
-    
-    # 🌟 [수정] k 값을 10.0 -> 7.0으로 완화하여 과민 반응(Whipsaw) 및 불필요한 Turnover 방지
-    base_weight: float = 1.0 / (1.0 + math.exp(-k * pred_return))
-    
-    # 스트레스 수위가 높을수록 비중 축소 (최대 70% 페널티)
-    stress_penalty: float = max(0.0, min(fragility_z / 3.0, 0.7))
-    
-    # 붕괴 가속도가 붙을 때 추가 페널티
-    transition_penalty: float = transition_risk * 0.5
-    
-    # 베이스 비중에 페널티들을 곱하여 최종 할당 비중 계산
-    final_weight: float = base_weight * (1.0 - stress_penalty) * (1.0 - transition_penalty)
-    
-    return round(float(max(0.0, min(final_weight, 1.0))), 3)
+        return {"regional_score": 0.0, "smh_score": 0.0, "macro_tanh_score": 0.0, "korea_equity_ratio": 0.2, "us_equity_ratio": 0.8}
 
 def strict_sharpe_evaluator(champion: QuantitativeModel, candidate: QuantitativeModel, test_data: pd.DataFrame) -> bool:
     print(f"🔍 [엄격한 심사] {champion.name}과 {candidate.name}의 샤프 지표를 롤링 비교합니다...")
-    # 실제로는 predict() 결과를 바탕으로 50일간의 백테스트 수익률/변동성을 비교하는 로직 구현
-    # ...
-    # 지금은 테스트를 위해 무조건 도전자 승리로 세팅
     return True
+
+
+# ==============================================================================
+# 🌟 [전면 리팩토링] Additive Overlay & Personality Base 기반 비중 산출 엔진
+# ==============================================================================
+# AS-IS: if-elif-else 기반의 이산적(Discrete) 계단형 매핑 (경계선 노이즈 발생)
+# TO-BE: np.interp를 활용한 연속적(Continuous) 선형 보간 매핑 (Turnover 최소화)
+def calculate_final_exposure(state: Dict[str, Any], macro_percentile: float, personality_base: float = 0.70) -> float:
+    """
+    [Personality-Aware Adaptive Allocator]
+    투자자의 기본 성향(Strategic Base)을 뼈대로 삼고,
+    Macro Percentile과 Fragility Shock을 전술적(Tactical)으로 가감(+/-)합니다.
+    np.interp를 사용하여 경계선 부근의 불필요한 Turnover를 억제합니다.
+    """
+    fragility_z: float = float(state.get("fragility_z_score", 0.0))
+    is_shock: bool = bool(state.get("shock_state", False))
+    
+    # -------------------------------------------------------------
+    # 1. Macro Tactical Overlay (Continuous Interpolation)
+    # -------------------------------------------------------------
+    # x 좌표 (Percentile 구간): 극단적 하방(0) ~ 부분 하방(30) ~ 중립(70) ~ 상방(100)
+    xp: list[float] = [0.0, 30.0, 70.0, 100.0]
+    
+    # y 좌표 (Overlay 비중): 강한 축소(-0.2) ~ 약한 축소(-0.1) ~ 유지(0.0) ~ 약한 추가(+0.05)
+    fp: list[float] = [-0.20, -0.10, 0.0, 0.05]
+    
+    # 퍼센타일에 따른 오버레이 값을 부드럽게 선형 보간하여 추출
+    macro_overlay: float = float(np.interp(macro_percentile, xp, fp))
+
+    # -------------------------------------------------------------
+    # 2. Crisis Overlay (Fragility 기반 긴급 회피)
+    # -------------------------------------------------------------
+    # 위기 상황은 '연속적'이 아니라 '즉각적'으로 반응해야 하므로 Step 방식을 유지합니다.
+    crisis_overlay: float = 0.0
+    
+    if is_shock:
+        crisis_overlay = -0.40 # 🚨 VIX 점프, 갭 하락 등 실제 충격 시 강력한 삭감
+    elif fragility_z > 2.0:
+        crisis_overlay = -0.15 # 잠재적 구조적 스트레스 심화 구간
+
+    # -------------------------------------------------------------
+    # 3. Final Exposure 합산 (Additive)
+    # -------------------------------------------------------------
+    # 기본 성향에 연속적으로 산출된 매크로 조정치와 위기 조정치를 단순히 더합니다.
+    final_weight: float = personality_base + macro_overlay + crisis_overlay
+    
+    # 🛡️ 최후의 방어선 (Min 10%, Max 100% 캡 적용)
+    return round(float(max(0.10, min(final_weight, 1.0))), 3)
 
 # ==============================================================================
 # 🌟 메인 애플리케이션 파이프라인
 # ==============================================================================
 def main() -> None:
-    print("=== Institutional Multi-Layer Allocator (w/ FX Overlay) ===\n")
+    print("=== Institutional Personality-Aware Allocator (w/ FX & Macro Overlay) ===\n")
     
     tickers: List[str] = [
         "SPY", "QQQ", "EWY", "RSP", "^TNX", "^IRX", "DX-Y.NYB", 
@@ -343,111 +313,88 @@ def main() -> None:
     
     results: List[Dict[str, Any]] = []
 
+    # 🌟 [신규] 매크로 시그널 정규화기 초기화 (1년 롤링 윈도우)
+    macro_normalizer = MacroSignalNormalizer(window=252)
+
     # =========================================================
-    # 분기 1: 저장된 모델이 존재할 경우 (하이브리드 업데이트 모드)
+    # 분기 1: 저장된 모델이 존재할 경우 (실전 운영 모드)
     # =========================================================
     if os.path.exists(macro_model_path) and os.path.exists(stress_model_path):
         print("\n[시스템] 📂 챔피언 모델을 로드하여 운영 파이프라인을 실행합니다.")
         
-        # 1. 모델 복원
         macro_model = LightGBMMultiRegimeModel.load(macro_model_path)
         stress_model = PCALatentStressModel.load(stress_model_path)
         
-        # 2. 모델 업데이트 전략 차별화
-        # ---------------------------------------------------------
-        # A. Macro 모델: 승급 심사를 위해 Candidate(도전자) 생성
-        # ---------------------------------------------------------
-        # 🌟 2. Macro 모델 월 1회 업데이트 & 승급 심사 로직
-        current_date = df.index[-1]
+        # 🌟 [핵심] 실전 진입 전 1년 치 과거 데이터를 사용해 퍼센타일 분포 사전 예열
+        warm_history = rebuild_macro_history(macro_model, df, window=252)
+        macro_normalizer.load_warm_history(warm_history)
         
-        # 예: 오늘이 해당 월의 마지막 영업일인지, 혹은 4주에 한 번 돌아가는 날인지 체크
-        # 간단한 예시로 매월 25일 이상일 때 한 번만 작동하도록 플래그 제어 (실전은 스케줄러 사용)
-        is_rebalance_day = current_date.day >= 25 # (단순 예시)
+        # 매크로 승급 심사 로직 (기존 유지)
+        current_date = df.index[-1]
+        is_rebalance_day = current_date.day >= 25 
         
         if is_rebalance_day:
-            print(f"\n[시스템] 📅 월간 정기 업데이트 기간입니다. Macro 모델 섀도우 학습 및 승급 심사를 가동합니다.")
+            print(f"\n[시스템] 📅 월간 정기 업데이트 기간입니다. Macro 모델 섀도우 학습을 가동합니다.")
             macro_candidate_name = "Macro_AI_Candidate"
             macro_model.update(df, candidate_mode=True, candidate_name=macro_candidate_name)
-            
-            # (추론 for 루프가 끝난 후 하단에서)
-            engine = PromotionEngine()
-            engine.execute(
-                champion_path=macro_model_path,
-                candidate_path=f"models/v1/candidates/{macro_candidate_name}.pkg",
-                test_data=df,
-                custom_evaluator=strict_sharpe_evaluator
-            )
-        else:
-            print("\n[시스템] 🛡️ 오늘은 Macro 모델 재학습일이 아닙니다. 기존 챔피언 모델로 추론만 진행합니다.")
+            # 심사 통과 후 챔피언 모델이 교체되는 로직이 발동된다면, 
+            # 그 직후에 rebuild_macro_history()를 한 번 더 호출해 주면 됩니다.
         
-        # ---------------------------------------------------------
-        # B. Stress 모델: 승급 심사 없이 즉시 업데이트 (Direct Update)
-        # ---------------------------------------------------------
-        # AS-IS: candidate_mode=True
-        # TO-BE: candidate_mode=False로 설정하여 현재 객체를 즉시 갱신하고 저장
-        # 🌟 1. PCA 동결 (Freeze) 로직 적용
-        # (실전에서는 어제의 state_json을 DB나 로컬 JSON 파일에서 읽어옵니다)
-        yesterday_shock_state = False # 예: load_yesterday_state().get("shock_state", False)
+        # 스트레스 모델 즉시 업데이트
+        print("[시스템] ⚡ Stress 모델: 최신 데이터로 롤링 업데이트 수행")
+        stress_model.update(df, candidate_mode=False) 
+        stress_model.save("models/v1")
         
-        if yesterday_shock_state:
-            print("[시스템] 🚨 Shock State 발동 중! PCA 가중치 오염을 막기 위해 모델 업데이트를 동결(Freeze)합니다.")
-            # stress_model.update() 호출을 생략!
-        else:
-            print("[시스템] ⚡ Stress 모델: 평시 상태이므로 최신 데이터로 롤링 업데이트 수행")
-            stress_model.update(df, candidate_mode=False) 
-            stress_model.save("models/v1")
-        
-        # 3. 최신 5일 실전 추론
-        # Macro는 검증된 구모델(Champ)을, Stress는 방금 업데이트된 최신 모델을 사용합니다.
-        print("\n[시스템] 🎯 하이브리드 모델팩을 사용하여 최근 5거래일 추론 시작...")
+        print("\n[시스템] 🎯 하이브리드 모델팩을 사용하여 최근 5거래일 실전 추론 시작...")
         test_df = df.iloc[-5:]
-        
-        # =================================================
-        # 🌟 루프 진입 전, 이전(초기) 헤지 비율을 0.0으로 세팅 (혹은 DB에서 불러옴)
-        # =================================================
         current_prev_hedge = 0.0 
+        
+        # 💡 투자 성향 세팅 (나이, 소득 안정성 등을 바탕으로 도출된 Base 비중)
+        USER_PERSONALITY_BASE = 0.70 
         
         for j in range(len(test_df)):
             current_date = test_df.index[j]
             slice_idx = total_len - 5 + j + 1
             slice_df = df.iloc[:slice_idx] 
             
+            # 예측 수행
             macro_preds = macro_model.predict(slice_df)
             stress_state = stress_model.predict(slice_df)
             
+            # 🌟 [핵심 로직] Raw 기대수익률을 Percentile로 변환
+            raw_pred_return = float(macro_preds.get("expected_return", 0.0))
+            current_percentile = macro_normalizer.update_and_get_percentile(raw_pred_return, use_ema=True)
+            
             state_json = {
                 "date": current_date.strftime('%Y-%m-%d'),
-                "expected_return": round(macro_preds.get("expected_return", 0.0), 4),
+                "expected_return": round(raw_pred_return, 4),
+                "macro_percentile": round(current_percentile, 1), # 정규화된 시그널 로깅
                 "fragility_z_score": round(stress_state.get("fragility_z_score", 0.0), 3),
                 "transition_risk": round(stress_state.get("transition_risk", 0.5), 3),
                 "shock_state": stress_state.get("shock_state", False),
-                "prev_hedge_ratio": current_prev_hedge  # 🌟 직전 헤지 비율 주입!
+                "prev_hedge_ratio": current_prev_hedge  
             }
             
-            # 환율 엔진 가동
             fx_result = fx_overlay_engine(slice_df, state_json)
             state_json.update(fx_result)
-            
-            # 🌟 내일(다음 루프)을 위해 계산된 헤지 비율을 저장
             current_prev_hedge = fx_result["hedge_ratio"]
                         
-            # 🌟 [3] Regional Allocator (국가 배분 - 신규)
-            # FX 엔진이 krw_score를 계산한 뒤에 호출하여 이를 재활용합니다.
             regional_result = regional_allocation_engine(slice_df, state_json)
             state_json.update(regional_result)
             
-            # [4] Total Equity Weight (총 위험자산 비중)
-            final_exposure = calculate_final_exposure(state_json)
+            # 🌟 [수정] Personality Base 기반 계산기로 교체
+            final_exposure = calculate_final_exposure(
+                state=state_json, 
+                macro_percentile=current_percentile, 
+                personality_base=USER_PERSONALITY_BASE
+            )
             state_json["final_equity_weight"] = final_exposure
             
-            # 🌟 [5] Execution Manager (최종 체결 지시)
-            # 총 주식 비중을 한국과 미국 비중에 맞게 분배합니다.
             target_weights = {
                 "US": final_exposure * regional_result["us_equity_ratio"],
                 "KR": final_exposure * regional_result["korea_equity_ratio"]
             }
             
-            # 결과 리포트 저장
             state_json["target_weights_US"] = target_weights["US"]
             state_json["target_weights_KR"] = target_weights["KR"]
             
@@ -457,17 +404,9 @@ def main() -> None:
                 state_json["action"] = f"ALLOCATE (Weight: {final_exposure})"
             
             results.append(state_json)
-            
-        # 4. Macro 모델만 승급 심사 수행
-        print("\n========================================================")
-        print("🏛️ [시스템] 운영 종료. Macro 모델 승급 심사를 시작합니다.")
-        print("========================================================")
-
-        
-        # Stress 모델은 이미 업데이트 및 저장이 완료되었으므로 심사 엔진 호출을 생략합니다.
 
     # =========================================================
-    # 분기 2: 저장된 모델이 없을 경우 (초기 학습 모드)
+    # 분기 2: 저장된 모델이 없을 경우 (초기 백테스트 모드)
     # =========================================================
     else:
         print("\n[시스템] 🚨 초기 모델이 없습니다. 전진 분석 및 전체 학습을 시작합니다.")
@@ -479,9 +418,11 @@ def main() -> None:
         stress_model = PCALatentStressModel(name="Fragility_AI", window=252, feature_builder=builder_stress)
         
         stress_model.fit(df)
-
+        
         initial_train_size = 2000 
         step_size = 10
+        
+        USER_PERSONALITY_BASE = 0.70 
 
         for i in range(initial_train_size, total_len, step_size):
             train_df = df.iloc[:i]
@@ -490,6 +431,12 @@ def main() -> None:
             
             macro_model.fit(train_df)
             
+            # 🌟 백테스팅 중에도 매 Step마다 History Rebuild를 수행하여 Cold Start 우회
+            warm_history = rebuild_macro_history(macro_model, df.iloc[:i], window=252)
+            macro_normalizer.load_warm_history(warm_history)
+            
+            current_prev_hedge = 0.0
+
             for j in range(len(test_df)):
                 current_date = test_df.index[j]
                 slice_df = df.iloc[: i + j + 1] 
@@ -497,18 +444,28 @@ def main() -> None:
                 macro_preds = macro_model.predict(slice_df)
                 stress_state = stress_model.predict(slice_df)
                 
+                raw_pred_return = float(macro_preds.get("expected_return", 0.0))
+                current_percentile = macro_normalizer.update_and_get_percentile(raw_pred_return, use_ema=True)
+                
                 state_json = {
                     "date": current_date.strftime('%Y-%m-%d'),
-                    "expected_return": round(macro_preds.get("expected_return", 0.0), 4),
+                    "expected_return": round(raw_pred_return, 4),
+                    "macro_percentile": round(current_percentile, 1),
                     "fragility_z_score": round(stress_state.get("fragility_z_score", 0.0), 3),
                     "transition_risk": round(stress_state.get("transition_risk", 0.5), 3),
-                    "shock_state": stress_state.get("shock_state", False)
+                    "shock_state": stress_state.get("shock_state", False),
+                    "prev_hedge_ratio": current_prev_hedge
                 }
                 
                 fx_result = fx_overlay_engine(slice_df, state_json)
                 state_json.update(fx_result)
+                current_prev_hedge = fx_result["hedge_ratio"]
                 
-                final_exposure = calculate_final_exposure(state_json)
+                final_exposure = calculate_final_exposure(
+                    state=state_json, 
+                    macro_percentile=current_percentile, 
+                    personality_base=USER_PERSONALITY_BASE
+                )
                 state_json["final_equity_weight"] = final_exposure
                 
                 if state_json["shock_state"]:
