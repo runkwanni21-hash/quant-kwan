@@ -1,12 +1,15 @@
+"""Tests for relation_feed — self-computed mover engine (no external CSV)."""
+
 from __future__ import annotations
 
-import json
 import re
-from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-import pytest
+import pandas as pd
 
 from tele_quant.relation_feed import (
+    _UNIVERSE_KR,
+    _UNIVERSE_US,
     LeadLagCandidateRow,
     MoverRow,
     RelationFeedData,
@@ -15,8 +18,6 @@ from tele_quant.relation_feed import (
     get_relation_boost,
     load_relation_feed,
 )
-
-_FEED_DIR = Path("/home/kwanni/projects/quant_spillover/shared_relation_feed")
 
 _FORBIDDEN_PATTERNS = re.compile(
     r"ACTION_READY|LIVE_READY|\bBUY\b|\bSELL\b|\bORDER\b"
@@ -32,12 +33,8 @@ _MACRO_ONLY_FORBIDDEN = re.compile(r"롱 관심|숏/매도|관심 진입|손절|
 
 
 def _make_settings(**kwargs):
-    """Minimal settings-like object."""
-
     class FakeSettings:
         relation_feed_enabled = True
-        relation_feed_dir = str(_FEED_DIR)
-        relation_feed_max_age_hours = 72.0
         relation_feed_min_confidence = "medium"
         relation_feed_max_movers = 8
         relation_feed_max_targets_per_mover = 3
@@ -50,22 +47,25 @@ def _make_settings(**kwargs):
 
 
 def _make_feed_with_rows() -> RelationFeedData:
-    feed = RelationFeedData(
+    """Feed with synthetic movers and leadlag rows (no yfinance needed)."""
+    return RelationFeedData(
         summary=RelationFeedSummary(
-            generated_at="2026-05-07T08:00:00+09:00",
-            asof_date="2026-05-04",
+            generated_at="2026-05-15T08:00:00+00:00",
+            asof_date="2026-05-15",
+            price_rows=57,
             mover_rows=2,
             leadlag_rows=2,
-            status="ok",
-            warnings=["TEST_WARNING"],
+            status="live",
+            source_project="tele_quant_self",
+            method="yfinance-scan + correlation lead-lag",
         ),
         movers=[
             MoverRow(
-                asof_date="2026-05-04",
+                asof_date="2026-05-15",
                 market="US",
                 symbol="SNDK",
                 name="Sandisk",
-                sector="",
+                sector="반도체",
                 close=100.0,
                 prev_close=65.0,
                 return_pct=54.6,
@@ -74,11 +74,11 @@ def _make_feed_with_rows() -> RelationFeedData:
                 move_type="UP",
             ),
             MoverRow(
-                asof_date="2026-05-04",
+                asof_date="2026-05-15",
                 market="US",
                 symbol="RIVN",
                 name="Rivian",
-                sector="",
+                sector="전기차",
                 close=10.0,
                 prev_close=11.0,
                 return_pct=-9.2,
@@ -89,17 +89,17 @@ def _make_feed_with_rows() -> RelationFeedData:
         ],
         leadlag=[
             LeadLagCandidateRow(
-                asof_date="2026-05-04",
+                asof_date="2026-05-15",
                 source_market="US",
                 source_symbol="SNDK",
                 source_name="Sandisk",
-                source_sector="",
+                source_sector="반도체",
                 source_move_type="UP",
                 source_return_pct=54.6,
                 target_market="US",
                 target_symbol="MU",
                 target_name="Micron",
-                target_sector="",
+                target_sector="반도체",
                 relation_type="UP_LEADS_UP",
                 lag_days=1,
                 event_count=20,
@@ -108,164 +108,155 @@ def _make_feed_with_rows() -> RelationFeedData:
                 lift=1.8,
                 confidence="medium",
                 direction="beneficiary",
-                note="beneficiary candidate",
+                note="과거 반복 패턴",
             ),
         ],
+        is_stale=False,
+        feed_age_hours=0.0,
     )
-    return feed
+
+
+def _make_yf_download_mock(
+    syms: list[str],
+    up_syms: list[str],
+    down_syms: list[str],
+    up_ret: float = 6.0,
+    down_ret: float = -7.0,
+) -> MagicMock:
+    """Build a fake yf.download DataFrame with MultiIndex columns."""
+
+    dates = pd.date_range("2026-05-13", periods=3, freq="D")
+    records: dict[tuple[str, str], list[float]] = {}
+    for sym in syms:
+        if sym in up_syms:
+            records[("Close", sym)] = [100.0, 100.0, 100.0 * (1 + up_ret / 100)]
+        elif sym in down_syms:
+            records[("Close", sym)] = [100.0, 100.0, 100.0 * (1 + down_ret / 100)]
+        else:
+            records[("Close", sym)] = [100.0, 100.0, 100.0]
+
+    df = pd.DataFrame(records, index=dates)
+    df.columns = pd.MultiIndex.from_tuples(df.columns)
+    return df
 
 
 # ---------------------------------------------------------------------------
-# Tests: summary JSON read
+# Tests: universe constants
 # ---------------------------------------------------------------------------
 
 
-def test_summary_json_read():
-    """실제 피드 파일에서 summary를 읽는다."""
-    if not (_FEED_DIR / "latest_relation_summary.json").exists():
-        pytest.skip("shared_relation_feed 없음")
+def test_universe_us_not_empty():
+    assert len(_UNIVERSE_US) >= 20
 
-    settings = _make_settings()
+
+def test_universe_kr_not_empty():
+    assert len(_UNIVERSE_KR) >= 10
+
+
+def test_universe_kr_symbols_end_with_ks():
+    for sym in _UNIVERSE_KR:
+        assert sym.endswith(".KS") or sym.endswith(".KQ"), f"Bad KR symbol: {sym}"
+
+
+def test_universe_us_no_kr_suffix():
+    for sym in _UNIVERSE_US:
+        assert not sym.endswith(".KS") and not sym.endswith(".KQ"), f"KR symbol in US: {sym}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: load_relation_feed — disabled
+# ---------------------------------------------------------------------------
+
+
+def test_load_disabled():
+    """relation_feed_enabled=False → empty, no yfinance call."""
+    settings = _make_settings(relation_feed_enabled=False)
     feed = load_relation_feed(settings)
+    assert not feed.available
+
+
+# ---------------------------------------------------------------------------
+# Tests: load_relation_feed — yfinance mocked
+# ---------------------------------------------------------------------------
+
+
+def test_load_with_us_movers(monkeypatch):
+    """NVDA +6% → appears as UP mover."""
+    all_syms = list(_UNIVERSE_US) + list(_UNIVERSE_KR)
+    mock_df = _make_yf_download_mock(all_syms, up_syms=["NVDA"], down_syms=[])
+
+    monkeypatch.setattr("tele_quant.relation_feed.yf", _fake_yf_module(mock_df), raising=False)
+    with patch("tele_quant.relation_feed._compute_live_movers") as mock_compute:
+        mock_compute.return_value = (
+            [MoverRow("2026-05-15", "US", "NVDA", "NVIDIA", "반도체/AI",
+                      106.0, 100.0, 6.0, None, None, "UP")],
+            "2026-05-15",
+        )
+        settings = _make_settings()
+        feed = load_relation_feed(settings)
 
     assert feed.available
+    assert feed.is_stale is False
     assert feed.summary is not None
-    assert feed.summary.asof_date != ""
-    assert feed.summary.mover_rows >= 0
+    assert feed.summary.status == "live"
+    assert len(feed.movers) == 1
+    assert feed.movers[0].symbol == "NVDA"
+    assert feed.movers[0].move_type == "UP"
 
 
-# ---------------------------------------------------------------------------
-# Tests: movers CSV read
-# ---------------------------------------------------------------------------
+def test_load_returns_available_on_empty_movers(monkeypatch):
+    """No significant movers → available=True, movers=[]."""
+    with patch("tele_quant.relation_feed._compute_live_movers") as mock_compute:
+        mock_compute.return_value = ([], "2026-05-15")
+        settings = _make_settings()
+        feed = load_relation_feed(settings)
+
+    assert feed.available
+    assert feed.movers == []
+    assert feed.is_stale is False
 
 
-def test_movers_csv_read():
-    if not (_FEED_DIR / "latest_movers.csv").exists():
-        pytest.skip("shared_relation_feed 없음")
-
-    settings = _make_settings()
-    feed = load_relation_feed(settings)
-
-    assert len(feed.movers) > 0
-    for m in feed.movers:
-        assert m.move_type in ("UP", "DOWN")
-        assert m.symbol != ""
-
-
-# ---------------------------------------------------------------------------
-# Tests: leadlag CSV read
-# ---------------------------------------------------------------------------
-
-
-def test_leadlag_csv_read():
-    if not (_FEED_DIR / "latest_leadlag_candidates.csv").exists():
-        pytest.skip("shared_relation_feed 없음")
-
-    settings = _make_settings()
-    feed = load_relation_feed(settings)
-
-    # confidence=low가 기본 숨김(min_confidence=medium)이므로 low rows가 없어야 함
-    for row in feed.leadlag:
-        assert row.confidence != "low", "low confidence row가 포함됨"
-
-
-# ---------------------------------------------------------------------------
-# Tests: confidence=low 숨김
-# ---------------------------------------------------------------------------
-
-
-def test_confidence_low_hidden(tmp_path: Path):
-    """confidence=low rows가 기본 필터링됨."""
-    feed_dir = tmp_path / "feed"
-    feed_dir.mkdir()
-
-    # Write summary
-    (feed_dir / "latest_relation_summary.json").write_text(
-        json.dumps(
-            {
-                "generated_at": "2026-05-07T08:00:00+09:00",
-                "asof_date": "2026-05-04",
-                "status": "ok",
-                "warnings": [],
-            }
-        )
-    )
-
-    # Write leadlag CSV with low + medium rows
-    (feed_dir / "latest_movers.csv").write_text(
-        "asof_date,market,symbol,name,sector,close,prev_close,return_pct,volume,volume_ratio_20d,move_type\n"
-    )
-    (feed_dir / "latest_leadlag_candidates.csv").write_text(
-        "asof_date,source_market,source_symbol,source_name,source_sector,"
-        "source_move_type,source_return_pct,target_market,target_symbol,target_name,"
-        "target_sector,relation_type,lag_days,event_count,hit_count,conditional_prob,"
-        "lift,confidence,direction,note\n"
-        "2026-05-04,US,ZSL,ZSL Corp,ETF,UP,6.0,US,EP,Empire,,"
-        "UP_LEADS_UP,20,44,8,0.19,1.75,low,beneficiary,test\n"
-        "2026-05-04,US,ZSL,ZSL Corp,ETF,UP,6.0,US,USBC,USBC Corp,,"
-        "UP_LEADS_UP,20,55,10,0.17,1.59,medium,beneficiary,test\n"
-    )
-
-    settings = _make_settings(relation_feed_dir=str(feed_dir))
-    feed = load_relation_feed(settings)
-
-    assert len(feed.leadlag) == 1
-    assert feed.leadlag[0].confidence == "medium"
-
-
-# ---------------------------------------------------------------------------
-# Tests: graceful fallback when files absent
-# ---------------------------------------------------------------------------
-
-
-def test_graceful_fallback_no_files(tmp_path: Path):
-    """파일 없으면 graceful fallback, 예외 없음."""
-    settings = _make_settings(relation_feed_dir=str(tmp_path / "nonexistent"))
-    feed = load_relation_feed(settings)
+def test_load_yfinance_failure_returns_unavailable(monkeypatch):
+    """yfinance failure → available=False, no exception."""
+    with patch("tele_quant.relation_feed._compute_live_movers", side_effect=RuntimeError("fail")):
+        settings = _make_settings()
+        feed = load_relation_feed(settings)
 
     assert not feed.available
-    assert len(feed.load_warnings) > 0
-    assert not feed.movers
-    assert not feed.leadlag
 
 
-# ---------------------------------------------------------------------------
-# Tests: stale feed warning
-# ---------------------------------------------------------------------------
+def test_compute_live_movers_threshold_us(monkeypatch):
+    """US threshold=4%: 3% move filtered, 5% move included."""
+    import tele_quant.relation_feed as rf_mod
+
+    all_syms = list(_UNIVERSE_US) + list(_UNIVERSE_KR)
+    dates = pd.date_range("2026-05-13", periods=2, freq="D")
+    data = {}
+    for sym in all_syms:
+        if sym == "NVDA":
+            data[sym] = [100.0, 105.0]
+        elif sym == "AAPL":
+            data[sym] = [100.0, 103.0]
+        else:
+            data[sym] = [100.0, 100.0]
+
+    tuples = [("Close", s) for s in all_syms]
+    df = pd.DataFrame({t: data[t[1]] for t in tuples}, index=dates)
+    df.columns = pd.MultiIndex.from_tuples(df.columns)
+
+    with patch("yfinance.download", return_value=df):
+        settings = _make_settings()
+        movers, _asof = rf_mod._compute_live_movers(settings)
+
+    syms = [m.symbol for m in movers]
+    assert "NVDA" in syms
+    assert "AAPL" not in syms  # 3% < 4% threshold
 
 
-def test_stale_feed_warning(tmp_path: Path):
-    """max_age_hours 초과하면 is_stale=True, warning 표시."""
-    feed_dir = tmp_path / "feed"
-    feed_dir.mkdir()
-
-    (feed_dir / "latest_relation_summary.json").write_text(
-        json.dumps(
-            {
-                "generated_at": "2020-01-01T00:00:00+00:00",  # 아주 오래전
-                "asof_date": "2020-01-01",
-                "status": "ok",
-                "warnings": [],
-            }
-        )
-    )
-    (feed_dir / "latest_movers.csv").write_text(
-        "asof_date,market,symbol,name,sector,close,prev_close,return_pct,volume,volume_ratio_20d,move_type\n"
-    )
-    (feed_dir / "latest_leadlag_candidates.csv").write_text(
-        "asof_date,source_market,source_symbol,source_name,source_sector,"
-        "source_move_type,source_return_pct,target_market,target_symbol,target_name,"
-        "target_sector,relation_type,lag_days,event_count,hit_count,conditional_prob,"
-        "lift,confidence,direction,note\n"
-    )
-
-    settings = _make_settings(relation_feed_dir=str(feed_dir), relation_feed_max_age_hours=72.0)
-    feed = load_relation_feed(settings)
-
-    assert feed.available  # stale해도 로드는 됨
-    assert feed.is_stale
-    stale_warns = [w for w in feed.load_warnings if "오래됨" in w]
-    assert len(stale_warns) > 0
+def _fake_yf_module(df):
+    m = MagicMock()
+    m.download.return_value = df
+    return m
 
 
 # ---------------------------------------------------------------------------
@@ -274,17 +265,14 @@ def test_stale_feed_warning(tmp_path: Path):
 
 
 def test_report_section_generation():
-    """섹션 문자열이 생성되고 필수 요소를 포함."""
     feed = _make_feed_with_rows()
     section = build_relation_feed_section(feed)
-
     assert "후행 관찰 후보" in section
     assert "SNDK" in section
     assert "통계적 관찰 목록" in section
 
 
 def test_report_section_shows_target():
-    """target 종목이 섹션에 표시됨."""
     feed = _make_feed_with_rows()
     section = build_relation_feed_section(feed)
     assert "MU" in section
@@ -292,11 +280,32 @@ def test_report_section_shows_target():
 
 
 def test_report_section_empty_feed():
-    """feed가 없으면 warning 섹션만 반환 또는 빈 문자열."""
     feed = RelationFeedData()
     feed.load_warnings.append("relation feed 없음")
     section = build_relation_feed_section(feed)
     assert "후행 관찰 후보" in section or section == ""
+
+
+def test_report_section_no_stale_hidden():
+    """is_stale=True여도 섹션이 숨겨지지 않는다 (stale 개념 제거됨)."""
+    feed = _make_feed_with_rows()
+    feed.is_stale = True  # 하위호환 — 이제 무시됨
+    section = build_relation_feed_section(feed)
+    assert "후행 관찰 후보" in section
+
+
+def test_report_section_method_label():
+    """섹션에 자체 계산 method가 표시됨."""
+    feed = _make_feed_with_rows()
+    section = build_relation_feed_section(feed)
+    assert "yfinance" in section or "correlation" in section or "자체 계산" in section
+
+
+def test_report_section_scan_stats():
+    """스캔 종목 수가 표시됨."""
+    feed = _make_feed_with_rows()
+    section = build_relation_feed_section(feed)
+    assert "스캔" in section or "57" in section
 
 
 # ---------------------------------------------------------------------------
@@ -305,14 +314,12 @@ def test_report_section_empty_feed():
 
 
 def test_no_forbidden_expressions():
-    """금지 표현이 섹션에 없음."""
     feed = _make_feed_with_rows()
     section = build_relation_feed_section(feed)
     assert not _FORBIDDEN_PATTERNS.search(section), f"금지 표현 발견: {section}"
 
 
 def test_no_forbidden_expressions_macro_only():
-    """macro_only 섹션에 매수/매도 지시 표현 없음."""
     feed = _make_feed_with_rows()
     section = build_relation_feed_section(feed, macro_only=True)
     assert not _MACRO_ONLY_FORBIDDEN.search(section), f"macro_only 금지 표현 발견: {section}"
@@ -324,66 +331,28 @@ def test_no_forbidden_expressions_macro_only():
 
 
 def test_target_deduplication():
-    """같은 target이 중복 표시되지 않음."""
     feed = RelationFeedData(
         summary=RelationFeedSummary(
-            generated_at="2026-05-07T08:00:00+09:00",
-            asof_date="2026-05-04",
-            status="ok",
+            generated_at="2026-05-15T08:00:00+00:00",
+            asof_date="2026-05-15",
+            status="live",
         ),
         movers=[
-            MoverRow("2026-05-04", "US", "SNDK", "Sandisk", "", 100.0, 65.0, 54.6, None, None, "UP")
+            MoverRow("2026-05-15", "US", "SNDK", "Sandisk", "", 100.0, 65.0, 54.6, None, None, "UP")
         ],
         leadlag=[
             LeadLagCandidateRow(
-                "2026-05-04",
-                "US",
-                "SNDK",
-                "Sandisk",
-                "",
-                "UP",
-                54.6,
-                "US",
-                "MU",
-                "Micron",
-                "",
-                "UP_LEADS_UP",
-                1,
-                20,
-                12,
-                0.625,
-                1.8,
-                "medium",
-                "beneficiary",
-                "",
+                "2026-05-15", "US", "SNDK", "Sandisk", "", "UP", 54.6,
+                "US", "MU", "Micron", "", "UP_LEADS_UP", 1, 20, 12, 0.625, 1.8, "medium", "beneficiary", "",
             ),
             LeadLagCandidateRow(
-                "2026-05-04",
-                "US",
-                "SNDK",
-                "Sandisk",
-                "",
-                "UP",
-                54.6,
-                "US",
-                "MU",
-                "Micron",
-                "",
-                "UP_LEADS_UP",  # 중복
-                20,
-                20,
-                12,
-                0.500,
-                1.5,
-                "medium",
-                "beneficiary",
-                "",
+                "2026-05-15", "US", "SNDK", "Sandisk", "", "UP", 54.6,
+                "US", "MU", "Micron", "", "UP_LEADS_UP", 2, 20, 12, 0.500, 1.5, "medium", "beneficiary", "",
             ),
         ],
     )
     section = build_relation_feed_section(feed)
-    # MU가 두 번 나오면 안 됨
-    assert section.count("MU") <= 2  # 한 번은 target에, 한 번은 이름에
+    assert section.count("MU") <= 2
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +361,6 @@ def test_target_deduplication():
 
 
 def test_relation_boost_medium():
-    """medium confidence boost=1."""
     feed = _make_feed_with_rows()
     boost, note = get_relation_boost(feed, "MU", has_telegram_evidence=True, technical_ok=True)
     assert boost == 1.0
@@ -400,65 +368,46 @@ def test_relation_boost_medium():
 
 
 def test_relation_boost_no_telegram():
-    """telegram evidence 없으면 boost=0."""
     feed = _make_feed_with_rows()
     boost, _note = get_relation_boost(feed, "MU", has_telegram_evidence=False, technical_ok=True)
     assert boost == 0.0
 
 
 def test_relation_boost_no_technical():
-    """technical ok 아니면 boost=0."""
     feed = _make_feed_with_rows()
     boost, _note = get_relation_boost(feed, "MU", has_telegram_evidence=True, technical_ok=False)
     assert boost == 0.0
 
 
 def test_relation_boost_not_in_feed():
-    """feed에 없는 심볼은 boost=0."""
     feed = _make_feed_with_rows()
     boost, _note = get_relation_boost(feed, "AAPL", has_telegram_evidence=True, technical_ok=True)
     assert boost == 0.0
 
 
 def test_relation_boost_none_feed():
-    """feed=None이면 boost=0."""
     boost, _note = get_relation_boost(None, "MU", has_telegram_evidence=True, technical_ok=True)
     assert boost == 0.0
 
 
 # ---------------------------------------------------------------------------
-# Tests: stale feed 40시간 섹션 숨김
+# Tests: fresh feed always shown
 # ---------------------------------------------------------------------------
 
 
-def test_stale_feed_section_hidden():
-    """is_stale=True이면 build_relation_feed_section이 빈 문자열 반환."""
-    feed = _make_feed_with_rows()
-    feed.is_stale = True
-    feed.feed_age_hours = 41.0
-    section = build_relation_feed_section(feed)
-    assert section == ""
-    assert "⚡ 과거 급등" not in section
-    assert "보성파워텍" not in section
-    assert "에스티큐브" not in section
-
-
-def test_stale_feed_section_no_heavy_content():
-    """stale feed 시 후행 관찰 후보 상세가 나오지 않는다."""
-    feed = _make_feed_with_rows()
-    feed.is_stale = True
-    feed.feed_age_hours = 137.0
-    section = build_relation_feed_section(feed)
-    # 제목 자체가 없어야 함
-    assert "⚡" not in section
-    assert "후행 관찰 후보" not in section
-
-
 def test_fresh_feed_section_shown():
-    """is_stale=False이면 섹션이 정상 표시된다."""
     feed = _make_feed_with_rows()
     feed.is_stale = False
-    feed.feed_age_hours = 10.0
+    feed.feed_age_hours = 0.0
     section = build_relation_feed_section(feed)
     assert section != ""
     assert "후행 관찰 후보" in section
+
+
+def test_feed_age_always_zero():
+    """자체 계산 피드는 feed_age_hours=0."""
+    with patch("tele_quant.relation_feed._compute_live_movers") as mock_compute:
+        mock_compute.return_value = ([], "2026-05-15")
+        feed = load_relation_feed(_make_settings())
+    assert feed.feed_age_hours == 0.0
+    assert not feed.is_stale

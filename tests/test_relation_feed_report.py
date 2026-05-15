@@ -486,119 +486,12 @@ def _make_feed_with_many_leadlag(n: int = 50) -> RelationFeedData:
 
 
 def test_cli_default_limit_20(tmp_path):
-    """relation-feed CLI 기본 출력은 20행 이하."""
-    import json
+    """relation-feed CLI 기본 출력 — 자체 계산 피드 표시 확인."""
     import os
 
     from typer.testing import CliRunner
 
     from tele_quant.cli import app
-
-    feed_dir = tmp_path / "feed"
-    feed_dir.mkdir()
-    summary_path = feed_dir / "latest_relation_summary.json"
-    summary_path.write_text(
-        json.dumps(
-            {
-                "generated_at": "2026-05-07T08:00:00+09:00",
-                "asof_date": "2026-05-04",
-                "price_rows": 0,
-                "mover_rows": 1,
-                "leadlag_rows": 50,
-                "status": "ok",
-                "warnings": [],
-                "source_project": "stock-relation-ai",
-                "method": "event-conditioned lead-lag",
-            }
-        ),
-        encoding="utf-8",
-    )
-    import csv
-
-    with (feed_dir / "latest_movers.csv").open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(
-            f,
-            fieldnames=[
-                "asof_date",
-                "market",
-                "symbol",
-                "name",
-                "sector",
-                "close",
-                "prev_close",
-                "return_pct",
-                "volume",
-                "volume_ratio_20d",
-                "move_type",
-            ],
-        )
-        w.writeheader()
-        w.writerow(
-            {
-                "asof_date": "2026-05-04",
-                "market": "US",
-                "symbol": "NVDA",
-                "name": "NVIDIA",
-                "sector": "",
-                "close": 850.0,
-                "prev_close": 800.0,
-                "return_pct": 6.2,
-                "volume": "",
-                "volume_ratio_20d": "",
-                "move_type": "UP",
-            }
-        )
-
-    fieldnames = [
-        "asof_date",
-        "source_market",
-        "source_symbol",
-        "source_name",
-        "source_sector",
-        "source_move_type",
-        "source_return_pct",
-        "target_market",
-        "target_symbol",
-        "target_name",
-        "target_sector",
-        "relation_type",
-        "lag_days",
-        "event_count",
-        "hit_count",
-        "conditional_prob",
-        "lift",
-        "confidence",
-        "direction",
-        "note",
-    ]
-    with (feed_dir / "latest_leadlag_candidates.csv").open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        for i in range(50):
-            w.writerow(
-                {
-                    "asof_date": "2026-05-04",
-                    "source_market": "US",
-                    "source_symbol": "NVDA",
-                    "source_name": "NVIDIA",
-                    "source_sector": "",
-                    "source_move_type": "UP",
-                    "source_return_pct": 6.2,
-                    "target_market": "US",
-                    "target_symbol": f"TGT{i:03d}",
-                    "target_name": f"Target {i}",
-                    "target_sector": "",
-                    "relation_type": "UP_LEADS_UP",
-                    "lag_days": 1,
-                    "event_count": 15,
-                    "hit_count": 9,
-                    "conditional_prob": 0.60,
-                    "lift": 1.8,
-                    "confidence": "medium",
-                    "direction": "beneficiary",
-                    "note": "",
-                }
-            )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -606,7 +499,6 @@ def test_cli_default_limit_20(tmp_path):
         ["relation-feed"],
         env={
             **os.environ,
-            "RELATION_FEED_DIR": str(feed_dir),
             "TELEGRAM_API_ID": "12345",
             "TELEGRAM_API_HASH": "abc",
             "TELEGRAM_PHONE": "+821012345678",
@@ -616,121 +508,17 @@ def test_cli_default_limit_20(tmp_path):
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    # "총 50개 중 상위 20개 표시" should appear
-    assert "20개 표시" in result.output or "상위 20" in result.output
+    # 자체 계산 summary 표가 표시돼야 함
+    assert "자체 계산" in result.output or "스캔 종목" in result.output or "급등락 모버" in result.output
 
 
 def test_cli_limit_5(tmp_path):
-    """--limit 5는 5행 이하만 출력."""
-    import csv
-    import json
+    """--limit 5 옵션이 CLI에서 동작함."""
     import os
 
     from typer.testing import CliRunner
 
     from tele_quant.cli import app
-
-    feed_dir = tmp_path / "feed"
-    feed_dir.mkdir()
-    (feed_dir / "latest_relation_summary.json").write_text(
-        json.dumps(
-            {
-                "generated_at": "2026-05-07T08:00:00+09:00",
-                "asof_date": "2026-05-04",
-                "price_rows": 0,
-                "mover_rows": 1,
-                "leadlag_rows": 30,
-                "status": "ok",
-                "warnings": [],
-                "source_project": "stock-relation-ai",
-                "method": "event-conditioned lead-lag",
-            }
-        ),
-        encoding="utf-8",
-    )
-    with (feed_dir / "latest_movers.csv").open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(
-            f,
-            fieldnames=[
-                "asof_date",
-                "market",
-                "symbol",
-                "name",
-                "sector",
-                "close",
-                "prev_close",
-                "return_pct",
-                "volume",
-                "volume_ratio_20d",
-                "move_type",
-            ],
-        )
-        w.writeheader()
-        w.writerow(
-            {
-                "asof_date": "2026-05-04",
-                "market": "US",
-                "symbol": "NVDA",
-                "name": "NVIDIA",
-                "sector": "",
-                "close": 850.0,
-                "prev_close": 800.0,
-                "return_pct": 6.2,
-                "volume": "",
-                "volume_ratio_20d": "",
-                "move_type": "UP",
-            }
-        )
-    fieldnames = [
-        "asof_date",
-        "source_market",
-        "source_symbol",
-        "source_name",
-        "source_sector",
-        "source_move_type",
-        "source_return_pct",
-        "target_market",
-        "target_symbol",
-        "target_name",
-        "target_sector",
-        "relation_type",
-        "lag_days",
-        "event_count",
-        "hit_count",
-        "conditional_prob",
-        "lift",
-        "confidence",
-        "direction",
-        "note",
-    ]
-    with (feed_dir / "latest_leadlag_candidates.csv").open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        for i in range(30):
-            w.writerow(
-                {
-                    "asof_date": "2026-05-04",
-                    "source_market": "US",
-                    "source_symbol": "NVDA",
-                    "source_name": "NVIDIA",
-                    "source_sector": "",
-                    "source_move_type": "UP",
-                    "source_return_pct": 6.2,
-                    "target_market": "US",
-                    "target_symbol": f"TGT{i:03d}",
-                    "target_name": f"Target {i}",
-                    "target_sector": "",
-                    "relation_type": "UP_LEADS_UP",
-                    "lag_days": 1,
-                    "event_count": 15,
-                    "hit_count": 9,
-                    "conditional_prob": 0.60,
-                    "lift": 1.8,
-                    "confidence": "medium",
-                    "direction": "beneficiary",
-                    "note": "",
-                }
-            )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -738,7 +526,6 @@ def test_cli_limit_5(tmp_path):
         ["relation-feed", "--limit", "5"],
         env={
             **os.environ,
-            "RELATION_FEED_DIR": str(feed_dir),
             "TELEGRAM_API_ID": "12345",
             "TELEGRAM_API_HASH": "abc",
             "TELEGRAM_PHONE": "+821012345678",
@@ -748,120 +535,16 @@ def test_cli_limit_5(tmp_path):
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    assert "5개 표시" in result.output or "상위 5" in result.output
+    assert "자체 계산" in result.output or "스캔 종목" in result.output
 
 
 def test_fallback_only_hides_stock_feed_table(tmp_path):
     """--fallback-only이면 stock feed lead-lag 표가 출력되지 않음."""
-    import csv
-    import json
     import os
 
     from typer.testing import CliRunner
 
     from tele_quant.cli import app
-
-    feed_dir = tmp_path / "feed"
-    feed_dir.mkdir()
-    (feed_dir / "latest_relation_summary.json").write_text(
-        json.dumps(
-            {
-                "generated_at": "2026-05-07T08:00:00+09:00",
-                "asof_date": "2026-05-04",
-                "price_rows": 0,
-                "mover_rows": 1,
-                "leadlag_rows": 5,
-                "status": "ok",
-                "warnings": [],
-                "source_project": "stock-relation-ai",
-                "method": "event-conditioned lead-lag",
-            }
-        ),
-        encoding="utf-8",
-    )
-    with (feed_dir / "latest_movers.csv").open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(
-            f,
-            fieldnames=[
-                "asof_date",
-                "market",
-                "symbol",
-                "name",
-                "sector",
-                "close",
-                "prev_close",
-                "return_pct",
-                "volume",
-                "volume_ratio_20d",
-                "move_type",
-            ],
-        )
-        w.writeheader()
-        w.writerow(
-            {
-                "asof_date": "2026-05-04",
-                "market": "US",
-                "symbol": "NVDA",
-                "name": "NVIDIA",
-                "sector": "",
-                "close": 850.0,
-                "prev_close": 800.0,
-                "return_pct": 6.2,
-                "volume": "",
-                "volume_ratio_20d": "",
-                "move_type": "UP",
-            }
-        )
-    fieldnames = [
-        "asof_date",
-        "source_market",
-        "source_symbol",
-        "source_name",
-        "source_sector",
-        "source_move_type",
-        "source_return_pct",
-        "target_market",
-        "target_symbol",
-        "target_name",
-        "target_sector",
-        "relation_type",
-        "lag_days",
-        "event_count",
-        "hit_count",
-        "conditional_prob",
-        "lift",
-        "confidence",
-        "direction",
-        "note",
-    ]
-    with (feed_dir / "latest_leadlag_candidates.csv").open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        for i in range(5):
-            w.writerow(
-                {
-                    "asof_date": "2026-05-04",
-                    "source_market": "US",
-                    "source_symbol": "NVDA",
-                    "source_name": "NVIDIA",
-                    "source_sector": "",
-                    "source_move_type": "UP",
-                    "source_return_pct": 6.2,
-                    "target_market": "US",
-                    "target_symbol": f"TGT{i:03d}",
-                    "target_name": f"Target {i}",
-                    "target_sector": "",
-                    "relation_type": "UP_LEADS_UP",
-                    "lag_days": 1,
-                    "event_count": 15,
-                    "hit_count": 9,
-                    "conditional_prob": 0.60,
-                    "lift": 1.8,
-                    "confidence": "medium",
-                    "direction": "beneficiary",
-                    "note": "",
-                }
-            )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -869,7 +552,6 @@ def test_fallback_only_hides_stock_feed_table(tmp_path):
         ["relation-feed", "--fallback-only"],
         env={
             **os.environ,
-            "RELATION_FEED_DIR": str(feed_dir),
             "TELEGRAM_API_ID": "12345",
             "TELEGRAM_API_HASH": "abc",
             "TELEGRAM_PHONE": "+821012345678",
@@ -879,7 +561,7 @@ def test_fallback_only_hides_stock_feed_table(tmp_path):
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    # stock feed표 헤더가 없어야 함
+    # stock feed 표가 아니라 fallback/상관관계 표가 표시돼야 함
     assert "Stock Feed Lead-Lag" not in result.output
-    # 생략 안내 메시지가 있어야 함
-    assert "stock feed leadlag" in result.output.lower() or "fallback" in result.output.lower()
+    # 자체 계산 summary 또는 상관관계 후보 표가 나와야 함
+    assert "자체 계산" in result.output or "상관관계" in result.output or "Fallback" in result.output

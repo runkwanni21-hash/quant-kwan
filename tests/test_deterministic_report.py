@@ -196,52 +196,25 @@ def test_polish_guard_clean_polish_accepted():
     assert result == polished
 
 
-# ── 신규: stale/fresh relation feed 섹션 숨기기 ──────────────────────────────
+# ── relation feed 섹션 — 항상 자체 계산, stale 개념 없음 ─────────────────────
 
 
-def _make_stale_feed(age_hours: float = 130.0) -> object:
-    """Minimal mock of RelationFeedData with is_stale=True."""
+def _make_live_feed(with_movers: bool = False) -> object:
+    """Minimal mock of RelationFeedData (is_stale always False)."""
     from dataclasses import dataclass, field
 
     @dataclass
     class MockSummary:
-        asof_date: str = "2026-05-01"
-        source_project: str = "stock-relation-ai"
-        method: str = "event-conditioned"
-        warnings: list = field(default_factory=list)
-
-    @dataclass
-    class MockFeed:
-        is_stale: bool = True
-        feed_age_hours: float = age_hours
-        available: bool = True
-        summary: object = None
-        movers: list = field(default_factory=list)
-        leadlag: list = field(default_factory=list)
-        fallback_candidates: list = field(default_factory=list)
-        load_warnings: list = field(default_factory=list)
-
-        def __post_init__(self):
-            self.summary = MockSummary()
-
-    return MockFeed()
-
-
-def _make_fresh_feed() -> object:
-    """Minimal mock of RelationFeedData with is_stale=False."""
-    from dataclasses import dataclass, field
-
-    @dataclass
-    class MockSummary:
-        asof_date: str = "2026-05-13"
-        source_project: str = "stock-relation-ai"
-        method: str = "event-conditioned"
+        asof_date: str = "2026-05-15"
+        price_rows: int = 57
+        source_project: str = "tele_quant_self"
+        method: str = "yfinance-scan + correlation lead-lag"
         warnings: list = field(default_factory=list)
 
     @dataclass
     class MockFeed:
         is_stale: bool = False
-        feed_age_hours: float = 2.0
+        feed_age_hours: float = 0.0
         available: bool = True
         summary: object = None
         movers: list = field(default_factory=list)
@@ -252,34 +225,38 @@ def _make_fresh_feed() -> object:
         def __post_init__(self):
             self.summary = MockSummary()
 
-    return MockFeed()
+    feed = MockFeed()
+    if with_movers:
+        from tele_quant.relation_feed import MoverRow
+        feed.movers = [
+            MoverRow("2026-05-15", "US", "NVDA", "NVIDIA", "반도체/AI",
+                     110.0, 100.0, 10.0, None, None, "UP"),
+        ]
+    return feed
 
 
-def test_stale_relation_feed_hides_detailed_section():
-    """stale relation feed이면 ⚡ 상세 섹션 없이 짧은 경고만 표시."""
+def test_relation_feed_always_shown():
+    """자체 계산 피드는 항상 ⚡ 섹션이 표시된다 (stale 숨김 없음)."""
     pack = _make_pack(macro=[_make_cluster("금리인하 기대")])
-    stale_feed = _make_stale_feed(age_hours=130.0)
-    result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=stale_feed)
-    # The ⚡ detail section should NOT appear
-    assert "⚡" not in result
-    # Stale warning should appear
-    assert "relation feed" in result or "yfinance" in result
+    feed = _make_live_feed()
+    result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=feed)
+    assert "⚡" in result
 
 
-def test_stale_relation_feed_shows_warning_message():
-    """stale feed이면 생략 안내 문구가 포함된다."""
+def test_relation_feed_no_stale_warning():
+    """stale 경고 문구가 나타나지 않는다."""
     pack = _make_pack(macro=[_make_cluster("물가지표 발표 예정")])
-    stale_feed = _make_stale_feed(age_hours=130.0)
-    result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=stale_feed)
-    assert "생략" in result
+    feed = _make_live_feed()
+    result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=feed)
+    assert "오래된" not in result
+    assert "stale" not in result.lower()
 
 
 def test_fresh_relation_feed_shows_detailed_section():
-    """fresh feed이면 ⚡ 상세 섹션이 표시된다."""
+    """feed가 있으면 ⚡ 상세 섹션이 표시된다."""
     pack = _make_pack(macro=[_make_cluster("반도체 수요 회복")])
-    fresh_feed = _make_fresh_feed()
-    result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=fresh_feed)
-    # Fresh feed with no movers/leadlag will still show ⚡ header
+    feed = _make_live_feed(with_movers=True)
+    result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=feed)
     assert "⚡" in result
 
 

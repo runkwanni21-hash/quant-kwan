@@ -988,34 +988,30 @@ def relation_feed_cmd(
     fb = feed.fallback_candidates
 
     # Summary table
-    table = Table(title="Relation Feed Summary")
+    table = Table(title="Relation Feed Summary (자체 계산)")
     table.add_column("항목")
     table.add_column("값")
     table.add_row("기준일", summary.asof_date)
     table.add_row("생성일시", summary.generated_at)
-    table.add_row("mover rows", str(len(feed.movers)))
-    table.add_row("stock feed leadlag", str(len(feed.leadlag)))
-    table.add_row("fallback leadlag", str(len(fb)))
+    table.add_row("스캔 종목", str(summary.price_rows))
+    table.add_row("급등락 모버", str(len(feed.movers)))
+    table.add_row("상관관계 후보", str(len(fb)))
     if no_fallback:
         fallback_status = "생략 (--no-fallback)"
     elif fb:
         fallback_status = f"계산됨 ({len(fb)}건)"
     elif should_compute_fallback:
         fallback_status = "계산됨 (0건)"
-    elif feed.leadlag and not force_fallback:
-        fallback_status = "생략 (stock feed 있음)"
     else:
         fallback_status = "후보 없음"
-    table.add_row("fallback 계산", fallback_status)
+    table.add_row("lead-lag 계산", fallback_status)
     if fb:
         med = sum(1 for c in fb if c.confidence == "medium")
         low = sum(1 for c in fb if c.confidence == "low")
-        table.add_row("fallback confidence", f"medium={med} / low={low}")
+        table.add_row("신뢰도", f"medium={med} / low={low}")
     table.add_row("status", summary.status)
     if summary.warnings:
         table.add_row("warnings", ", ".join(summary.warnings))
-    if feed.is_stale:
-        table.add_row("⚠️ staleness", f"{feed.feed_age_hours:.0f}시간 전 생성")
     console.print(table)
 
     # Stock feed lead-lag table (hidden when --fallback-only)
@@ -1755,22 +1751,20 @@ def ops_doctor() -> None:
         for rec in recs:
             console.print(rec)
 
-    # Relation feed staleness
+    # Relation feed (self-computed)
     console.rule("[dim]relation feed 상태[/dim]")
     try:
         from tele_quant.relation_feed import load_relation_feed
 
         rf = load_relation_feed(settings)
         if not rf.available:
-            console.print("  [dim]relation feed: 없음[/dim]")
-        elif rf.is_stale:
-            age_h = rf.feed_age_hours or 0
-            console.print(
-                f"  [yellow]WARN: relation feed stale ({age_h:.0f}h 전)[/yellow] — 섹션 숨김 적용됨"
-            )
+            console.print("  [dim]relation feed: 없음 (yfinance 오류)[/dim]")
         else:
+            fb_count = len(rf.fallback_candidates)
             console.print(
-                f"  [green]relation feed: OK (movers={len(rf.movers)} leadlag={len(rf.leadlag)})[/green]"
+                f"  [green]relation feed: OK — "
+                f"스캔={rf.summary.price_rows if rf.summary else 0}개 "
+                f"/ movers={len(rf.movers)} / 상관관계 후보={fb_count}[/green]"
             )
     except Exception as _rf_exc:
         console.print(f"  [dim]relation feed 확인 실패: {_rf_exc}[/dim]")
@@ -2118,22 +2112,20 @@ def lint_report(
     except Exception as _sh_exc:
         console.print(f"  [dim]sentiment_history 조회 실패: {_sh_exc}[/dim]")
 
-    # Relation feed staleness check
+    # Relation feed (self-computed)
     console.rule("[dim]relation feed 상태[/dim]")
     try:
         from tele_quant.relation_feed import load_relation_feed
 
         rf = load_relation_feed(settings)
         if not rf.available:
-            console.print("  [dim]relation feed: 없음[/dim]")
-        elif rf.is_stale:
-            age_h = rf.feed_age_hours or 0
-            console.print(
-                f"  [yellow]WARN: relation feed stale ({age_h:.0f}h 전)[/yellow] — 섹션 숨김 적용됨"
-            )
+            console.print("  [dim]relation feed: 없음 (yfinance 오류)[/dim]")
         else:
+            fb_count = len(rf.fallback_candidates)
             console.print(
-                f"  [green]relation feed: OK (movers={len(rf.movers)} leadlag={len(rf.leadlag)})[/green]"
+                f"  [green]relation feed: OK — "
+                f"스캔={rf.summary.price_rows if rf.summary else 0}개 "
+                f"/ movers={len(rf.movers)} / 상관관계 후보={fb_count}[/green]"
             )
     except Exception as _rf_exc:
         console.print(f"  [dim]relation feed 확인 실패: {_rf_exc}[/dim]")

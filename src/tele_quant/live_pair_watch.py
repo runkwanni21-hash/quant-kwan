@@ -718,9 +718,6 @@ def _get_relation_stats(
     """Extract (conditional_prob, lift, event_count, relation_type) from feed if available."""
     if relation_feed is None or not getattr(relation_feed, "available", False):
         return None, None, 0, "UP_LEADS_UP"
-    # Stale feed: don't use as primary confidence basis
-    if getattr(relation_feed, "is_stale", False):
-        return None, None, 0, "UP_LEADS_UP"
 
     for row in getattr(relation_feed, "leadlag", []):
         if row.source_symbol == source_symbol and row.target_symbol == target_symbol:
@@ -1236,11 +1233,7 @@ def run_pair_watch(
     if not universe or not rules:
         return [], False, diagnostics
 
-    if relation_feed is not None and getattr(relation_feed, "is_stale", False):
-        feed_age = getattr(relation_feed, "feed_age_hours", 0)
-        diagnostics.append(
-            f"과거 relation feed는 {feed_age:.0f}시간 전 생성 — 40시간 초과로 무시, 최신 yfinance 1h 기준만 사용"
-        )
+    # relation_feed is now always self-computed (no stale concept)
 
     # Filter by sector if requested
     if sector_filter:

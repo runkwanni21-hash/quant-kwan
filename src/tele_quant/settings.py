@@ -267,10 +267,8 @@ class Settings(BaseSettings):
     # 경제 캘린더
     economic_calendar_lookahead_days: int = 14
 
-    # Relation feed (stock-relation-ai 공유 피드)
+    # Relation feed (yfinance 자체 계산 — 외부 피드 의존 없음)
     relation_feed_enabled: bool = True
-    relation_feed_dir: str = "/home/kwanni/projects/quant_spillover/shared_relation_feed"
-    relation_feed_max_age_hours: float = 40.0
     relation_feed_min_confidence: str = "medium"
     relation_feed_max_movers: int = 8
     relation_feed_max_targets_per_mover: int = 3

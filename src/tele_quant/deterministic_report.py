@@ -645,35 +645,30 @@ def build_macro_digest(
     except Exception:
         pass
 
-    # 4.6. 어제 급등·급락 → 후행 후보 (relation feed)
+    # 4.6. 급등·급락 → 후행 후보 (자체 계산 relation feed)
     if relation_feed is not None:
         try:
-            if getattr(relation_feed, "is_stale", False):
-                age_h = getattr(relation_feed, "feed_age_hours", 0) or 0
-                lines.append(f"오래된 relation feed는 {age_h:.0f}시간 초과로 생략했습니다.")
+            from tele_quant.relation_feed import build_relation_feed_section
+
+            watchlist_syms: set[str] = set()
+            if watchlist_cfg is not None:
+                try:
+                    from tele_quant.watchlist import is_watchlist_symbol
+
+                    for grp in watchlist_cfg.groups.values():
+                        for sym in grp.symbols:
+                            watchlist_syms.add(sym)
+                except Exception:
+                    pass
+
+            rf_section = build_relation_feed_section(
+                relation_feed,
+                watchlist_symbols=watchlist_syms,
+                macro_only=macro_only,
+            )
+            if rf_section:
+                lines.append(rf_section)
                 lines.append("")
-            else:
-                from tele_quant.relation_feed import build_relation_feed_section
-
-                watchlist_syms: set[str] = set()
-                if watchlist_cfg is not None:
-                    try:
-                        from tele_quant.watchlist import is_watchlist_symbol
-
-                        for grp in watchlist_cfg.groups.values():
-                            for sym in grp.symbols:
-                                watchlist_syms.add(sym)
-                    except Exception:
-                        pass
-
-                rf_section = build_relation_feed_section(
-                    relation_feed,
-                    watchlist_symbols=watchlist_syms,
-                    macro_only=macro_only,
-                )
-                if rf_section:
-                    lines.append(rf_section)
-                    lines.append("")
         except Exception as _rf_exc:
             import logging as _log
 

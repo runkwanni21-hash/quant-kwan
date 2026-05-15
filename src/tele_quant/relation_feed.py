@@ -1,38 +1,82 @@
 from __future__ import annotations
 
-import csv
-import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from tele_quant.relation_fallback import FallbackLeadLagCandidate
-    from tele_quant.settings import Settings
 
 log = logging.getLogger(__name__)
 
-_REQUIRED_MOVER_COLS: frozenset[str] = frozenset(
-    {"asof_date", "market", "symbol", "name", "move_type", "return_pct"}
-)
-_REQUIRED_LEADLAG_COLS: frozenset[str] = frozenset(
-    {
-        "asof_date",
-        "source_symbol",
-        "source_move_type",
-        "source_return_pct",
-        "target_symbol",
-        "target_name",
-        "relation_type",
-        "lag_days",
-        "conditional_prob",
-        "lift",
-        "confidence",
-        "direction",
-    }
-)
+# ── Self-computed mover universe ──────────────────────────────────────────────
+
+_UNIVERSE_US: list[str] = [
+    "NVDA", "AAPL", "MSFT", "GOOGL", "META", "AMZN", "TSLA", "AMD",
+    "INTC", "QCOM", "AVGO", "MU", "TSM", "ASML", "ARM", "SMCI", "MRVL",
+    "ON", "TXN", "LRCX", "KLAC", "AMAT",
+    "JPM", "GS", "MS", "BAC",
+    "XOM", "CVX", "NEE", "FSLR", "FLNC",
+    "PLTR", "ORCL", "CRM", "SNOW",
+    "LLY", "UNH", "MRNA",
+]
+
+_UNIVERSE_KR: list[str] = [
+    "005930.KS", "000660.KS", "035420.KS", "035720.KS",
+    "051910.KS", "006400.KS", "373220.KS", "003670.KS",
+    "207940.KS", "005380.KS", "000270.KS", "068270.KS",
+    "012330.KS", "329180.KS", "096770.KS", "066570.KS",
+    "017670.KS", "030200.KS", "086790.KS", "034730.KS",
+]
+
+_NAME_MAP: dict[str, str] = {
+    "NVDA": "NVIDIA", "AAPL": "Apple", "MSFT": "Microsoft",
+    "GOOGL": "Alphabet", "META": "Meta", "AMZN": "Amazon",
+    "TSLA": "Tesla", "AMD": "AMD", "INTC": "Intel",
+    "QCOM": "Qualcomm", "AVGO": "Broadcom", "MU": "Micron",
+    "TSM": "TSMC ADR", "ASML": "ASML", "ARM": "ARM Holdings",
+    "SMCI": "Super Micro", "MRVL": "Marvell", "ON": "ON Semi",
+    "TXN": "Texas Instruments", "LRCX": "Lam Research",
+    "KLAC": "KLA Corp", "AMAT": "Applied Materials",
+    "JPM": "JPMorgan", "GS": "Goldman Sachs", "MS": "Morgan Stanley",
+    "BAC": "Bank of America", "XOM": "ExxonMobil", "CVX": "Chevron",
+    "NEE": "NextEra Energy", "FSLR": "First Solar", "FLNC": "Fluence Energy",
+    "PLTR": "Palantir", "ORCL": "Oracle", "CRM": "Salesforce", "SNOW": "Snowflake",
+    "LLY": "Eli Lilly", "UNH": "UnitedHealth", "MRNA": "Moderna",
+    "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "035420.KS": "NAVER",
+    "035720.KS": "카카오", "051910.KS": "LG화학", "006400.KS": "삼성SDI",
+    "373220.KS": "LG에너지솔루션", "003670.KS": "포스코퓨처엠",
+    "207940.KS": "삼성바이오로직스", "005380.KS": "현대차",
+    "000270.KS": "기아", "068270.KS": "셀트리온", "012330.KS": "현대모비스",
+    "329180.KS": "HD현대중공업", "096770.KS": "SK이노베이션",
+    "066570.KS": "LG전자", "017670.KS": "SK텔레콤",
+    "030200.KS": "KT", "086790.KS": "하나금융지주", "034730.KS": "SK",
+}
+
+_SECTOR_MAP: dict[str, str] = {
+    "NVDA": "반도체/AI", "AMD": "반도체/AI", "INTC": "반도체", "QCOM": "반도체",
+    "AVGO": "반도체", "MU": "반도체", "TSM": "반도체", "ASML": "반도체장비",
+    "ARM": "반도체/AI", "SMCI": "서버/AI", "MRVL": "반도체", "ON": "반도체",
+    "TXN": "반도체", "LRCX": "반도체장비", "KLAC": "반도체장비", "AMAT": "반도체장비",
+    "AAPL": "빅테크", "MSFT": "빅테크/AI", "GOOGL": "빅테크/AI", "META": "소셜/AI",
+    "AMZN": "이커머스/클라우드", "TSLA": "전기차/에너지",
+    "PLTR": "AI소프트웨어", "ORCL": "클라우드", "CRM": "클라우드", "SNOW": "클라우드",
+    "JPM": "금융", "GS": "금융", "MS": "금융", "BAC": "금융",
+    "XOM": "에너지", "CVX": "에너지", "NEE": "신재생에너지",
+    "FSLR": "태양광", "FLNC": "ESS/에너지",
+    "LLY": "바이오/제약", "UNH": "헬스케어", "MRNA": "바이오/제약",
+    "005930.KS": "반도체/전자", "000660.KS": "반도체", "035420.KS": "IT서비스",
+    "035720.KS": "IT서비스", "051910.KS": "화학/배터리", "006400.KS": "배터리",
+    "373220.KS": "배터리", "003670.KS": "배터리소재",
+    "207940.KS": "바이오", "005380.KS": "자동차", "000270.KS": "자동차",
+    "068270.KS": "바이오", "012330.KS": "자동차부품", "329180.KS": "조선",
+    "096770.KS": "에너지/화학", "066570.KS": "전자",
+    "017670.KS": "통신", "030200.KS": "통신", "086790.KS": "금융", "034730.KS": "지주/에너지",
+}
+
+# Threshold: minimum abs(return_pct) to qualify as a mover
+_MOVER_THRESH: dict[str, float] = {"US": 4.0, "KR": 5.0}
 
 _MACRO_ONLY_FORBIDDEN = frozenset({"롱 관심", "숏/매도", "관심 진입", "손절", "목표/매도 관찰"})
 
@@ -117,20 +161,6 @@ class RelationFeedData:
     @property
     def available(self) -> bool:
         return self.summary is not None
-
-
-def _parse_float(v: str | None) -> float | None:
-    try:
-        return float(v) if v and str(v).strip() else None
-    except (ValueError, TypeError):
-        return None
-
-
-def _parse_int(v: str | None) -> int:
-    try:
-        return int(float(v)) if v and str(v).strip() else 0
-    except (ValueError, TypeError):
-        return 0
 
 
 def _feed_age_hours(generated_at: str) -> float | None:
@@ -235,137 +265,111 @@ _LIVE_STATUS_JUDGMENT: dict[str, str] = {
 }
 
 
-def load_relation_feed(settings: Settings) -> RelationFeedData:
-    """Load relation feed from shared directory. Never raises."""
-    result = RelationFeedData()
+def _compute_live_movers(settings: Any) -> tuple[list[MoverRow], str]:
+    """Scan built-in universe for significant recent movers via yfinance.
 
-    if not getattr(settings, "relation_feed_enabled", True):
-        return result
+    Returns (movers, asof_date). Never raises — returns ([], today) on any error.
+    """
+    import yfinance as yf
 
-    feed_dir = Path(
-        getattr(
-            settings,
-            "relation_feed_dir",
-            "/home/kwanni/projects/quant_spillover/shared_relation_feed",
-        )
-    )
-
-    summary_path = feed_dir / "latest_relation_summary.json"
-    if not summary_path.exists():
-        log.info("[relation_feed] summary not found: %s", summary_path)
-        result.load_warnings.append("relation feed 없음: latest_relation_summary.json")
-        return result
+    all_syms = list(_UNIVERSE_US) + list(_UNIVERSE_KR)
+    asof_date = str(date.today())
 
     try:
-        with open(summary_path, encoding="utf-8") as f:
-            raw = json.load(f)
-        summary = RelationFeedSummary(
-            generated_at=raw.get("generated_at", ""),
-            asof_date=raw.get("asof_date", ""),
-            price_rows=raw.get("price_rows", 0),
-            mover_rows=raw.get("mover_rows", 0),
-            leadlag_rows=raw.get("leadlag_rows", 0),
-            status=raw.get("status", ""),
-            warnings=raw.get("warnings", []),
-            source_project=raw.get("source_project", ""),
-            method=raw.get("method", ""),
+        data = yf.download(
+            all_syms,
+            period="5d",
+            auto_adjust=True,
+            progress=False,
+            threads=True,
         )
-        result.summary = summary
-
-        age = _feed_age_hours(summary.generated_at)
-        result.feed_age_hours = age
-        max_age = float(getattr(settings, "relation_feed_max_age_hours", 72.0))
-        if age is not None and age > max_age:
-            result.is_stale = True
-            result.load_warnings.append(
-                f"relation feed 오래됨: {age:.0f}시간 전 생성 (최대 {max_age:.0f}시간)"
-            )
-            log.warning("[relation_feed] stale feed: %.0fh old", age)
     except Exception as exc:
-        log.warning("[relation_feed] summary load failed: %s", exc)
-        result.load_warnings.append(f"summary 읽기 오류: {exc}")
-        return result
+        log.warning("[relation_feed] yfinance download failed: %s", exc)
+        return [], asof_date
 
-    movers_path = feed_dir / "latest_movers.csv"
-    if movers_path.exists():
+    if data is None or data.empty:
+        return [], asof_date
+
+    # Multi-ticker download: MultiIndex columns (metric, symbol)
+    try:
+        closes = data["Close"] if "Close" in data.columns.get_level_values(0) else data
+    except Exception:
+        closes = data
+
+    valid = closes.dropna(how="all")
+    if valid.empty:
+        return [], asof_date
+
+    asof_date = str(valid.index[-1].date())
+    movers: list[MoverRow] = []
+
+    for sym in all_syms:
         try:
-            with open(movers_path, encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                cols = set(reader.fieldnames or [])
-                missing = _REQUIRED_MOVER_COLS - cols
-                if missing:
-                    log.warning("[relation_feed] movers CSV missing columns: %s", missing)
-                    result.load_warnings.append(f"movers CSV 컬럼 누락: {missing}")
-                else:
-                    for row in reader:
-                        move_type = row.get("move_type", "").strip().upper()
-                        if move_type not in ("UP", "DOWN"):
-                            continue
-                        result.movers.append(
-                            MoverRow(
-                                asof_date=row.get("asof_date", ""),
-                                market=row.get("market", ""),
-                                symbol=row.get("symbol", ""),
-                                name=row.get("name", ""),
-                                sector=row.get("sector", ""),
-                                close=_parse_float(row.get("close")),
-                                prev_close=_parse_float(row.get("prev_close")),
-                                return_pct=_parse_float(row.get("return_pct")) or 0.0,
-                                volume=_parse_float(row.get("volume")),
-                                volume_ratio_20d=_parse_float(row.get("volume_ratio_20d")),
-                                move_type=move_type,
-                            )
-                        )
-        except Exception as exc:
-            log.warning("[relation_feed] movers load failed: %s", exc)
-            result.load_warnings.append(f"movers 읽기 오류: {exc}")
+            if sym not in closes.columns:
+                continue
+            series = closes[sym].dropna()
+            if len(series) < 2:
+                continue
+            prev_close = float(series.iloc[-2])
+            curr_close = float(series.iloc[-1])
+            if prev_close <= 0:
+                continue
+            ret = (curr_close - prev_close) / prev_close * 100
+            market = "KR" if sym.endswith((".KS", ".KQ")) else "US"
+            thresh = _MOVER_THRESH.get(market, 4.0)
+            if abs(ret) < thresh:
+                continue
+            move_type = "UP" if ret > 0 else "DOWN"
+            movers.append(MoverRow(
+                asof_date=asof_date,
+                market=market,
+                symbol=sym,
+                name=_NAME_MAP.get(sym, sym),
+                sector=_SECTOR_MAP.get(sym, ""),
+                close=curr_close,
+                prev_close=prev_close,
+                return_pct=ret,
+                volume=None,
+                volume_ratio_20d=None,
+                move_type=move_type,
+            ))
+        except Exception:
+            continue
 
-    leadlag_path = feed_dir / "latest_leadlag_candidates.csv"
-    if leadlag_path.exists():
-        try:
-            min_conf = str(getattr(settings, "relation_feed_min_confidence", "medium")).lower()
-            with open(leadlag_path, encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                cols = set(reader.fieldnames or [])
-                missing = _REQUIRED_LEADLAG_COLS - cols
-                if missing:
-                    log.warning("[relation_feed] leadlag CSV missing columns: %s", missing)
-                    result.load_warnings.append(f"leadlag CSV 컬럼 누락: {missing}")
-                else:
-                    for row in reader:
-                        conf = row.get("confidence", "").strip().lower()
-                        if min_conf == "medium" and conf == "low":
-                            continue
-                        if min_conf == "high" and conf != "high":
-                            continue
-                        result.leadlag.append(
-                            LeadLagCandidateRow(
-                                asof_date=row.get("asof_date", ""),
-                                source_market=row.get("source_market", ""),
-                                source_symbol=row.get("source_symbol", ""),
-                                source_name=row.get("source_name", ""),
-                                source_sector=row.get("source_sector", ""),
-                                source_move_type=row.get("source_move_type", "").strip().upper(),
-                                source_return_pct=_parse_float(row.get("source_return_pct")) or 0.0,
-                                target_market=row.get("target_market", ""),
-                                target_symbol=row.get("target_symbol", ""),
-                                target_name=row.get("target_name", ""),
-                                target_sector=row.get("target_sector", ""),
-                                relation_type=row.get("relation_type", ""),
-                                lag_days=_parse_int(row.get("lag_days")),
-                                event_count=_parse_int(row.get("event_count")),
-                                hit_count=_parse_int(row.get("hit_count")),
-                                conditional_prob=_parse_float(row.get("conditional_prob")) or 0.0,
-                                lift=_parse_float(row.get("lift")) or 0.0,
-                                confidence=conf,
-                                direction=row.get("direction", "").strip(),
-                                note=row.get("note", "").strip(),
-                            )
-                        )
-        except Exception as exc:
-            log.warning("[relation_feed] leadlag load failed: %s", exc)
-            result.load_warnings.append(f"leadlag 읽기 오류: {exc}")
+    movers.sort(key=lambda m: -abs(m.return_pct))
+    log.info("[relation_feed] computed movers: %d from %d symbols", len(movers), len(all_syms))
+    return movers, asof_date
 
+
+def load_relation_feed(settings: Any) -> RelationFeedData:
+    """Compute live relation feed from yfinance. No external dependency. Never raises."""
+    if not getattr(settings, "relation_feed_enabled", True):
+        return RelationFeedData()
+
+    try:
+        movers, asof_date = _compute_live_movers(settings)
+    except Exception as exc:
+        log.warning("[relation_feed] mover computation failed: %s", exc)
+        return RelationFeedData()
+
+    now_str = datetime.now(UTC).isoformat()
+    summary = RelationFeedSummary(
+        generated_at=now_str,
+        asof_date=asof_date,
+        price_rows=len(_UNIVERSE_US) + len(_UNIVERSE_KR),
+        mover_rows=len(movers),
+        leadlag_rows=0,
+        status="live",
+        source_project="tele_quant_self",
+        method="yfinance-scan + correlation lead-lag",
+    )
+
+    result = RelationFeedData(
+        summary=summary,
+        movers=movers,
+        is_stale=False,
+        feed_age_hours=0.0,
+    )
     log.info(
         "[relation_feed] loaded: movers=%d leadlag=%d stale=%s",
         len(result.movers),
@@ -586,13 +590,6 @@ def build_relation_feed_section(
             lines.append(f"- {feed.load_warnings[0]}")
         return "\n".join(lines)
 
-    if feed.is_stale:
-        log.debug(
-            "[relation_feed] stale feed (%.0fh) — section suppressed",
-            feed.feed_age_hours or 0,
-        )
-        return ""
-
     summary = feed.summary
     assert summary is not None
 
@@ -600,33 +597,22 @@ def build_relation_feed_section(
         lines.append("⚡ 급등·급락 후행 관찰 후보")
         lines.append("- 이번 주말에는 매매 시나리오가 아니라 통계적 관찰 후보만 표시합니다.")
     else:
-        is_recent = _is_recent_asof(summary.asof_date)
-        if is_recent:
-            lines.append("⚡ 최근 급등·급락 → 후행 관찰 후보")
-        else:
-            lines.append("⚡ 과거 급등·급락 기반 후행 관찰 후보")
-            lines.append(
-                f"  ※ 기준일({summary.asof_date})이 오래된 통계 자료이므로 현재 가격 확인 필수"
-            )
+        lines.append("⚡ 최근 급등·급락 → 후행 관찰 후보")
 
     lines.append(f"- 기준일: {summary.asof_date}")
     lines.append(
-        f"- 데이터: {summary.source_project or 'stock-relation-ai'}"
-        f" / {summary.method or 'event-conditioned lead-lag'}"
+        f"- 데이터: {summary.method or 'yfinance-scan + correlation lead-lag'}"
     )
     fb_count = len(feed.fallback_candidates)
-    ll_label = "stock feed lead-lag" if fb_count else "lead-lag 후보"
-    stats_line = f"- movers: {len(feed.movers)}개 / {ll_label}: {len(feed.leadlag)}개"
+    stats_line = f"- 스캔 종목: {summary.price_rows}개 / 급등락 모버: {len(feed.movers)}개"
     if fb_count:
-        stats_line += f" / fallback 후보: {fb_count}개"
+        stats_line += f" / 상관관계 후보: {fb_count}개"
     lines.append(stats_line)
     if not feed.leadlag and fb_count:
         lines.append(
-            "- 주의: stock feed에 후행 후보가 없어 Tele Quant가 가격·상관관계 DB로 보수 계산"
+            "- 가격·상관관계 DB 기반 후행 후보 자체 계산"
         )
 
-    if feed.is_stale and feed.feed_age_hours is not None:
-        lines.append(f"- ⚠️ 피드 오래됨: {feed.feed_age_hours:.0f}시간 전 생성")
     if summary.warnings:
         lines.append(f"- 주의: {', '.join(summary.warnings)}")
     for w in feed.load_warnings:
@@ -766,7 +752,7 @@ def build_relation_feed_section(
     fb = feed.fallback_candidates
     if not feed.leadlag and fb:
         lines.append("")
-        lines.append("🔄 Tele Quant 자체 계산 후행 후보 (가격·상관관계 DB 기반)")
+        lines.append("🔄 상관관계 기반 후행 후보 (가격 DB 자체 계산)")
         medium = [c for c in fb if c.confidence == "medium"]
         low_top = [c for c in fb if c.confidence == "low"][:3]
         to_show = medium if medium else low_top
