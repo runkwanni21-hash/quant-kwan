@@ -1354,6 +1354,47 @@ def ollama_tags() -> None:
     asyncio.run(run())
 
 
+@app.command("theme-board")
+def theme_board_cmd(
+    market: Annotated[
+        str, typer.Option("--market", help="KR 또는 US")
+    ] = "KR",
+    no_send: Annotated[
+        bool, typer.Option("--no-send/--send", help="전송 없이 출력만")
+    ] = True,
+) -> None:
+    """퀀터멘탈 테마 보드 — 급등/급락/수혜/피해/주도주/후발/과열 분류.
+
+    Example: uv run tele-quant theme-board --market KR --no-send
+             uv run tele-quant theme-board --market US --no-send
+    """
+    from tele_quant.db import Store
+    from tele_quant.theme_board import build_theme_board
+
+    settings = _settings()
+    store = Store(settings.sqlite_path)
+    report = build_theme_board(market.upper(), store, settings)
+    console.print(report)
+
+    if not no_send:
+        import asyncio
+
+        import httpx
+
+        from tele_quant.telegram_sender import TelegramSender
+
+        async def _send() -> None:
+            async with httpx.AsyncClient(timeout=30) as client:
+                sender = TelegramSender(
+                    client,
+                    token=settings.telegram_token,
+                    chat_id=settings.telegram_chat_id,
+                )
+                await sender.send(report)
+        asyncio.run(_send())
+        console.print("[green]theme-board 전송 완료[/green]")
+
+
 @app.command("ops-doctor")
 def ops_doctor() -> None:
     """자동 실행 상태와 DB 최신성을 진단합니다.
