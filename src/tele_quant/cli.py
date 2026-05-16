@@ -789,6 +789,18 @@ def weekly(
         except Exception as _se_exc:
             console.print(f"[yellow][weekly] short_entries build failed: {_se_exc}[/yellow]")
 
+        # Theme board (KR + US 합본)
+        weekly_theme_board: str | None = None
+        try:
+            from tele_quant.theme_board import build_theme_board
+
+            kr_board = build_theme_board("KR", store, settings)
+            us_board = build_theme_board("US", store, settings)
+            weekly_theme_board = kr_board + "\n\n" + us_board
+            console.print("[weekly] theme_board=ok")
+        except Exception as _tb_exc:
+            console.print(f"[yellow][weekly] theme_board failed: {_tb_exc}[/yellow]")
+
         # Load AI narrative history for weekly section
         weekly_narratives: list[dict] | None = None
         try:
@@ -816,6 +828,7 @@ def weekly(
             narratives=weekly_narratives,
             fear_greed_history=weekly_fear_greed,
             daily_alpha_store=store,
+            theme_board_section=weekly_theme_board,
         )
 
         if mode == "deep_polish":

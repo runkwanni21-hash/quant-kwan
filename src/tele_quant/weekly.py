@@ -991,6 +991,7 @@ def build_weekly_deterministic_summary(
     narratives: list[dict] | None = None,
     fear_greed_history: list[dict] | None = None,
     daily_alpha_store: Any = None,
+    theme_board_section: str | None = None,
 ) -> str:
     wi = weekly_input
 
@@ -1441,6 +1442,11 @@ def build_weekly_deterministic_summary(
         )
         if _sc_section:
             lines.append(_sc_section)
+
+    # 14. 퀀터멘탈 테마 보드 (KR + US 합본)
+    if theme_board_section:
+        lines.append("14. " + theme_board_section)
+        lines.append("")
 
     lines += [
         "─" * 30,
