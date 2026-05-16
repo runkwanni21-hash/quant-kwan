@@ -875,7 +875,13 @@ def _explain_signal(
     tgt_name = (tgt_stock.name if tgt_stock else "") or tgt.symbol
     src_ret = _primary_return(src)
     sign = "+" if src_ret > 0 else ""
-    parts = [f"{src_name} {sign}{src_ret:.1f}% 후 {tgt_name} 후행 반응 관찰"]
+    if src_ret >= 1.0:
+        direction_phrase = f"{src_name} {sign}{src_ret:.1f}% 상승 후 {tgt_name} 후행 관찰"
+    elif src_ret <= -1.0:
+        direction_phrase = f"{src_name} {src_ret:.1f}% 하락 후 {tgt_name} 약세 전이 관찰"
+    else:
+        direction_phrase = f"{src_name} {sign}{src_ret:.1f}% 후 {tgt_name} 반응 확인"
+    parts = [direction_phrase]
     if rule.note:
         parts.append(rule.note)
     if conditional_prob is not None:
@@ -1198,7 +1204,17 @@ def build_pair_watch_section(
                 f"   → {gap_label}: {sig.target_name} / {sig.target_symbol}"
                 f"  4H {tgt_ret_4h} / 1D {tgt_ret_1d}"
             )
-            lines.append(f"     - 왜: {sig.rule_note or sig.explanation}")
+            # rule_note이 정적 텍스트라 방향이 틀릴 수 있음 — 실제 방향 우선 사용
+            _src_ret = sig.source_return_4h or sig.source_return_1d or 0.0
+            _why = sig.explanation  # 동적 계산 (항상 정확한 방향)
+            if sig.rule_note:
+                _note = sig.rule_note
+                if _src_ret <= -1.0 and "급등 후" in _note:
+                    _note = _note.replace("급등 후", "급락 후 약세 전이")
+                elif _src_ret >= 1.0 and "급락 후" in _note:
+                    _note = _note.replace("급락 후", "상승 후 후행")
+                _why = _note
+            lines.append(f"     - 왜: {_why}")
             lines.append(f"     - 통계: {prob_str} / 신뢰도 {conf_kr}")
             lines.append(f"     - 오늘 볼 것: {sig.watch_action}")
 

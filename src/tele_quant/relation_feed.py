@@ -646,9 +646,10 @@ def build_relation_feed_section(
     # Global cap: max 6 source-target pairs total to keep section concise
     _MAX_TOTAL_PAIRS = 6
     _pair_count = 0
+    _no_price_blocked = 0  # 현재가 확인 불가로 접힌 후보 수
 
     def _render_block(mover: MoverRow, is_up: bool) -> list[str]:
-        nonlocal _pair_count
+        nonlocal _pair_count, _no_price_blocked
         block: list[str] = []
         if _pair_count >= _MAX_TOTAL_PAIRS:
             return block
@@ -714,6 +715,11 @@ def build_relation_feed_section(
             else:
                 live_label = "현재가 확인 불가, 통계만 참고"
                 judgment = "가격 확인 전 관찰 후보"
+
+            # live_checks가 있으나 가격 미확인인 경우만 접힘 처리
+            if live_checks is not None and "확인 불가" in live_label:
+                _no_price_blocked += 1
+                continue
 
             block.append(f"{_pair_count}. {star}{src_label} {src_sign}")
             block.append(f"   → {direction_label}: {wl_t}{tgt_label}{tg_note}")
@@ -800,6 +806,11 @@ def build_relation_feed_section(
             else:
                 fb_live_label = "현재가 확인 불가, 통계만 참고"
                 fb_judgment = "가격 확인 전 관찰 후보"
+            # live_checks가 None이면 오프라인/테스트 모드 — 통계만 표시
+            # live_checks가 있으나 가격 미확인인 경우만 접힘 처리
+            if live_checks is not None and "확인 불가" in fb_live_label:
+                _no_price_blocked += 1
+                continue
             lines.append(f"{i}. {src_label} {sign}{cand.source_return_pct:.1f}%")
             lines.append(f"   → {direction_label}: {wl}{tgt_label}")
             lines.append(f"   - 의미: {meaning}")
@@ -815,6 +826,8 @@ def build_relation_feed_section(
         if not medium and low_top:
             lines.append("  (medium 후보 없음 — low 신뢰도 상위 3개만 표시)")
 
+    if _no_price_blocked > 0:
+        lines.append(f"  (가격 미확인 통계 후보 {_no_price_blocked}개 — 상세 제외, 가격 확인 후 참고)")
     lines.append("")
     lines.append(f"※ {_RELATION_FEED_DISCLAIMER}")
 

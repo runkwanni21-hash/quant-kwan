@@ -265,6 +265,13 @@ _FINAL_DROP_LINE_RES = [
     re.compile(r"^\s*기업\s*\]\s*\["),
     # Short channel-name-only headlines with no investment content
     re.compile(r"국장\s+마이너리티\s+리포트"),
+    # Date-only IB opinion headers: "5월 14일 주요 종목에 대한 IB 투자의견"
+    re.compile(r"\d+월\s*\d+일\s*주요\s*종목에\s*대한\s*IB\s*투자의견"),
+    # Report-header-only lines
+    re.compile(r"^Report\s*\)\s*$", re.IGNORECASE),
+    re.compile(r"^\d{1,2}/\d{1,2}\s*Report\s*$", re.IGNORECASE),
+    # Fragment starters: text that begins mid-sentence
+    re.compile(r"^(?:치 |드 |이를 정당화|이번에는\s|가격 인하|이에 따라\s|에서 이어지)"),
 ]
 
 # Inline patterns to strip from lines (rather than drop the whole line)

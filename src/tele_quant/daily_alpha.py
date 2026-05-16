@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -45,6 +46,34 @@ STYLE_BREAKDOWN = "추세 붕괴"
 
 # Sentiment missing penalty
 _SENTIMENT_MISSING_PENALTY = 5.0
+
+# ── Evidence / text quality helpers ──────────────────────────────────────────
+
+# 문장 조각 감지: 조사·어미 등으로 시작하는 불완전 문장
+_FRAGMENT_START_RE = re.compile(
+    r"^(?:치 |드 |이를 |이번에?(?:\s|$)|가격 인|이에 |에서 이|의 결|후 |와 |이 |는 |를 |을 |은 |며 |해 |고 |로 |으로 )"
+)
+# 출처·메타 노이즈 패턴
+_META_NOISE_RE = re.compile(
+    r"Web발신|보고서링크\s*:|원문/목록 텍스트\s*:|증권사\s*/?\s*출처\s*:|"
+    r"5월\s*\d+일\s*주요\s*종목에\s*대한\s*IB\s*투자의견|"
+    r"국장\s+마이너리티\s+리포트|안녕하세요\s+.{2,40}입니다|"
+    r"제목\s*:|카테고리\s*:|Report\s*\)|IB\s*투자의견",
+    re.IGNORECASE,
+)
+
+
+def _is_fragment(text: str) -> bool:
+    """문장 중간 조각 여부 감지."""
+    t = text.strip()
+    if not t or len(t) < 8:
+        return True
+    return bool(_FRAGMENT_START_RE.match(t))
+
+
+def _has_meta_noise(text: str) -> bool:
+    """출처·메타 노이즈 패턴 포함 여부."""
+    return bool(_META_NOISE_RE.search(text))
 
 # News-based sentiment fallback keyword lists
 _BULLISH_KEYWORDS = [
@@ -678,14 +707,20 @@ def _score_sentiment(
         since_news = datetime.now(UTC) - timedelta(hours=24)
         raw_items = store.recent_items(since=since_news, limit=100)
 
-        # Filter items that mention this symbol or its name
+        # Filter items that mention this symbol or its name (whole-word match only)
         ticker_base = symbol.split(".")[0].upper()
         name_lower = name.lower()
+        # Whole-word patterns to prevent cross-ticker contamination
+        _ticker_pat = re.compile(r"\b" + re.escape(ticker_base.lower()) + r"\b")
+        _name_pat = re.compile(r"\b" + re.escape(name_lower) + r"\b") if len(name_lower) >= 3 else None
         matched: list[str] = []
         for item in raw_items:
-            text = f"{getattr(item, 'title', '')} {getattr(item, 'text', '')}".lower()
-            if ticker_base.lower() in text or (name_lower and name_lower in text):
-                matched.append(text)
+            raw_text = f"{getattr(item, 'title', '')} {getattr(item, 'text', '')}".lower()
+            # Skip meta-noise articles
+            if _has_meta_noise(raw_text):
+                continue
+            if _ticker_pat.search(raw_text) or (_name_pat and _name_pat.search(raw_text)):
+                matched.append(raw_text)
 
         if not matched:
             # No news mentions — neutral, NOT missing
@@ -874,8 +909,29 @@ def _score_candidate(
         )
         style = _detect_style_short(val_score, tech4, tech3, cat_score, d4h)
 
-    close_price = d4h.get("close") or d3.get("close")
+    # Technical price scale sanity: 4H close vs daily close 50% 이상 차이나면 스케일 불일치
+    d4h_close = d4h.get("close")
+    d3_close = d3.get("close")
+    price_scale_warn = False
+    if d4h_close and d3_close and d3_close > 0:
+        ratio = d4h_close / d3_close
+        if ratio > 2.0 or ratio < 0.5:
+            log.warning("[daily-alpha] price scale mismatch %s: 4H=%.0f daily=%.0f", symbol, d4h_close, d3_close)
+            close_price = d3_close   # daily close가 더 신뢰성 있음
+            price_scale_warn = True
+        else:
+            close_price = d4h_close or d3_close
+    else:
+        close_price = d4h_close or d3_close
+
     entry, invalid, target, inv_price, tgt_price = _price_zones(close_price, is_kr, side, atr)
+    if price_scale_warn:
+        # 진입구간·무효화·목표가 출력 금지
+        entry = "기술데이터 스케일 불일치 — 가격 재확인 필요"
+        invalid = "가격 스케일 검증 후 설정"
+        target = "가격 스케일 검증 후 설정"
+        inv_price = None
+        tgt_price = None
 
     return DailyAlphaPick(
         session=session,
@@ -901,11 +957,11 @@ def _score_candidate(
         invalidation_level=invalid,
         target_zone=target,
         signal_price=close_price,
-        signal_price_source="yfinance 1H close" if close_price else "",
+        signal_price_source="yfinance 1H close" if (close_price and not price_scale_warn) else ("yfinance daily close" if close_price else ""),
         evidence_count=ev_cnt,
         direct_evidence_count=dir_ev,
         sector=sector,
-        price_status="OK" if close_price else "PRICE_MISSING",
+        price_status="PRICE_SCALE_WARN" if price_scale_warn else ("OK" if close_price else "PRICE_MISSING"),
         created_at=datetime.now(UTC),
         sentiment_missing=sent_missing,
         avg_daily_turnover=d3.get("avg_turnover"),
@@ -1166,11 +1222,7 @@ def run_daily_alpha(
         )
         annotate_picks(long_picks[:top_n], rules, symbol_index, macro_guard_obj)
         annotate_picks(short_picks[:top_n], rules, symbol_index, macro_guard_obj)
-
-        # Apply macro guard LONG score penalty when macro risk is HIGH
-        if macro_guard_obj.long_score_adj != 0.0:
-            for p in long_picks[:top_n]:
-                p.final_score = max(0.0, min(100.0, p.final_score + macro_guard_obj.long_score_adj))
+        # annotate_picks 내부에서 macro_guard.long_score_adj 반영됨 — 이중 적용 금지
 
         # Apply relative lag boost: lag >= 3% → LONG score +1~5
         for p in long_picks[:top_n]:
@@ -1243,11 +1295,21 @@ def build_daily_alpha_report(
             return f"{pick.signal_price:,.0f}원" if is_kr else f"${pick.signal_price:.2f}"
         return "가격 미확인"
 
+    def _clean_narrative_text(text: str) -> str:
+        """Fragment/noise 문장 제거. 오염 텍스트이면 빈 문자열 반환."""
+        if not text or _is_fragment(text) or _has_meta_noise(text):
+            return ""
+        return text
+
     def _pick_block(pick: DailyAlphaPick, side_label: str) -> list[str]:
         from tele_quant.scenario_alpha import build_scenario_narrative
 
+        price_scale_bad = pick.price_status == "PRICE_SCALE_WARN"
         spec_tag = " ⚠ 고위험" if pick.is_speculative else ""
+        if price_scale_bad:
+            spec_tag += " ⚠ 가격스케일"
         narrative = build_scenario_narrative(pick)
+        why_text = _clean_narrative_text(narrative.get("왜지금", "")) or narrative.get("왜지금", "")
         block = [
             f"\n{pick.rank}. {pick.name} / {pick.symbol}{spec_tag}",
             f"   시나리오: {narrative['시나리오']}",
@@ -1265,16 +1327,22 @@ def build_daily_alpha_report(
                 block.append(f"   이유: {reason_ko}")
         if "연결고리" in narrative:
             block.append(f"   연결고리: {narrative['연결고리']}")
-        block += [
-            f"   왜 지금: {narrative['왜지금']}",
-            f"   감성: {pick.sentiment_reason}",
-            f"   {'가치' if pick.side == 'LONG' else '과열/가치'}: {pick.valuation_reason}",
-            f"   기준가: {_pick_price_str(pick)}",
-            f"   진입 트리거: {narrative['진입트리거']}",
-            f"   무효화: {narrative['무효화']}",
-            f"   1차 관찰 목표: {pick.target_zone}",
-            f"   위험요인: {narrative['위험요인']}",
-        ]
+        block.append(f"   왜 지금: {why_text}")
+        block.append(f"   감성: {pick.sentiment_reason}")
+        block.append(f"   {'가치' if pick.side == 'LONG' else '과열/가치'}: {pick.valuation_reason}")
+        if price_scale_bad:
+            block.append("   기준가: 기술데이터 스케일 불일치 — 가격 재확인 필요")
+            block.append("   진입 트리거: 가격 스케일 검증 필요 — 미출력")
+            block.append("   무효화: 가격 스케일 검증 필요 — 미출력")
+            block.append("   1차 관찰 목표: 가격 스케일 검증 필요 — 미출력")
+        else:
+            block += [
+                f"   기준가: {_pick_price_str(pick)}",
+                f"   진입 트리거: {narrative['진입트리거']}",
+                f"   무효화: {narrative['무효화']}",
+                f"   1차 관찰 목표: {pick.target_zone}",
+            ]
+        block.append(f"   위험요인: {narrative['위험요인']}")
         if pick.is_speculative and pick.side == "SHORT":
             block.append("   ※ 실제 숏 가능 여부(borrow) 별도 확인 필요")
         if pick.sector:
@@ -1325,10 +1393,10 @@ def build_daily_alpha_report(
         pick.rank = i
         lines += _pick_block(pick, "과열")
 
-    # Speculative section (combined)
+    # Speculative section (combined) — 관망/추적 후보 (60~69점 or 저유동성)
     if spec_long or spec_short:
         lines.append("")
-        lines.append("⚠ 고위험 추적 후보 (60~69점 또는 저유동성)")
+        lines.append("⚠ 관망/추적 후보 (60~69점 또는 저유동성 — 정식 후보 아님)")
         for i, pick in enumerate(spec_long, 1):
             pick.rank = i
             lines += _pick_block(pick, "가치")

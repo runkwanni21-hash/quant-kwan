@@ -1439,6 +1439,127 @@ def sector_cycle_cmd(
         console.print("[green]sector-cycle 전송 완료[/green]")
 
 
+@app.command("output-lint")
+def output_lint_cmd(
+    file: Annotated[
+        str, typer.Option("--file", help="검사할 리포트 파일 경로 (없으면 stdin 대기)")
+    ] = "",
+    fail_on_high: Annotated[
+        bool, typer.Option("--fail-on-high", help="HIGH 이슈 발견 시 exit-code 1")
+    ] = False,
+) -> None:
+    """Daily Alpha / 4H 브리핑 리포트 출력 품질 검사.
+
+    Example: uv run tele-quant output-lint --file /tmp/daily_alpha.log
+             uv run tele-quant daily-alpha --market KR --no-send | uv run tele-quant output-lint --file /dev/stdin
+    """
+    import re as _re
+    from pathlib import Path as _Path
+
+    from rich.table import Table
+
+    # 검사 대상 텍스트 로드
+    if file:
+        try:
+            text = _Path(file).read_text(encoding="utf-8", errors="ignore")
+        except FileNotFoundError:
+            console.print(f"[red]파일 없음: {file}[/red]")
+            raise SystemExit(1) from None
+    else:
+        import sys
+        text = sys.stdin.read()
+
+    lines_raw = text.splitlines()
+
+    # ── 검사 규칙 ──────────────────────────────────────────────────────────────
+    issues: list[dict[str, str]] = []
+
+    def _check(severity: str, pattern: str, message: str, *, regex: bool = False) -> None:
+        for ln, line in enumerate(lines_raw, 1):
+            hit = (
+                _re.search(pattern, line, _re.IGNORECASE)
+                if regex else pattern in line
+            )
+            if hit:
+                issues.append({
+                    "severity": severity, "line": str(ln),
+                    "pattern": pattern, "message": message,
+                    "excerpt": line.strip()[:80],
+                })
+
+    # HIGH: 절대 출력 금지 메타 노이즈
+    _check("HIGH", "Web발신", "Web발신 노이즈 잔류")
+    _check("HIGH", "보고서링크:", "보고서링크 메타 잔류")
+    _check("HIGH", "국장 마이너리티 리포트", "채널명 헤더 잔류")
+    _check("HIGH", "안녕하세요", "브로커 인사말 잔류")
+    _check("HIGH", r"IB\s*투자의견", "IB 투자의견 헤더 잔류", regex=True)
+    _check("HIGH", r"^   왜 지금: (?:치 |드 |이를 )", "왜지금 문장 조각", regex=True)
+
+    # HIGH: 가격 스케일 이상 (삼성전자 등 KR 대형주 과거 미분할 가격)
+    for suspicious_bb in ["BB.*311,0", "BB.*2,160,", "BB.*755,6", "BB.*1,715,"]:
+        _check("HIGH", suspicious_bb, "기술지표 가격 스케일 이상 (미분할 추정)", regex=True)
+
+    # HIGH: 음수 source에 "급등 후" 표현 금지
+    _check("HIGH", r"4H -[3-9]\.\d%.*급등 후", "음수 source에 급등 후 표현", regex=True)
+    _check("HIGH", r"1D -[5-9]\.\d%.*급등 후", "음수 1D source에 급등 후 표현", regex=True)
+
+    # HIGH: 현재가 확인 불가가 상단 상세 후보로 반복 노출
+    price_unavail_lines = [ln for ln, line_text in enumerate(lines_raw, 1) if "현재가 확인 불가, 통계만 참고" in line_text]
+    if len(price_unavail_lines) >= 3:
+        issues.append({
+            "severity": "HIGH", "line": str(price_unavail_lines[0]),
+            "pattern": "현재가 확인 불가, 통계만 참고",
+            "message": f"현재가 확인 불가 {len(price_unavail_lines)}회 반복 — 상단 노출 중",
+            "excerpt": "(가격 미확인 후보 상세 노출 반복)",
+        })
+
+    # MEDIUM: 점수 구간 혼란 — 관망/추적 후보가 정식 후보 섹션에 없어야 함
+    in_main_section = False
+    for ln, line in enumerate(lines_raw, 1):
+        if "LONG 관찰 후보" in line or "SHORT 관찰 후보" in line:
+            in_main_section = True
+        if "관망/추적 후보" in line or "⚠" in line:
+            in_main_section = False
+        if in_main_section:
+            m = _re.search(r"최종점수:\s*(5\d+\.\d)", line)
+            if m:
+                issues.append({
+                    "severity": "MEDIUM", "line": str(ln),
+                    "pattern": "50점대 정식 후보",
+                    "message": f"50점대({m.group(1)}) 후보가 정식 관찰 후보 섹션에 있음",
+                    "excerpt": line.strip()[:80],
+                })
+
+    # LOW: 기타 노이즈
+    _check("LOW", r"^   왜 지금: .*Report\s*\)", "Report) 메타 태그 왜지금에 잔류", regex=True)
+    _check("LOW", "중복 환율", "중복 환율 출력")
+
+    # ── 결과 출력 ──────────────────────────────────────────────────────────────
+    if not issues:
+        console.print("[green]output-lint: 이슈 없음[/green]")
+        return
+
+    table = Table(title="output-lint 결과", show_lines=True)
+    table.add_column("심각도", style="bold", min_width=6)
+    table.add_column("라인", min_width=5)
+    table.add_column("메시지", min_width=25)
+    table.add_column("발췌", min_width=40)
+
+    _colors = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "cyan"}
+    for row in sorted(issues, key=lambda x: (x["severity"], int(x["line"]))):
+        color = _colors.get(row["severity"], "white")
+        table.add_row(
+            f"[{color}]{row['severity']}[/{color}]",
+            row["line"], row["message"], row["excerpt"],
+        )
+    console.print(table)
+
+    high_count = sum(1 for i in issues if i["severity"] == "HIGH")
+    console.print(f"총 이슈: {len(issues)}개 (HIGH {high_count}개)")
+    if fail_on_high and high_count > 0:
+        raise SystemExit(1)
+
+
 @app.command("sector-cycle-audit")
 def sector_cycle_audit_cmd(
     fail_on_high: Annotated[
