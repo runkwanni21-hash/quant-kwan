@@ -93,10 +93,36 @@
 - 장 마감 후 Daily Alpha 후보의 당일 성과 확인
 - LONG/SHORT 성과 분리, style/scenario별 성과 요약
 
-### 8. Weekly Report
+### 8. Sector Cycle Rulebook v2
+
+시장 자금이 어떤 순서로 이동하는지를 13개 사이클로 정의하고, 현재 사이클 위치에서 LONG/SHORT 후보를 보강합니다.
+
+| 구성요소 | 설명 |
+|----------|------|
+| **사이클 분류** | 1차 주도주 → 2차 수혜 → 3차 후행 → 피해/주의 4단계 |
+| **매크로 가드** | Fear&Greed / 10Y금리 / VIX / DXY / Oil 7팩터 위험 레벨 평가 |
+| **후발 감지기** | 주도 테마 수익률 대비 후발 테마 상대 지연 자동 계산 |
+| **Daily Alpha 연동** | cycle_id / cycle_stage / macro_guard / relative_lag_score가 LONG/SHORT 후보 출력에 반영 |
+| **주간 리포트 섹션 15** | KR + US 사이클 흐름 요약 포함 |
+
+```
+주요 사이클 예시:
+  rate_cut_risk_on       — 금리인하 리스크온 (성장주 → 소비재 → 여행)
+  ai_semiconductor_dc    — AI 반도체·데이터센터 (GPU → 전력기기 → 구리)
+  power_nuclear_ess      — 전력·원전·ESS (원전 → 전선 → 구리)
+  ev_battery_materials   — EV 배터리 소재 (배터리 → 소재 → 광산)
+  kbeauty_consumer_china — K뷰티·소비재·중국 (브랜드 → ODM → 유통)
+  ... 13개 사이클
+```
+
+**스코어링 영향**:
+- 매크로 HIGH → LONG final_score 감점 (long_score_adj)
+- 후발 폭(relative_lag_score) ≥ 3%p → LONG final_score 최대 +5점 보강
+
+### 9. Weekly Report
 
 - 한 주간 리포트 요약 (80점 이상 첫 신호 성과 포함)
-- Daily Alpha / Supply-chain Alpha / Pair-watch / Quantamental Theme Board 섹션
+- Daily Alpha / Supply-chain Alpha / Pair-watch / Quantamental Theme Board / Sector Cycle 섹션
 - 다음 주 가중치 제안
 
 ---
@@ -251,6 +277,12 @@ uv run tele-quant weekly --send --days 7
 uv run tele-quant pair-watch-cleanup --apply
 uv run tele-quant pair-watch-cleanup --dry-run
 
+# Sector Cycle Rulebook v2
+uv run tele-quant sector-cycle --market KR --no-send
+uv run tele-quant sector-cycle --market US --no-send
+uv run tele-quant sector-cycle-audit
+uv run tele-quant sector-cycle-audit --fail-on-high
+
 # 진단 및 품질 확인
 uv run tele-quant ops-doctor
 uv run tele-quant lint-report --hours 24
@@ -268,6 +300,7 @@ uv run tele-quant ops-doctor
 uv run tele-quant lint-report --hours 24
 uv run tele-quant pair-watch-cleanup --dry-run
 uv run tele-quant theme-board --market KR --no-send
+uv run tele-quant sector-cycle-audit
 ```
 
 ---
@@ -280,11 +313,13 @@ tele_quant/
     ticker_aliases.yml        ← 종목명/별칭/티커/테마 (여기서만 편집)
     watchlist.yml             ← 관심종목 그룹
     sources.example.yml       ← 텔레그램 채널 예시
+    sector_cycle_rules.yml    ← 13개 자금흐름 사이클 규칙집
   src/tele_quant/
     analysis/                 ← 종목 추출 + 기술/가치 분석
     pipeline.py               ← 전체 파이프라인 (collect → dedupe → digest → analyze → send)
     daily_alpha.py            ← LONG/SHORT 관찰 후보 생성
     theme_board.py            ← 퀀터멘탈 테마 보드
+    sector_cycle.py           ← Sector Cycle Rulebook v2 (매크로 가드 + 후발 감지기)
     supply_chain.py           ← 서플라이 체인 spillover 엔진
     pair_watch.py             ← 선행·후행 페어 관찰
     price_alert.py            ← 목표가/무효화 알림

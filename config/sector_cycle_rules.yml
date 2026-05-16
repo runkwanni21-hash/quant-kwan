@@ -82,7 +82,7 @@ cycles:
       - sector: 여행/면세
         connection: 소비 회복 → 여행·면세 수요 후행 기대
         symbols:
-          - {symbol: 030200.KS, name: KT}
+          - {symbol: 039130.KS, name: 하나투어}
           - {symbol: MAR, name: Marriott}
           - {symbol: ABNB, name: Airbnb}
     victims:
@@ -355,7 +355,7 @@ cycles:
       - sector: 기판/소재
         connection: AI 반도체 패키징 증가 → FC-BGA·소재 수요 연쇄
         symbols:
-          - {symbol: 240340.KS, name: 크래프톤}
+          - {symbol: 259960.KS, name: 크래프톤}
           - {symbol: 089010.KS, name: 대덕전자}
           - {symbol: 036540.KS, name: 심텍}
           - {symbol: 427950.KS, name: 솔브레인}
@@ -394,7 +394,7 @@ cycles:
       - sector: 전선/구리
         connection: 데이터센터 전력망 확충 → 전선·구리 수요 후행
         symbols:
-          - {symbol: 010120.KS, name: LS}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
           - {symbol: 001440.KS, name: 대한전선}
           - {symbol: FCX, name: Freeport-McMoRan}
     victims:
@@ -463,7 +463,7 @@ cycles:
       - sector: 전선/구리
         connection: 전력망 확충 → 전선·구리 수요 증가
         symbols:
-          - {symbol: 010120.KS, name: LS}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
           - {symbol: 001440.KS, name: 대한전선}
           - {symbol: 103140.KS, name: 풍산}
           - {symbol: FCX, name: Freeport-McMoRan}
@@ -843,7 +843,7 @@ cycles:
     source_symbols:
       - {symbol: FCX, name: Freeport-McMoRan}
       - {symbol: SCCO, name: Southern Copper}
-      - {symbol: 010120.KS, name: LS}
+      - {symbol: 010120.KS, name: LS ELECTRIC}
       - {symbol: 001440.KS, name: 대한전선}
     first_order_beneficiaries:
       - sector: 구리 광산
@@ -855,7 +855,7 @@ cycles:
       - sector: 전선
         connection: 전력망·EV 충전 인프라 → 전선 수요 직결
         symbols:
-          - {symbol: 010120.KS, name: LS}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
           - {symbol: 001440.KS, name: 대한전선}
           - {symbol: 103140.KS, name: 풍산}
     second_order_beneficiaries:

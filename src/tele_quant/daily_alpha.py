@@ -1141,6 +1141,47 @@ def run_daily_alpha(
     for rank, pick in enumerate(short_picks[:top_n], 1):
         pick.rank = rank
 
+    # 11. Sector Cycle Rulebook v2 — annotate picks + apply macro/lag score adjustments
+    try:
+        from tele_quant.sector_cycle import (
+            _build_symbol_index,
+            _extract_macro_from_store,
+            _extract_sector_sentiments,
+            annotate_picks,
+            compute_macro_guard,
+            load_sector_cycle_rules,
+        )
+
+        rules = load_sector_cycle_rules()
+        symbol_index = _build_symbol_index(rules)
+        macro_inputs = _extract_macro_from_store(store)
+        sector_sentiments = _extract_sector_sentiments(store) if store else {}
+        macro_guard_obj = compute_macro_guard(
+            fear_greed_score=macro_inputs.get("fear_greed"),
+            us_10y_rate=macro_inputs.get("us_10y"),
+            vix=macro_inputs.get("vix"),
+            dollar_index=macro_inputs.get("dxy"),
+            oil_price=macro_inputs.get("oil"),
+            sector_sentiments=sector_sentiments,
+        )
+        annotate_picks(long_picks[:top_n], rules, symbol_index, macro_guard_obj)
+        annotate_picks(short_picks[:top_n], rules, symbol_index, macro_guard_obj)
+
+        # Apply macro guard LONG score penalty when macro risk is HIGH
+        if macro_guard_obj.long_score_adj != 0.0:
+            for p in long_picks[:top_n]:
+                p.final_score = max(0.0, min(100.0, p.final_score + macro_guard_obj.long_score_adj))
+
+        # Apply relative lag boost: lag >= 3% → LONG score +1~5
+        for p in long_picks[:top_n]:
+            if p.side == "LONG" and p.relative_lag_score >= 3.0:
+                lag_boost = min(5.0, p.relative_lag_score * 0.5)
+                p.final_score = min(100.0, p.final_score + lag_boost)
+                log.debug("[daily-alpha] lag boost %s +%.1f (lag=%.1f)", p.symbol, lag_boost, p.relative_lag_score)
+
+    except Exception as exc:
+        log.debug("[daily-alpha] sector cycle annotation error: %s", exc)
+
     return long_picks[:top_n], short_picks[:top_n]
 
 
@@ -1238,6 +1279,21 @@ def build_daily_alpha_report(
             block.append("   ※ 실제 숏 가능 여부(borrow) 별도 확인 필요")
         if pick.sector:
             block.append(f"   섹터: {pick.sector}")
+        # Sector Cycle Rulebook v2 fields
+        if pick.cycle_id:
+            _stage_ko = {
+                "LEADER": "주도주", "SECOND_ORDER": "후발 2차",
+                "THIRD_ORDER": "후발 3차", "VICTIM": "피해/주의", "OVERHEATED": "과열 주의",
+            }.get(pick.cycle_stage, pick.cycle_stage)
+            block.append(f"   사이클: [{pick.cycle_id}] {_stage_ko}")
+        if pick.beginner_reason:
+            block.append(f"   흐름 해석: {pick.beginner_reason}")
+        if pick.macro_guard:
+            block.append(f"   매크로: {pick.macro_guard}")
+        if pick.relative_lag_score > 0:
+            block.append(f"   후발 폭: {pick.relative_lag_score:.1f}%p")
+        if pick.next_confirmation:
+            block.append(f"   다음 확인: {pick.next_confirmation}")
         return block
 
     # Split main vs speculative

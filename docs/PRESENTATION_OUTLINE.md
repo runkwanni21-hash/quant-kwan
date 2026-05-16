@@ -11,7 +11,7 @@
 퀀터멘탈 리서치 자동화 시스템
 
 - 개발 기간: 2025년 4월 ~
-- 테스트 수: 1,100+
+- 테스트 수: 1,144+
 - 자동화 파이프라인 수: 9개 systemd 타이머
 - 데이터 소스: 15종
 
@@ -101,7 +101,7 @@ Price Alert → Alpha Review → Weekly Report
 
 ---
 
-## Slide 7 — Daily Alpha Picks
+## Slide 7 — Daily Alpha Picks + Sector Cycle Rulebook v2
 
 **기계적 스크리닝**: 사람의 주관 없이 7팩터 점수로 관찰 후보 선정
 
@@ -117,6 +117,20 @@ Price Alert → Alpha Review → Weekly Report
 - 70점 이상만 통과 → LONG 4개 / SHORT 4개
 - **매수/매도 지시가 아닌 기계적 관찰 후보**
 - KR 07:00 / US 22:00 KST 자동 실행
+
+**Sector Cycle Rulebook v2 연동** (스코어 보강)
+
+13개 자금흐름 사이클 규칙 (`sector_cycle_rules.yml`)로 각 후보의 현재 사이클 위치를 태깅:
+
+```
+사이클 단계: LEADER → SECOND_ORDER → THIRD_ORDER → VICTIM
+매크로 가드: LOW/MEDIUM/HIGH (VIX, 10Y금리, Fear&Greed 등 7팩터)
+후발 감지기: 주도 테마 수익률 대비 후발 지연 폭 자동 계산
+```
+
+- 매크로 HIGH → LONG final_score 감점
+- 후발 폭 ≥ 3%p → LONG final_score 최대 +5점
+- 출력에 사이클/흐름해석/매크로/후발폭/확인포인트 추가
 
 ---
 
@@ -167,6 +181,8 @@ Price Alert → Alpha Review → Weekly Report
 ```bash
 uv run tele-quant theme-board --market KR --no-send
 uv run tele-quant daily-alpha --market KR --no-send
+uv run tele-quant sector-cycle --market KR --no-send
+uv run tele-quant sector-cycle-audit
 uv run tele-quant ops-doctor
 ```
 
