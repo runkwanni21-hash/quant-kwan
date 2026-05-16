@@ -47,6 +47,40 @@ _STAGE_KO = {
     STAGE_OVERHEATED: "과열 주의",
 }
 
+# 사이클 ID → 한국어 표시명 (Daily Alpha / Theme Board 출력용)
+CYCLE_KO: dict[str, str] = {
+    "rate_cut_risk_on":              "금리 인하·위험선호",
+    "rate_hike_risk_off":            "금리 상승·위험회피",
+    "brokerage_risk_on":             "증권·위험선호 리바운드",
+    "construction_infra":            "건설·인프라",
+    "ai_semiconductor_dc":           "AI 반도체·데이터센터",
+    "power_nuclear_ess":             "전력기기·원전·ESS",
+    "shipbuilding_defense_space":    "조선·방산·우주",
+    "kbeauty_consumer_china":        "K뷰티·소비재·중국",
+    "bio_pharma_clinical":           "바이오·제약·임상",
+    "ev_battery_materials":          "EV·배터리·소재",
+    "energy_oil_chemicals":          "에너지·유가·화학",
+    "copper_materials_cable":        "구리·소재·전선",
+    "financial_brokerage_insurance": "금융·증권·보험",
+}
+
+# 사이클별 핵심 자금 흐름 체인 (주도 → 2차 → 3차)
+CYCLE_FLOW: dict[str, str] = {
+    "rate_cut_risk_on":              "금리 인하 → 성장주/기술 → 소비재/여행",
+    "rate_hike_risk_off":            "금리 상승 → 금융주 → 방어섹터/인프라",
+    "brokerage_risk_on":             "거래대금 급증 → 증권주 → 소비재",
+    "construction_infra":            "건설 수주 → 철강/시멘트 → 건자재/중장비",
+    "ai_semiconductor_dc":           "AI반도체/GPU → 전력기기/냉각 → 원전/ESS",
+    "power_nuclear_ess":             "원전·SMR → 전선/구리 → ESS/방산",
+    "shipbuilding_defense_space":    "수주 급증 → 기자재/강재 → 항공우주",
+    "kbeauty_consumer_china":        "K뷰티 수출 → ODM → 유통/면세",
+    "bio_pharma_clinical":           "임상 성공 → CDMO → 피어/원료의약",
+    "ev_battery_materials":          "EV 판매 → 배터리 → 소재/광산",
+    "energy_oil_chemicals":          "유가 상승 → 정유·LNG → 화학/플라스틱",
+    "copper_materials_cable":        "구리 급등 → 광산주 → 전선/전력기기",
+    "financial_brokerage_insurance": "금리 하락 → 보험/은행 → 소비금융",
+}
+
 # Macro regime threshold
 _FG_OVERHEATED = 75   # Fear & Greed 과열
 _FG_FEAR = 30         # Fear & Greed 공포
@@ -486,10 +520,12 @@ def annotate_picks(
         if hasattr(pick, "cycle_stage"):
             pick.cycle_stage = stage
         if hasattr(pick, "macro_guard"):
-            pick.macro_guard = (
-                f"리스크 {macro_guard.risk_level}"
-                + (f" / 점수조정 {macro_guard.long_score_adj:+.0f}" if macro_guard.long_score_adj != 0 else "")
-            )
+            _adj = macro_guard.long_score_adj
+            if _adj != 0:
+                _adj_ko = f"LONG 후보 {_adj:+.0f}점 보수 조정"
+                pick.macro_guard = f"리스크 {macro_guard.risk_level} — {_adj_ko}"
+            else:
+                pick.macro_guard = f"리스크 {macro_guard.risk_level} — 특별한 감점 없음"
 
         # beginner_reason
         if hasattr(pick, "beginner_reason") and not getattr(pick, "beginner_reason", ""):

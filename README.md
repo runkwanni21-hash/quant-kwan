@@ -115,6 +115,16 @@
   ... 13개 사이클
 ```
 
+**Daily Alpha 출력 표현** (초보자 기준):
+```
+사이클: AI 반도체·데이터센터 — 주도주
+흐름: AI반도체/GPU → 전력기기/냉각 → 원전/ESS
+초보자 해석: AI 반도체가 오르면 GPU만 보는 게 아닙니다...
+매크로 가드: 리스크 LOW — 특별한 감점 없음
+다음 확인: 빅테크 capex 가이던스 상향 / HBM 수요 상향
+```
+> `cycle_id`는 내부 식별자 (`ai_semiconductor_dc` 등). 리포트에는 한국어 사이클명으로 변환 출력.
+
 **스코어링 영향**:
 - 매크로 HIGH → LONG final_score 감점 (long_score_adj)
 - 후발 폭(relative_lag_score) ≥ 3%p → LONG final_score 최대 +5점 보강

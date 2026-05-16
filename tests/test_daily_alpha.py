@@ -450,7 +450,7 @@ def test_sentiment_missing_returns_true_when_no_store():
     score, reason, _ev, _direct_ev, missing = _score_sentiment("NVDA", None)
     assert missing is True
     assert score == 50.0
-    assert "확인 불가" in reason
+    assert "중립" in reason
 
 
 def test_report_source_reason_type_shown():

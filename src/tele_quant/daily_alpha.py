@@ -651,7 +651,7 @@ def _score_sentiment(
     returns (score, reason, evidence_count, direct_ev_count, sentiment_missing)
     sentiment_missing=True only when store is None or exception occurs."""
     if store is None:
-        return 50.0, "감성 중립/확인 불가 (DB없음)", 0, 0, True
+        return 50.0, "직접 감성 없음, 중립 처리", 0, 0, True
 
     try:
         from datetime import timedelta
@@ -710,7 +710,7 @@ def _score_sentiment(
 
     except Exception as exc:
         log.debug("Sentiment score %s failed: %s", symbol, exc)
-        return 50.0, "감성 중립/확인 불가 (조회 오류)", 0, 0, True
+        return 50.0, "직접 감성 없음, 중립 처리", 0, 0, True
 
 
 def _risk_penalty(
@@ -1281,15 +1281,20 @@ def build_daily_alpha_report(
             block.append(f"   섹터: {pick.sector}")
         # Sector Cycle Rulebook v2 fields
         if pick.cycle_id:
+            from tele_quant.sector_cycle import CYCLE_FLOW, CYCLE_KO
             _stage_ko = {
                 "LEADER": "주도주", "SECOND_ORDER": "후발 2차",
                 "THIRD_ORDER": "후발 3차", "VICTIM": "피해/주의", "OVERHEATED": "과열 주의",
             }.get(pick.cycle_stage, pick.cycle_stage)
-            block.append(f"   사이클: ({pick.cycle_id}) {_stage_ko}")
+            _ko_name = CYCLE_KO.get(pick.cycle_id, pick.cycle_id)
+            block.append(f"   사이클: {_ko_name} — {_stage_ko}")
+            _flow = CYCLE_FLOW.get(pick.cycle_id)
+            if _flow:
+                block.append(f"   흐름: {_flow}")
         if pick.beginner_reason:
-            block.append(f"   흐름 해석: {pick.beginner_reason}")
+            block.append(f"   초보자 해석: {pick.beginner_reason}")
         if pick.macro_guard:
-            block.append(f"   매크로: {pick.macro_guard}")
+            block.append(f"   매크로 가드: {pick.macro_guard}")
         if pick.relative_lag_score > 0:
             block.append(f"   후발 폭: {pick.relative_lag_score:.1f}%p")
         if pick.next_confirmation:
