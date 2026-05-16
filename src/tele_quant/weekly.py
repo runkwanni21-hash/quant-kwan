@@ -65,7 +65,10 @@ def _fetch_review_price(symbol: str, market: str) -> float | None:
     try:
         import yfinance as yf
 
-        yf_sym = f"{symbol}.KS" if (market or "").upper() == "KR" else symbol
+        if (market or "").upper() == "KR" and not symbol.endswith((".KS", ".KQ")):
+            yf_sym = f"{symbol}.KS"
+        else:
+            yf_sym = symbol
         df = yf.Ticker(yf_sym).history(period="2d", interval="1d", auto_adjust=True)
         if df is None or df.empty:
             return None
