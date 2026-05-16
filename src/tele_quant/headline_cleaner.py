@@ -272,6 +272,13 @@ _FINAL_DROP_LINE_RES = [
     re.compile(r"^\d{1,2}/\d{1,2}\s*Report\s*$", re.IGNORECASE),
     # Fragment starters: text that begins mid-sentence
     re.compile(r"^(?:치 |드 |이를 정당화|이번에는\s|가격 인하|이에 따라\s|에서 이어지)"),
+    # Premaket/daily briefing header-only lines
+    re.compile(r"^🇺🇸\s*미국\s*개장\s*전\s*주요\s*종목\s*🇺🇸\s*$"),
+    re.compile(r"^\d{4}년\s*\d+월\s*\d+일\s*월가\s*주요\s*뉴스"),
+    # Channel/date-only patterns with no investment content
+    re.compile(r"^이익동향\s*\(\d+월\s*\d+주차\)\s*$"),
+    # Orphaned fragment starters (조사/어미 시작)
+    re.compile(r"^(?:후 |와 |이 |는 |를 |을 |은 |며 |해 |고 |로 |으로 |에서 |에도 |에게 |부터 )"),
 ]
 
 # Inline patterns to strip from lines (rather than drop the whole line)

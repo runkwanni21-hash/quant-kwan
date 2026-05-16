@@ -1499,9 +1499,11 @@ def output_lint_cmd(
     for suspicious_bb in ["BB.*311,0", "BB.*2,160,", "BB.*755,6", "BB.*1,715,"]:
         _check("HIGH", suspicious_bb, "기술지표 가격 스케일 이상 (미분할 추정)", regex=True)
 
-    # HIGH: 음수 source에 "급등 후" 표현 금지
-    _check("HIGH", r"4H -[3-9]\.\d%.*급등 후", "음수 source에 급등 후 표현", regex=True)
-    _check("HIGH", r"1D -[5-9]\.\d%.*급등 후", "음수 1D source에 급등 후 표현", regex=True)
+    # HIGH: pair-watch 방향 불일치
+    _check("HIGH", r"4H -[1-9]\d?\.\d%.*급등 후", "음수 source에 급등 후 표현", regex=True)
+    _check("HIGH", r"1D -[1-9]\d?\.\d%.*급등 후", "음수 1D source에 급등 후 표현", regex=True)
+    _check("HIGH", r"4H \+[1-9]\d?\.\d%.*급락 후", "양수 source에 급락 후 표현", regex=True)
+    _check("HIGH", r"1D \+[1-9]\d?\.\d%.*급락 후", "양수 1D source에 급락 후 표현", regex=True)
 
     # HIGH: 현재가 확인 불가가 상단 상세 후보로 반복 노출
     price_unavail_lines = [ln for ln, line_text in enumerate(lines_raw, 1) if "현재가 확인 불가, 통계만 참고" in line_text]
@@ -1529,10 +1531,32 @@ def output_lint_cmd(
                     "message": f"50점대({m.group(1)}) 후보가 정식 관찰 후보 섹션에 있음",
                     "excerpt": line.strip()[:80],
                 })
+            m2 = _re.search(r"최종점수:\s*6[0-9]\.\d", line)
+            if m2:
+                issues.append({
+                    "severity": "MEDIUM", "line": str(ln),
+                    "pattern": "60점대 정식 후보",
+                    "message": "60점대 후보가 정식 관찰 후보 섹션에 있음 — 추적 후보여야 함",
+                    "excerpt": line.strip()[:80],
+                })
+
+    # MEDIUM: 가격 스케일 불일치 후보가 정식 후보 섹션에 표시되는 경우
+    _check("MEDIUM", "기술데이터 스케일 불일치", "가격 스케일 불일치 후보 출력 중", regex=False)
+
+    # MEDIUM: 원/달러 환율 중복
+    krw_lines = [ln for ln, line_text in enumerate(lines_raw, 1) if "원/달러" in line_text]
+    if len(krw_lines) >= 2:
+        issues.append({
+            "severity": "MEDIUM", "line": str(krw_lines[1]),
+            "pattern": "원/달러 환율 중복",
+            "message": f"원/달러 환율 {len(krw_lines)}회 출력 — 중복 제거 필요",
+            "excerpt": lines_raw[krw_lines[1] - 1].strip()[:80],
+        })
 
     # LOW: 기타 노이즈
     _check("LOW", r"^   왜 지금: .*Report\s*\)", "Report) 메타 태그 왜지금에 잔류", regex=True)
-    _check("LOW", "중복 환율", "중복 환율 출력")
+    _check("LOW", r"근거: 약함", "증거 품질 WEAK 후보 출력 중", regex=True)
+    _check("LOW", r"근거: 제거", "증거 품질 REJECT 후보 출력 중", regex=True)
 
     # ── 결과 출력 ──────────────────────────────────────────────────────────────
     if not issues:

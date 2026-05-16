@@ -514,6 +514,17 @@ def build_macro_digest(
                 if fx_line:
                     indicator_lines.append(f"환율(실시간): {fx_line}")
 
+            # 원/달러 환율 중복 제거: ECOS + Frankfurter 둘 다 있으면 첫 번째만 유지
+            seen_krw = False
+            deduped: list[str] = []
+            for il in indicator_lines:
+                if "원/달러" in il:
+                    if seen_krw:
+                        continue
+                    seen_krw = True
+                deduped.append(il)
+            indicator_lines = deduped
+
             if indicator_lines:
                 lines.append("📊 시장 심리 & 실시간 지표")
                 for il in indicator_lines:

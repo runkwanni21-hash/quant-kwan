@@ -85,6 +85,73 @@ _BEARISH_KEYWORDS = [
     "매도", "하향", "약세", "이탈", "붕괴", "miss", "downgrade", "sell", "bearish", "underperform",
 ]
 
+# 섹터/테마 키워드 — 증거 품질 SECTOR 판정에 사용
+_SECTOR_KEYWORDS: dict[str, list[str]] = {
+    "반도체": ["반도체", "semiconductor", "dram", "hbm", "nand", "메모리", "파운드리", "fab", "웨이퍼"],
+    "ai": ["ai", "인공지능", "llm", "gpu", "데이터센터", "datacenter", "capex", "엔비디아", "nvidia"],
+    "배터리": ["배터리", "battery", "ev", "전기차", "양극재", "음극재", "리튬", "lithium", "bms"],
+    "조선": ["조선", "shipbuilding", "lng", "lng선", "컨테이너선", "드릴십", "해양플랜트"],
+    "방산": ["방산", "defense", "무기", "미사일", "전투기", "군", "nato"],
+    "바이오": ["바이오", "bio", "임상", "fda", "신약", "항암", "cdmo", "제약", "pharma"],
+    "전력": ["전력", "변압기", "전선", "원전", "nuclear", "ess", "태양광", "solar", "풍력", "wind"],
+    "2차전지": ["2차전지", "이차전지", "전고체", "음극재", "양극재", "전해질"],
+    "소비": ["소비재", "consumer", "화장품", "뷰티", "beauty", "유통", "리테일", "retail"],
+    "금융": ["금리", "interest rate", "은행", "bank", "보험", "insurance", "증권", "brokerage"],
+    "server": ["서버", "server", "스토리지", "storage", "데이터센터", "datacenter", "인프라"],
+    "energy": ["유가", "oil", "wti", "brent", "lng", "천연가스", "정유", "refinery"],
+    "china": ["중국", "china", "chinese", "cxmt", "byd", "huawei", "alibaba", "tencent"],
+}
+
+
+def _get_sector_keywords(sector: str) -> list[str]:
+    """섹터명 → 관련 키워드 리스트."""
+    sl = sector.lower()
+    result: list[str] = []
+    for key, kws in _SECTOR_KEYWORDS.items():
+        if key in sl or any(k in sl for k in kws[:3]):
+            result.extend(kws)
+    return result
+
+
+def _classify_evidence_quality(
+    ticker_base: str,
+    name: str,
+    sector: str,
+    texts: list[str],
+) -> str:
+    """DIRECT > SECTOR > WEAK > REJECT.
+
+    - DIRECT: 텍스트에 티커 또는 종목명 whole-word 포함
+    - SECTOR: 섹터/테마 키워드 포함
+    - WEAK: 관련성 약함
+    - REJECT: 문장 조각이거나 무관 텍스트
+    """
+    if not texts:
+        return "REJECT"
+
+    ticker_pat = re.compile(r"\b" + re.escape(ticker_base.lower()) + r"\b")
+    name_lower = name.lower()
+    name_pat = (
+        re.compile(r"\b" + re.escape(name_lower) + r"\b")
+        if len(name_lower) >= 3 else None
+    )
+    sector_kws = _get_sector_keywords(sector)
+
+    for text in texts:
+        t = text.lower()
+        if ticker_pat.search(t):
+            return "DIRECT"
+        if name_pat and name_pat.search(t):
+            return "DIRECT"
+
+    for text in texts:
+        t = text.lower()
+        for kw in sector_kws:
+            if kw in t:
+                return "SECTOR"
+
+    return "WEAK"
+
 
 @dataclass
 class DailyAlphaPick:
@@ -153,6 +220,9 @@ class DailyAlphaPick:
     relative_lag_score: float = 0.0  # 주도 테마 대비 후발 폭 (클수록 후발)
     beginner_reason: str = ""      # 초보자 해석
     next_confirmation: str = ""    # 다음 확인 체크포인트
+    # Output Quality Gate v2 fields
+    evidence_quality: str = "UNKNOWN"  # DIRECT | SECTOR | WEAK | REJECT | UNKNOWN
+    technical_valid: bool = True       # False if price scale mismatch
 
 
 # ── Market index ──────────────────────────────────────────────────────────────
@@ -358,10 +428,11 @@ def _fetch_4h_data(symbol: str) -> dict[str, Any]:
 
 
 def _fetch_fundamentals(symbol: str) -> dict[str, Any]:
-    """yfinance .info에서 PER, PBR, ROE, revenue_growth, op_margin."""
+    """yfinance .info에서 PER, PBR, ROE, revenue_growth, op_margin, latest_price."""
     out: dict[str, float | None] = {
         "per": None, "pbr": None, "roe": None,
         "rev_growth": None, "op_margin": None, "fcf_margin": None,
+        "latest_price": None,
     }
     try:
         import yfinance as yf  # type: ignore[import-untyped]
@@ -379,6 +450,15 @@ def _fetch_fundamentals(symbol: str) -> dict[str, Any]:
         rev = info.get("totalRevenue")
         if fcf is not None and rev and rev > 0:
             out["fcf_margin"] = float(fcf) / float(rev) * 100
+        # 가격 스케일 검증용 최신 실제가 (info 기반 — history보다 분할 조정 신뢰성 높음)
+        lp = (
+            info.get("currentPrice")
+            or info.get("regularMarketPrice")
+            or info.get("regularMarketPreviousClose")
+            or info.get("previousClose")
+        )
+        if lp and float(lp) > 0:
+            out["latest_price"] = float(lp)
     except Exception as exc:
         log.debug("Fundamentals %s failed: %s", symbol, exc)
     return out
@@ -909,29 +989,80 @@ def _score_candidate(
         )
         style = _detect_style_short(val_score, tech4, tech3, cat_score, d4h)
 
-    # Technical price scale sanity: 4H close vs daily close 50% 이상 차이나면 스케일 불일치
+    # ── Technical price scale sanity v2 ─────────────────────────────────────────
+    # latest_price (info.currentPrice) → 실제 시장가 → scale 검증 기준
+    # history() 기반 d4h/d3 close가 주식분할 미반영 등으로 틀릴 수 있음
     d4h_close = d4h.get("close")
     d3_close = d3.get("close")
+    latest_price = f.get("latest_price")
     price_scale_warn = False
-    if d4h_close and d3_close and d3_close > 0:
+
+    if latest_price and latest_price > 0:
+        # info.currentPrice 기준으로 4H/3D 가격 검증
+        for label, price in (("4H", d4h_close), ("3D", d3_close)):
+            if price and price > 0:
+                ratio = price / latest_price
+                if ratio > 1.5 or ratio < 0.5:
+                    log.warning(
+                        "[daily-alpha] price scale mismatch %s: %s=%.0f latest=%.0f (ratio=%.2f)",
+                        symbol, label, price, latest_price, ratio,
+                    )
+                    price_scale_warn = True
+        close_price = latest_price  # 항상 info 기반 실제가를 기준가로 사용
+    elif d4h_close and d3_close and d3_close > 0:
         ratio = d4h_close / d3_close
         if ratio > 2.0 or ratio < 0.5:
-            log.warning("[daily-alpha] price scale mismatch %s: 4H=%.0f daily=%.0f", symbol, d4h_close, d3_close)
-            close_price = d3_close   # daily close가 더 신뢰성 있음
+            log.warning(
+                "[daily-alpha] price scale mismatch %s: 4H=%.0f daily=%.0f",
+                symbol, d4h_close, d3_close,
+            )
+            close_price = d3_close
             price_scale_warn = True
         else:
             close_price = d4h_close or d3_close
     else:
         close_price = d4h_close or d3_close
 
+    # 스케일 불일치 시 기술 점수 상한 및 final_score 상한 → 정식 후보 제외
+    if price_scale_warn:
+        tech4 = min(30.0, tech4)
+        tech3 = min(30.0, tech3)
+        final = min(59.0, final)
+
     entry, invalid, target, inv_price, tgt_price = _price_zones(close_price, is_kr, side, atr)
     if price_scale_warn:
-        # 진입구간·무효화·목표가 출력 금지
         entry = "기술데이터 스케일 불일치 — 가격 재확인 필요"
         invalid = "가격 스케일 검증 후 설정"
         target = "가격 스케일 검증 후 설정"
         inv_price = None
         tgt_price = None
+
+    # ── Evidence quality classification ──────────────────────────────────────
+    ev_quality = "UNKNOWN"
+    if ev_cnt > 0:
+        try:
+            from datetime import timedelta
+            since_ev = datetime.now(UTC) - timedelta(hours=24)
+            raw_items = store.recent_items(since=since_ev, limit=100) if store else []
+            texts = [
+                f"{getattr(i, 'title', '')} {getattr(i, 'text', '')}".lower()
+                for i in raw_items
+            ]
+            ev_quality = _classify_evidence_quality(
+                symbol.split(".")[0].upper(), name, sector, texts
+            )
+        except Exception:
+            ev_quality = "UNKNOWN"
+    elif ev_cnt == 0:
+        ev_quality = "WEAK"
+
+    # WEAK/REJECT 증거 품질이면 final_score 상한 설정
+    if ev_quality == "REJECT":
+        final = min(59.0, final)
+    elif ev_quality == "WEAK":
+        final = min(69.0, final)
+    elif ev_quality == "SECTOR":
+        final = min(74.0, final)
 
     return DailyAlphaPick(
         session=session,
@@ -957,7 +1088,11 @@ def _score_candidate(
         invalidation_level=invalid,
         target_zone=target,
         signal_price=close_price,
-        signal_price_source="yfinance 1H close" if (close_price and not price_scale_warn) else ("yfinance daily close" if close_price else ""),
+        signal_price_source=(
+            "yfinance info (현재가)" if (close_price and latest_price and close_price == latest_price)
+            else "yfinance 1H close" if (close_price and not price_scale_warn)
+            else ("yfinance daily close" if close_price else "")
+        ),
         evidence_count=ev_cnt,
         direct_evidence_count=dir_ev,
         sector=sector,
@@ -965,6 +1100,8 @@ def _score_candidate(
         created_at=datetime.now(UTC),
         sentiment_missing=sent_missing,
         avg_daily_turnover=d3.get("avg_turnover"),
+        evidence_quality=ev_quality,
+        technical_valid=not price_scale_warn,
         target_price=tgt_price,
         invalidation_price=inv_price,
     )
@@ -1301,6 +1438,11 @@ def build_daily_alpha_report(
             return ""
         return text
 
+    _EV_QUALITY_KO = {
+        "DIRECT": "직접", "SECTOR": "섹터", "WEAK": "약함",
+        "REJECT": "제거", "UNKNOWN": "",
+    }
+
     def _pick_block(pick: DailyAlphaPick, side_label: str) -> list[str]:
         from tele_quant.scenario_alpha import build_scenario_narrative
 
@@ -1309,11 +1451,17 @@ def build_daily_alpha_report(
         if price_scale_bad:
             spec_tag += " ⚠ 가격스케일"
         narrative = build_scenario_narrative(pick)
-        why_text = _clean_narrative_text(narrative.get("왜지금", "")) or narrative.get("왜지금", "")
+        # fragment/noise 제거 후 왜지금 텍스트
+        why_raw = narrative.get("왜지금", "")
+        why_text = _clean_narrative_text(why_raw)
+        if not why_text:
+            why_text = why_raw  # fallback: 오염이어도 표시 (빈 것보다 낫다)
+        ev_ko = _EV_QUALITY_KO.get(pick.evidence_quality, "")
+        ev_tag = f" (근거: {ev_ko})" if ev_ko else ""
         block = [
             f"\n{pick.rank}. {pick.name} / {pick.symbol}{spec_tag}",
             f"   시나리오: {narrative['시나리오']}",
-            f"   최종점수: {pick.final_score:.1f}  (감성 {pick.sentiment_score:.0f} / {side_label} {pick.value_score:.0f} / 4H기술 {pick.technical_4h_score:.0f} / 3D기술 {pick.technical_3d_score:.0f})",
+            f"   최종점수: {pick.final_score:.1f}  (감성 {pick.sentiment_score:.0f} / {side_label} {pick.value_score:.0f} / 4H기술 {pick.technical_4h_score:.0f} / 3D기술 {pick.technical_3d_score:.0f}){ev_tag}",
         ]
         if "source" in narrative:
             block.append(f"   source: {narrative['source']}")
