@@ -1,53 +1,101 @@
-# Tele Quant / EST Quant
+# EST Quant / Tele Quant
 
-텔레그램·뉴스·공시·가격·가치·기술·선행후행 관계를 종합하는 **퀀터멘탈 리서치 자동화 시스템**
+**퀀터멘탈 리서치 자동화 시스템** — 텔레그램·뉴스·공시·가격·기술·선행후행 관계를 종합해 매크로·섹터·종목 리포트를 자동 전송합니다.
 
-> 이 프로젝트는 공개 정보 기반 개인 리서치 보조 도구입니다.  
+> 공개 정보 기반 개인 리서치 보조 도구입니다.  
 > 매수·매도 지시가 아니며 실제 투자 판단과 결과는 사용자 본인 책임입니다.  
-> 자동 주문, 브로커 연동, 실계좌 매매 기능은 포함하지 않습니다.
+> 자동 주문·브로커 연동·실계좌 매매 기능은 포함하지 않습니다.
 
 ---
 
-## 프로젝트 목적
+## 한눈에 보기 (슬라이드 1)
 
-- 텔레그램 전체 구독 채널에서 4시간 단위로 시장 정보를 수집
-- 중복·노이즈 제거 후 매크로, 섹터, 테마, 종목 호재/악재 분류
-- 가격·거래량·기술지표·가치지표·공시·뉴스를 통합 확인
-- 한국/미국 주식의 LONG/SHORT 관찰 후보 자동 생성
-- 수혜주/피해주/테마주/섹터 주도주/후발 수혜주를 퀀터멘탈하게 정리
-- **실제 추천이 아닌 리서치 보조 및 사후 검증 시스템**
+| 지표 | 수치 |
+|------|------|
+| 자동화 리포트 종류 | 9종 (4H 브리핑 / Daily Alpha / Theme Board / Weekly 등) |
+| 자동 실행 타이머 | 9개 systemd timer |
+| 데이터 소스 | 14개 (Telegram·RSS·yfinance·DART·FRED·ECOS·EIA·SEC…) |
+| 서플라이 체인 규칙 | 16개 산업 체인 |
+| Sector Cycle | 13개 자금 흐름 사이클 |
+| 테스트 케이스 | 1,171개 (ruff + pytest 전량 통과) |
+| 출력 품질 게이트 | 7개 규칙 + output-lint CLI (HIGH 이슈 0 목표) |
 
 ---
 
-## 주요 기능
+## 시스템 구조 (슬라이드 2)
 
-### 1. 4시간 투자 브리핑
+```
+[ 수집 ]──────────────────────────────────────────────────────────────────
+  Telegram 채널 (4H)   →  EvidenceCluster  →  DedupeEngine
+  RSS / SEC 8-K / DART →  HeadlineCleaner  →  NoiseFilter
+  FRED / ECOS / EIA    →  MacroCollector   →
+                                                ↓
+[ 분석 ]──────────────────────────────────────────────────────────────────
+  SentimentScorer  →  polarity 7팩터
+  TechAnalyzer     →  RSI / OBV / BB / 거래량 (4H + 3D)
+  ValueAnalyzer    →  PER / PBR / ROE / 매출증가율
+  ScenarioEngine   →  9개 시나리오 분류 (surge/crash/pivot…)
+  SectorCycle      →  13개 자금흐름 사이클 + 매크로 가드
+  SpilloverEngine  →  16개 서플라이 체인 → 2차 수혜/피해
+  PairWatch        →  선행·후행 종목 페어 실시간 추적
+                                                ↓
+[ 출력 ]──────────────────────────────────────────────────────────────────
+  OutputQualityGate  →  7개 규칙 검증  →  Telegram 전송
+  output-lint CLI    →  사후 린팅 (HIGH 0 목표)
+```
 
-4시간마다 아래 소스를 통합해 텔레그램으로 전송합니다.
+---
 
-- **수집 소스**: Telegram, Naver Finance, RSS, SEC EDGAR, OpenDART, Finnhub, ECOS, FRED, EIA, Fear & Greed
-- **섹션 구성**
-  1. 한 줄 결론
-  2. 직전 리포트 대비 변화
-  3. 매크로 온도 (호재/악재 분리)
-  4. 섹터 온도판 (강세/혼조/약세)
-  5. 관심종목 변화
-  6. 선행·후행 Pair-watch
-  7. 퀀터멘탈 테마 보드
-  8. 다음 72시간 이벤트 체크
+## 자동 리포트 9종 (슬라이드 3)
 
-### 2. Daily Alpha Picks
+| # | 리포트 | 주기 | 핵심 내용 |
+|---|--------|------|-----------|
+| 1 | **4시간 투자 브리핑** | 평일 4H, 주말 매크로 | 매크로·섹터·관심종목·Pair-watch·테마 통합 |
+| 2 | **Daily Alpha Picks (KR)** | 매일 07:00 KST | LONG/SHORT 관찰 후보 (70점↑만 통과) |
+| 3 | **Daily Alpha Picks (US)** | 매일 22:00 KST | LONG/SHORT 관찰 후보 (70점↑만 통과) |
+| 4 | **Theme Board** | 4H 포함 | 주도/관찰/약한 섹터 3단계 분류 |
+| 5 | **Supply-chain Spillover** | Daily Alpha 연동 | 급등락 → 2차 수혜/피해 자동 탐지 |
+| 6 | **Price Alert** | 장중 30분 간격 | 목표가·무효화 도달 즉시 알림 |
+| 7 | **Alpha Review** | 장 마감 후 | LONG/SHORT 당일 성과 분리 집계 |
+| 8 | **Pair-watch Review** | 장 마감 후 | source-target 반응 검증 + DB 업데이트 |
+| 9 | **Weekly Report** | 일요일 23:00 KST | 주간 성과·사이클·섹터·AI 요약 |
 
-기계적 스크리닝으로 LONG/SHORT 관찰 후보를 생성합니다.
+---
 
-- KR: 07:00 KST / US: 22:00 KST 자동 실행
-- LONG 관찰 후보 4개 + SHORT 관찰 후보 4개
-- 점수 70점 이상만 통과 (감성 + 가치 + 4H 기술 + 3D 기술 + 거래량 + catalyst + pair-watch 결합)
-- **매수/매도 지시가 아닌 기계적 관찰 후보**
+## Daily Alpha 스코어링 (슬라이드 4)
 
-### 3. Quantamental Theme Board
+**70점 이상만 정식 후보 출력**
 
-테마별 역할을 분류하는 퀀터멘탈 보드입니다.
+```
+final_score = 감성α(7팩터) + 가치 + 4H기술 + 3D기술 + 거래량
+            + catalyst + pair-watch boost + 사이클 후발 보강
+            − 매크로HIGH 감점 − 반복SHORT 감점
+```
+
+| 점수 구간 | 출력 방식 |
+|-----------|-----------|
+| 70점↑, 근거 STRONG | 정식 LONG/SHORT 후보 |
+| 70점↑, 근거 WEAK | 고위험 후보 (⚠ 라벨) |
+| 60–69점 | 관망/추적 후보 (하위 섹션) |
+| 60점 미만 | 출력 제외 |
+
+**9가지 시나리오 분류**
+`상승 모멘텀` / `과열 숏` / `저평가 반등` / `실적 서프라이즈` / `쇼트 스퀴즈` / `섹터 테마 수혜` / `서플라이 체인` / `사이클 후발` / `매크로 전환`
+
+---
+
+## Quantamental Theme Board (슬라이드 5)
+
+**섹터 종합 점수 기반 3단계 분류**
+
+| 임계치 | 분류 | 아이콘 |
+|--------|------|--------|
+| ≥ 70점 | 주도 섹터 | 🔥 |
+| 60–69점 | 관찰 섹터 | 👀 |
+| 50–59점 | 약한 후보 | 📌 |
+| < 50점 | 숨김 | — |
+
+**종목 역할 6종 자동 분류**
 
 | 역할 | 설명 |
 |------|------|
@@ -58,106 +106,97 @@
 | `REVERSAL_CANDIDATE` | 반전 후보 |
 | `SPECULATIVE` | 투기적 급등 |
 
-- 급등주 / 급락주 / 수혜주 후보 / 피해주 후보 / 섹터 주도주 / 후발 수혜주 / 과열·주의 후보 섹션 포함
+---
 
-### 4. Supply-chain Spillover Engine
+## Supply-chain Spillover Engine (슬라이드 6)
 
-서플라이 체인 충격을 자동으로 2차 수혜/피해 종목으로 전파합니다.
+급등/급락 종목 → **16개 산업 체인 규칙** → 2차 수혜/피해 자동 발굴
 
-| 충격 체인 | 2차 수혜/피해 |
-|-----------|--------------|
-| 건설 → | 철강 / 시멘트 / 건자재 |
-| AI/반도체 → | 전력기기 / 데이터센터 / 원전 |
-| K뷰티 → | ODM / 브랜드 |
-| 조선/방산 → | 기자재 / 항공우주 |
-| 바이오 임상 → | 피어 / CDMO |
-| 자동차/배터리 → | 소재 / 부품 |
-| 금리/금융 → | 은행 / 보험 / 성장주 영향 |
+| 1차 충격 | 2차 수혜 후보 | 2차 피해 후보 |
+|----------|--------------|--------------|
+| AI/반도체 급등 | 전력기기·데이터센터·원전 | — |
+| 조선/방산 급등 | 기자재·항공우주 | 비용 압박 피어 |
+| K뷰티 급등 | ODM·브랜드주 | — |
+| 건설 수주 서프라이즈 | 철강·시멘트·건자재 | — |
+| EV 배터리 급락 | — | 소재·광산주 |
+| 금리 급등 | 은행·보험 | 성장주·리츠 |
 
-16개 산업 체인 규칙 기반으로 surge/crash 전파를 탐지합니다.
-
-### 5. Pair-watch / 선행후행 관찰
-
-- source mover와 target 반응 차이 탐지
-- 중복 신호 dedupe, 신호 시점 가격과 평가 가격 구분
-- historical close 기반 가격 검증
-- 장 마감 후 pair-watch-cleanup 자동 실행
-
-### 6. Price Alert
-
-- Daily Alpha 후보의 목표가/무효화 가격 도달 여부를 장중 30분마다 확인
-- KR/US 시장 시간대별 자동 감시
-
-### 7. Alpha Review
-
-- 장 마감 후 Daily Alpha 후보의 당일 성과 확인
-- LONG/SHORT 성과 분리, style/scenario별 성과 요약
-
-### 8. Output Quality Gate
-
-텔레그램 출력 품질을 7개 규칙으로 자동 검증합니다.
-
-| 게이트 | 설명 |
-|--------|------|
-| **Evidence Attribution Guard** | 증거 문장이 해당 티커/종목명 whole-word를 포함하는지 검증, 조각 문장·메타 노이즈 차단 |
-| **BB Price Scale Sanity** | 4H 종가 ÷ 일봉 종가 비율이 0.5~2.0 벗어나면 `PRICE_SCALE_WARN` — 가격대 미출력 |
-| **Pair-watch Direction Guard** | source 수익률 음수 → "급락 후 약세 전이", 양수 → "상승 후 후행" 동적 표현 |
-| **Price Unavailable Fold** | 가격 조회 실패 후보는 상단 상세 출력 금지 — 하단 1줄 요약으로 접힘 |
-| **Noise/Metadata Cleaner** | Web발신, 보고서링크, IB 투자의견 헤더, 브로커 인사말, 조각 문장 전량 제거 |
-| **Score Bucket Enforcement** | 60~69점/저유동성 후보는 "관망/추적 후보" 레이블 — 정식 후보 섹션 금지 |
-| **output-lint CLI** | 위 7개 규칙을 사후 린팅, HIGH 이슈 0개 목표 (`--fail-on-high` CI 연동 가능) |
-
-```bash
-uv run tele-quant output-lint --file /tmp/report.log
-uv run tele-quant output-lint --file /tmp/daily_alpha.log --fail-on-high
-```
-
-### 9. Sector Cycle Rulebook v2
-
-시장 자금이 어떤 순서로 이동하는지를 13개 사이클로 정의하고, 현재 사이클 위치에서 LONG/SHORT 후보를 보강합니다.
-
-| 구성요소 | 설명 |
-|----------|------|
-| **사이클 분류** | 1차 주도주 → 2차 수혜 → 3차 후행 → 피해/주의 4단계 |
-| **매크로 가드** | Fear&Greed / 10Y금리 / VIX / DXY / Oil 7팩터 위험 레벨 평가 |
-| **후발 감지기** | 주도 테마 수익률 대비 후발 테마 상대 지연 자동 계산 |
-| **Daily Alpha 연동** | cycle_id / cycle_stage / macro_guard / relative_lag_score가 LONG/SHORT 후보 출력에 반영 |
-| **주간 리포트 섹션 15** | KR + US 사이클 흐름 요약 포함 |
-
-```
-주요 사이클 예시:
-  rate_cut_risk_on       — 금리인하 리스크온 (성장주 → 소비재 → 여행)
-  ai_semiconductor_dc    — AI 반도체·데이터센터 (GPU → 전력기기 → 구리)
-  power_nuclear_ess      — 전력·원전·ESS (원전 → 전선 → 구리)
-  ev_battery_materials   — EV 배터리 소재 (배터리 → 소재 → 광산)
-  kbeauty_consumer_china — K뷰티·소비재·중국 (브랜드 → ODM → 유통)
-  ... 13개 사이클
-```
-
-**Daily Alpha 출력 표현** (초보자 기준):
-```
-사이클: AI 반도체·데이터센터 — 주도주
-흐름: AI반도체/GPU → 전력기기/냉각 → 원전/ESS
-초보자 해석: AI 반도체가 오르면 GPU만 보는 게 아닙니다...
-매크로 가드: 리스크 LOW — 특별한 감점 없음
-다음 확인: 빅테크 capex 가이던스 상향 / HBM 수요 상향
-```
-> `cycle_id`는 내부 식별자 (`ai_semiconductor_dc` 등). 리포트에는 한국어 사이클명으로 변환 출력.
-
-**스코어링 영향**:
-- 매크로 HIGH → LONG final_score 감점 (long_score_adj)
-- 후발 폭(relative_lag_score) ≥ 3%p → LONG final_score 최대 +5점 보강
-
-### 9. Weekly Report
-
-- 한 주간 리포트 요약 (80점 이상 첫 신호 성과 포함)
-- Daily Alpha / Supply-chain Alpha / Pair-watch / Quantamental Theme Board / Sector Cycle 섹션
-- 다음 주 가중치 제안
-- 성과 리뷰 가격 조회 시 `.KS` / `.KQ` 접미사 중복 방지 (yfinance 심볼 안전 처리)
+**품질 게이트**: `unknown_price_only` 소스(이유 불명 가격만 움직임)는 spillover 후보 생성에서 **완전 차단**
 
 ---
 
-## 데이터 소스
+## Pair-watch 선행·후행 관찰 (슬라이드 7)
+
+**흐름**
+```
+source 급등/급락 탐지
+    → target 반응 차이 계산 (4H / 1D)
+    → live_checks: CONFIRMED / NOT_CONFIRMED / DATA_MISSING
+    → DB 저장 (signal_price / review_price 분리)
+    → Weekly 성과 리뷰 (LONG/SHORT 기준 명시)
+```
+
+**Weekly 성과 표기 예시**
+```
+1. SK하이닉스 → Micron
+   방향: 약세 전이 관찰
+   성과 계산: SHORT 관찰 기준 (가격 하락 = +성과)
+   target 가격: 89,200원 → 76,500원 (-14.2%)
+   가상 성과: +14.2%   결과: ✅ 약세 전이 적중
+```
+
+**가격 미확인 후보**: 상세 출력 금지 → 1줄 요약으로 접힘 (`라이브 확인 미실행 통계 후보 N개는 상세 제외`)
+
+---
+
+## Sector Cycle Rulebook v2 (슬라이드 8)
+
+**13개 자금 흐름 사이클 + 매크로 가드**
+
+```
+rate_cut_risk_on       금리인하 리스크온   성장주 → 소비재 → 여행
+ai_semiconductor_dc    AI 반도체·DC        GPU → 전력기기 → 구리
+power_nuclear_ess      전력·원전·ESS       원전 → 전선 → 구리
+ev_battery_materials   EV 배터리 소재      배터리 → 소재 → 광산
+kbeauty_consumer       K뷰티·소비재        브랜드 → ODM → 유통
+defense_aerospace      방산·항공           기체 → 기자재 → MRO
+  ... (총 13개)
+```
+
+**스코어링 영향**
+- 매크로 HIGH → LONG final_score 감점
+- 후발 lag ≥ 3%p → LONG final_score 최대 +5점 보강
+- 사이클 1차 주도 → 2차 → 3차 단계 표시
+
+---
+
+## Output Quality Gate v3 (슬라이드 9)
+
+**7개 자동 검증 규칙**
+
+| 게이트 | 차단 대상 |
+|--------|-----------|
+| Evidence Attribution Guard | 증거 없는 티커 귀속·조각 문장 |
+| BB Price Scale Sanity | 4H/일봉 가격 비율 0.5–2.0 이탈 |
+| Pair-watch Direction Guard | source 방향 불일치 표현 |
+| Price Unavailable Fold | 가격 미확인 후보 상세 출력 |
+| Noise/Metadata Cleaner | 브리핑 헤더·보고서링크·Web발신·IB의견 헤더 |
+| Score Bucket Enforcement | 60–69점 정식 후보 섹션 진입 |
+| Unknown Source Gate | `unknown_price_only` → spillover 차단 |
+
+**output-lint CLI**
+```bash
+uv run tele-quant output-lint --file /tmp/report.log
+uv run tele-quant output-lint --file /tmp/report.log --fail-on-high
+
+# Telegram 내보내기 HTML 직접 검사
+uv run tele-quant output-lint --html /path/to/messages.html --last 20
+uv run tele-quant output-lint --html /path/to/messages.html --fail-on-high
+```
+
+---
+
+## 데이터 소스 14종 (슬라이드 10)
 
 | 소스 | 용도 |
 |------|------|
@@ -166,239 +205,188 @@ uv run tele-quant output-lint --file /tmp/daily_alpha.log --fail-on-high
 | Yahoo Finance / yfinance | 가격·기술지표·재무 |
 | FinanceDataReader / pykrx | 한국 시장 데이터 |
 | OpenDART | 국내 공시 |
-| Finnhub | 미국 뉴스 건수 |
 | SEC EDGAR | 미국 8-K 공시 |
 | RSS (PR/Globe/Business/Google) | 영문 뉴스 |
+| Finnhub | 미국 뉴스 건수 |
 | FRED | 기준금리·매크로 |
 | ECOS | 한국은행 경제통계 |
 | EIA | 에너지 가격 |
+| ECB / Frankfurter | 유럽 금리·환율 |
 | Fear & Greed Index | 시장 심리 |
-| local event_price_1000d.csv | 이벤트 가격 기록 |
-| local stock_correlation_1000d.csv | 종목 간 상관관계 |
+| local CSV / SQLite DB | 이벤트 가격·상관관계 |
 
-> API 키는 `.env.local`에 저장하며 이 파일은 절대 Git에 올리지 않습니다.
+> API 키는 `.env.local`에 저장 — **절대 Git에 올리지 않습니다.**
 
 ---
 
-## 자동 실행 구조
+## 자동 실행 구조 (슬라이드 11)
 
-systemd user timer 기반으로 모든 작업이 자동 실행됩니다.
+**9개 systemd user timer (WSL Ubuntu 상시 실행)**
 
 | 타이머 | 실행 시점 |
 |--------|----------|
-| `tele-quant-weekday.timer` | 평일 4시간 브리핑 |
-| `tele-quant-weekend-macro.timer` | 주말 매크로 전용 |
-| `tele-quant-weekly.timer` | 일요일 23시 주간 총정리 |
-| `tele-quant-daily-alpha-kr.timer` | 매일 07:00 KST |
-| `tele-quant-daily-alpha-us.timer` | 매일 22:00 KST |
-| `tele-quant-price-alert.timer` | 장중 30분 간격 |
-| `tele-quant-alpha-review-kr.timer` | 한국장 마감 후 |
-| `tele-quant-alpha-review-us.timer` | 미국장 마감 후 |
-| `tele-quant-pair-watch-cleanup.timer` | 장 마감 후 가격 검증 |
+| `tele-quant-weekday` | 평일 4시간 브리핑 |
+| `tele-quant-weekend-macro` | 주말 매크로 전용 |
+| `tele-quant-weekly` | 일요일 23:00 KST 주간 총정리 |
+| `tele-quant-daily-alpha-kr` | 매일 07:00 KST |
+| `tele-quant-daily-alpha-us` | 매일 22:00 KST |
+| `tele-quant-price-alert` | 장중 30분 간격 |
+| `tele-quant-alpha-review-kr` | 한국장 마감 후 |
+| `tele-quant-alpha-review-us` | 미국장 마감 후 |
+| `tele-quant-pair-watch-cleanup` | 장 마감 후 가격 검증 |
 
-> **WSL 주의**: WSL/Ubuntu가 꺼져 있으면 systemd timer도 실행되지 않습니다.  
-> `Persistent=true`는 WSL 재시작 후 missed run을 보완하지만 WSL 자체가 켜져 있어야 합니다.  
+> WSL/Ubuntu가 꺼져 있으면 타이머도 멈춥니다.  
 > Windows Task Scheduler로 WSL 자동 시작을 설정하면 안정적으로 운영됩니다.
 
 ---
 
-## 설치 및 실행
+## 프로젝트 구조 (슬라이드 12)
 
-### 1. 저장소 클론 및 의존성 설치
+```
+tele_quant/
+├── config/
+│   ├── ticker_aliases.yml       ← 종목명·별칭·티커·테마 (여기서만 편집)
+│   ├── watchlist.yml            ← 관심종목 그룹
+│   ├── sources.example.yml      ← 텔레그램 채널 예시
+│   └── sector_cycle_rules.yml  ← 13개 자금흐름 사이클 규칙집
+├── src/tele_quant/
+│   ├── pipeline.py              ← collect → dedupe → digest → analyze → send
+│   ├── daily_alpha.py           ← LONG/SHORT 관찰 후보 생성
+│   ├── theme_board.py           ← 퀀터멘탈 테마 보드 (3단계 섹터 분류)
+│   ├── sector_cycle.py          ← Sector Cycle Rulebook v2
+│   ├── supply_chain_alpha.py    ← 서플라이 체인 spillover 엔진
+│   ├── live_pair_watch.py       ← 선행·후행 페어 실시간 추적
+│   ├── relation_feed.py         ← 관계 피드 + 가격 확인 fold 게이트
+│   ├── price_alert.py           ← 목표가·무효화 알림
+│   ├── weekly.py                ← 주간 총정리 + 성과 리뷰
+│   ├── headline_cleaner.py      ← 메타 노이즈·헤더·조각문장 제거
+│   ├── ollama_client.py         ← map-reduce 딥요약 (선택)
+│   └── telegram_sender.py       ← 봇 토큰 자동 마스킹 포함
+├── tests/                       ← 1,171개 테스트 (pytest)
+├── systemd/                     ← 자동 실행 timer·service 파일
+├── data/                        ← DB·session (Git 제외)
+└── .env.example                 ← 설정 템플릿
+```
+
+---
+
+## 설치 및 실행 (슬라이드 13)
 
 ```bash
-cd ~/projects/quant_spillover/tele_quant
+# 1. 의존성 설치
 uv sync
-```
 
-### 2. `.env.local` 설정
-
-```bash
+# 2. 환경 설정
 cp .env.example .env.local
-nano .env.local
-```
+nano .env.local   # TELEGRAM_API_ID / API_HASH / PHONE 입력
 
-최소 필수 설정:
-
-```dotenv
-TELEGRAM_API_ID=12345678          # my.telegram.org에서 발급
-TELEGRAM_API_HASH=abcdef1234...   # my.telegram.org에서 발급
-TELEGRAM_PHONE=+821012345678      # 내 전화번호
-```
-
-봇으로 받고 싶으면 추가:
-
-```dotenv
-TELEGRAM_SEND_MODE=bot
-TELEGRAM_BOT_TOKEN=123456:ABCDEF...   # BotFather에서 발급 (예시)
-TELEGRAM_BOT_TARGET_CHAT_ID=123456789
-```
-
-### 3. 텔레그램 최초 인증 (1회만)
-
-```bash
+# 3. 첫 텔레그램 인증 (1회)
 uv run tele-quant auth
-```
 
-### 4. 코드 품질 확인
-
-```bash
+# 4. 코드 품질 확인
 uv run ruff check .
 uv run pytest
 uv run tele-quant ops-doctor
-```
 
-### 5. 1회 테스트 실행
+# 5. 전송 없이 테스트
+DIGEST_MODE=no_llm uv run tele-quant once --no-send --hours 4
 
-```bash
-# 전송 없이 확인
-uv run tele-quant once --no-send --hours 4
-
-# 전송 포함
-uv run tele-quant once --send --hours 4
-```
-
-### 6. systemd 타이머 설치
-
-```bash
-mkdir -p ~/.config/systemd/user
+# 6. systemd 타이머 설치
 cp systemd/*.service ~/.config/systemd/user/
 cp systemd/*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now tele-quant-weekday.timer
-systemctl --user enable --now tele-quant-weekend-macro.timer
-systemctl --user enable --now tele-quant-weekly.timer
-systemctl --user enable --now tele-quant-daily-alpha-kr.timer
-systemctl --user enable --now tele-quant-daily-alpha-us.timer
-systemctl --user enable --now tele-quant-price-alert.timer
-systemctl --user enable --now tele-quant-alpha-review-kr.timer
-systemctl --user enable --now tele-quant-alpha-review-us.timer
-systemctl --user enable --now tele-quant-pair-watch-cleanup.timer
-systemctl --user list-timers | grep tele-quant
 ```
 
 ---
 
-## 주요 CLI
+## 주요 CLI (슬라이드 14)
 
 ```bash
 # 4시간 브리핑
-uv run tele-quant once --send --hours 4
 uv run tele-quant once --no-send --hours 4
+uv run tele-quant once --send --hours 4
 
-# Daily Alpha Picks
-uv run tele-quant daily-alpha --market KR --send
-uv run tele-quant daily-alpha --market US --send
+# Daily Alpha
+uv run tele-quant daily-alpha --market KR --no-send --top-n 4
+uv run tele-quant daily-alpha --market US --no-send --top-n 4
 
-# Quantamental Theme Board
+# Theme Board / Sector Cycle
 uv run tele-quant theme-board --market KR --no-send
-uv run tele-quant theme-board --market US --no-send
+uv run tele-quant sector-cycle --market KR --no-send
 
-# Price Alert / Alpha Review
+# Weekly / Price Alert / Alpha Review
+uv run tele-quant weekly --no-send --days 7 --mode no_llm
 uv run tele-quant price-alert --send
 uv run tele-quant alpha-review --market KR --send
-uv run tele-quant alpha-review --market US --send
-
-# Weekly Report
-uv run tele-quant weekly --no-send --days 7 --mode no_llm
-uv run tele-quant weekly --send --days 7
 
 # Pair-watch
-uv run tele-quant pair-watch-cleanup --apply
 uv run tele-quant pair-watch-cleanup --dry-run
+uv run tele-quant pair-watch-cleanup --apply
 
-# Sector Cycle Rulebook v2
-uv run tele-quant sector-cycle --market KR --no-send
-uv run tele-quant sector-cycle --market US --no-send
-uv run tele-quant sector-cycle-audit
-uv run tele-quant sector-cycle-audit --fail-on-high
-
-# 진단 및 품질 확인
+# 진단 및 품질 검증
 uv run tele-quant ops-doctor
 uv run tele-quant lint-report --hours 24
 uv run tele-quant alias-audit --high-only --fail-on-high
+uv run tele-quant sector-cycle-audit --fail-on-high
 
-# Output Quality Lint (출력 파일 사후 검증)
-uv run tele-quant output-lint --file /tmp/report.log
-uv run tele-quant output-lint --file /tmp/daily_alpha.log --fail-on-high
+# Output Quality Lint
+uv run tele-quant output-lint --file /tmp/once.log --fail-on-high
+uv run tele-quant output-lint --html /path/to/messages.html --last 20 --fail-on-high
 ```
 
 ---
 
-## 검증 방법
+## 검증 파이프라인 (슬라이드 15)
 
 ```bash
+# 정적 분석 + 테스트
 uv run ruff check .
 uv run pytest
-uv run tele-quant ops-doctor
-uv run tele-quant lint-report --hours 24
-uv run tele-quant pair-watch-cleanup --dry-run
-uv run tele-quant theme-board --market KR --no-send
-uv run tele-quant sector-cycle-audit
 
-# Output Quality Gate: 실제 출력 파일 사후 린팅
+# 리포트 생성 + 품질 게이트
 DIGEST_MODE=no_llm uv run tele-quant once --no-send --hours 4 | tee /tmp/once.log
-uv run tele-quant daily-alpha --market KR --no-send --top-n 4 | tee /tmp/kr.log
+uv run tele-quant daily-alpha --market KR --no-send --top-n 4  | tee /tmp/kr.log
+uv run tele-quant daily-alpha --market US --no-send --top-n 4  | tee /tmp/us.log
+uv run tele-quant theme-board --market KR --no-send            | tee /tmp/tb.log
+uv run tele-quant weekly --no-send --days 7 --mode no_llm      | tee /tmp/wk.log
+
 uv run tele-quant output-lint --file /tmp/once.log --fail-on-high
-uv run tele-quant output-lint --file /tmp/kr.log --fail-on-high
+uv run tele-quant output-lint --file /tmp/kr.log   --fail-on-high
+uv run tele-quant output-lint --file /tmp/us.log   --fail-on-high
+uv run tele-quant output-lint --file /tmp/tb.log   --fail-on-high
+uv run tele-quant output-lint --file /tmp/wk.log   --fail-on-high
+
+# 금지 패턴 직접 확인 (비어야 통과)
+grep -E "Web발신|보고서링크|이익동향\(|월가 주요 뉴스|글로벌 투자 구루" /tmp/once.log
+grep -E "라이브 확인 미실행 — 통계만 참고" /tmp/once.log
+grep -E "가격만 움직임\(이유 불명\).*연결고리" /tmp/us.log
 ```
 
 ---
 
-## 프로젝트 구조
+## 보안 (슬라이드 16)
 
-```text
-tele_quant/
-  config/
-    ticker_aliases.yml        ← 종목명/별칭/티커/테마 (여기서만 편집)
-    watchlist.yml             ← 관심종목 그룹
-    sources.example.yml       ← 텔레그램 채널 예시
-    sector_cycle_rules.yml    ← 13개 자금흐름 사이클 규칙집
-  src/tele_quant/
-    analysis/                 ← 종목 추출 + 기술/가치 분석
-    pipeline.py               ← 전체 파이프라인 (collect → dedupe → digest → analyze → send)
-    daily_alpha.py            ← LONG/SHORT 관찰 후보 생성
-    theme_board.py            ← 퀀터멘탈 테마 보드
-    sector_cycle.py           ← Sector Cycle Rulebook v2 (매크로 가드 + 후발 감지기)
-    supply_chain.py           ← 서플라이 체인 spillover 엔진
-    pair_watch.py             ← 선행·후행 페어 관찰
-    price_alert.py            ← 목표가/무효화 알림
-    weekly.py                 ← 주간 총정리 리포트
-    ollama_client.py          ← map-reduce 딥요약
-    telegram_sender.py        ← 봇 토큰 자동 마스킹 포함
-  systemd/                    ← 자동 실행 타이머/서비스 파일
-  data/                       ← DB, session (Git 제외)
-  .env.example                ← 설정 템플릿 (복사 후 .env.local 생성)
-```
+- `.env.local`·API 키·Telegram session 파일은 **Git에 올리지 않음** (`.gitignore` 포함)
+- 로그·에러에서 봇 토큰 **자동 마스킹**: `bot***REDACTED***/`
+- 실제 주문·자동매매 기능 **없음**
+- 토큰 노출 시: BotFather → `/mybots` → `Revoke current token`
 
 ---
 
-## 보안
-
-- `.env.local`, API 키, Telegram token, 전화번호, 세션 파일은 Git에 올리지 않음 (`.gitignore` 포함)
-- 로그·에러 메시지에서 토큰 자동 마스킹: `bot***REDACTED***/`
-- 실제 주문/자동매매 기능 없음
-- 토큰 노출 시 즉시 BotFather → `/mybots` → `Revoke current token`으로 재발급
-
----
-
-## 트러블슈팅
+## 트러블슈팅 (슬라이드 17)
 
 | 오류 | 원인 | 해결 |
 |------|------|------|
-| Ollama ReadTimeout | 모델이 너무 느림 | `OLLAMA_TIMEOUT_SECONDS=3600` 또는 빠른 모델로 교체 |
-| FloodWait | 채널이 너무 많음 | `MAX_MESSAGES_PER_CHAT=60`으로 줄이기 |
-| TELEGRAM_API_ID MISSING | .env.local 설정 누락 | my.telegram.org에서 발급 후 입력 |
-| JSON parse failed | Ollama 출력 이상 | `DIGEST_CHUNK_SIZE=15`로 줄여보기 |
+| Ollama ReadTimeout | 모델이 느림 | `OLLAMA_TIMEOUT_SECONDS=3600` 또는 빠른 모델 |
+| FloodWait | 채널 너무 많음 | `MAX_MESSAGES_PER_CHAT=60`으로 줄이기 |
+| TELEGRAM_API_ID MISSING | `.env.local` 누락 | my.telegram.org에서 발급 후 입력 |
+| JSON parse failed | Ollama 출력 이상 | `DIGEST_CHUNK_SIZE=15`로 줄이기 |
 | 분석 종목 없음 | 점수 미달 | `ANALYSIS_MIN_SCORE_TO_SEND=40`으로 낮추기 |
+| systemd 타이머 미실행 | WSL 꺼짐 | Windows Task Scheduler로 WSL 자동 시작 설정 |
 
 ```bash
-# 전체 진단
-uv run tele-quant ops-doctor
-
-# 상세 로그
-uv run tele-quant once --no-send --log-level DEBUG
-
-# systemd 로그
+uv run tele-quant ops-doctor          # 전체 진단
+uv run tele-quant once --no-send --log-level DEBUG  # 상세 로그
 journalctl --user -u tele-quant-weekday.service -n 100 --no-pager
 ```
