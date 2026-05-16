@@ -713,7 +713,7 @@ def build_relation_feed_section(
                     ret_sign = "+" if chk.today_return_pct > 0 else ""
                     live_label += f" ({ret_sign}{chk.today_return_pct:.1f}%)"
             else:
-                live_label = "현재가 확인 불가, 통계만 참고"
+                live_label = "라이브 확인 미실행 — 통계만 참고"
                 judgment = "가격 확인 전 관찰 후보"
 
             # live_checks가 있으나 가격 미확인인 경우만 접힘 처리
@@ -804,7 +804,7 @@ def build_relation_feed_section(
                     fb_ret_sign = "+" if fb_chk.today_return_pct > 0 else ""
                     fb_live_label += f" ({fb_ret_sign}{fb_chk.today_return_pct:.1f}%)"
             else:
-                fb_live_label = "현재가 확인 불가, 통계만 참고"
+                fb_live_label = "라이브 확인 미실행 — 통계만 참고"
                 fb_judgment = "가격 확인 전 관찰 후보"
             # live_checks가 None이면 오프라인/테스트 모드 — 통계만 표시
             # live_checks가 있으나 가격 미확인인 경우만 접힘 처리

@@ -415,13 +415,14 @@ def test_section_shows_current_check_label():
 
 
 def test_section_no_live_checks_shows_fallback_label():
-    """live_checks=None이면 '현재가 확인 불가' 표시."""
+    """live_checks=None이면 라이브 확인 미실행 표시 (현재가 확인 불가 미출력)."""
     movers = [_mover("006910", "보성파워텍", 18.8)]
     rows = [_ll("006910", "보성파워텍", 18.8, "024850", "HLB이노베이션")]
     feed = _feed(movers, rows)
     section = build_relation_feed_section(feed, live_checks=None)
     assert "현재 확인" in section
-    assert "확인 불가" in section
+    assert "라이브 확인 미실행" in section
+    assert "현재가 확인 불가" not in section
 
 
 # ── 16. boost는 CONFIRMED일 때만 ─────────────────────────────────────────────

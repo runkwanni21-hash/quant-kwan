@@ -1494,6 +1494,11 @@ def output_lint_cmd(
     _check("HIGH", "안녕하세요", "브로커 인사말 잔류")
     _check("HIGH", r"IB\s*투자의견", "IB 투자의견 헤더 잔류", regex=True)
     _check("HIGH", r"^   왜 지금: (?:치 |드 |이를 )", "왜지금 문장 조각", regex=True)
+    # 줄 시작 조각 문장 — headline_cleaner를 우회한 fragment
+    _check("HIGH", r"^치 후 |^드 플|^이를 정당화", "줄 시작 조각 문장 잔류", regex=True)
+    # 잘못된 섹션 표기
+    _check("HIGH", "숏/매도 경계 후보", "숏/매도 경계 후보 표기 오류 — SHORT 관찰 후보·관망 표기여야 함")
+    _check("HIGH", "현재가 확인 불가", "현재가 확인 불가 텍스트 직접 노출 — 접힘 처리 누락")
 
     # HIGH: 가격 스케일 이상 (삼성전자 등 KR 대형주 과거 미분할 가격)
     for suspicious_bb in ["BB.*311,0", "BB.*2,160,", "BB.*755,6", "BB.*1,715,"]:
@@ -1504,16 +1509,6 @@ def output_lint_cmd(
     _check("HIGH", r"1D -[1-9]\d?\.\d%.*급등 후", "음수 1D source에 급등 후 표현", regex=True)
     _check("HIGH", r"4H \+[1-9]\d?\.\d%.*급락 후", "양수 source에 급락 후 표현", regex=True)
     _check("HIGH", r"1D \+[1-9]\d?\.\d%.*급락 후", "양수 1D source에 급락 후 표현", regex=True)
-
-    # HIGH: 현재가 확인 불가가 상단 상세 후보로 반복 노출
-    price_unavail_lines = [ln for ln, line_text in enumerate(lines_raw, 1) if "현재가 확인 불가, 통계만 참고" in line_text]
-    if len(price_unavail_lines) >= 3:
-        issues.append({
-            "severity": "HIGH", "line": str(price_unavail_lines[0]),
-            "pattern": "현재가 확인 불가, 통계만 참고",
-            "message": f"현재가 확인 불가 {len(price_unavail_lines)}회 반복 — 상단 노출 중",
-            "excerpt": "(가격 미확인 후보 상세 노출 반복)",
-        })
 
     # MEDIUM: 점수 구간 혼란 — 관망/추적 후보가 정식 후보 섹션에 없어야 함
     in_main_section = False
