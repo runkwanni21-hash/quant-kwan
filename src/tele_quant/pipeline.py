@@ -421,6 +421,22 @@ class TeleQuantPipeline:
             log.warning("[pair_watch] run failed: %s", exc)
             return "", []
 
+    def _run_theme_board(self) -> str:
+        """Build Quantamental Theme Board (KR + US). Returns section text. Never raises."""
+        if not getattr(self.settings, "theme_board_enabled", True):
+            return ""
+        try:
+            from tele_quant.theme_board import build_theme_board
+
+            kr = build_theme_board("KR", self.store, self.settings)
+            us = build_theme_board("US", self.store, self.settings)
+            section = kr + "\n\n" + us
+            log.info("[theme_board] section_len=%d", len(section))
+            return section
+        except Exception as exc:
+            log.warning("[theme_board] failed: %s", exc)
+            return ""
+
     def _load_research_pairs(self) -> list[Any]:
         """Load GPTPRO research lead-lag pairs. Returns empty list if disabled/missing."""
         if not getattr(self.settings, "research_db_enabled", True):
@@ -1144,6 +1160,11 @@ class TeleQuantPipeline:
             )
             if pair_watch_section:
                 digest = digest + "\n\n" + pair_watch_section
+
+            if not macro_only:
+                theme_board_section = await asyncio.to_thread(self._run_theme_board)
+                if theme_board_section:
+                    digest = digest + "\n\n" + theme_board_section
 
             elapsed = time.monotonic() - start_time
             log.info(
