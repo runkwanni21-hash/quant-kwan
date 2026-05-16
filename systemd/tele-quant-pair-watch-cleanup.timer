@@ -1,0 +1,10 @@
+[Unit]
+Description=Tele Quant pair-watch cleanup — 한국장 마감 후(15:50 KST) + 미국장 마감 후(06:20 KST)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 15:50:00
+OnCalendar=Tue..Sat *-*-* 06:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

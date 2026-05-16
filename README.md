@@ -108,10 +108,15 @@ cp systemd/tele-quant-weekend-macro.timer ~/.config/systemd/user/
 cp systemd/tele-quant-weekly.service ~/.config/systemd/user/
 cp systemd/tele-quant-weekly.timer ~/.config/systemd/user/
 
+# pair-watch 신호 가격 검증 (한국장 마감 후 15:50 / 미국장 마감 후 06:20)
+cp systemd/tele-quant-pair-watch-cleanup.service ~/.config/systemd/user/
+cp systemd/tele-quant-pair-watch-cleanup.timer ~/.config/systemd/user/
+
 systemctl --user daemon-reload
 systemctl --user enable --now tele-quant-weekday.timer
 systemctl --user enable --now tele-quant-weekend-macro.timer
 systemctl --user enable --now tele-quant-weekly.timer
+systemctl --user enable --now tele-quant-pair-watch-cleanup.timer
 
 # 등록 확인
 systemctl --user list-timers | grep tele-quant
@@ -121,6 +126,7 @@ systemctl --user list-timers | grep tele-quant
 > - WSL/Ubuntu가 **꺼져 있으면** systemd user timer도 실행되지 않습니다.
 > - `Persistent=true`는 WSL이 재시작된 후 missed run을 보완하지만, **WSL 자체가 실행되어야** 동작합니다.
 > - 7시 리포트를 반드시 받으려면 WSL을 켜두거나, **Windows Task Scheduler**로 WSL을 깨우는 스크립트를 등록하세요.
+> - `pair-watch-cleanup` timer도 WSL이 꺼져 있으면 실행되지 않습니다. 신호 가격 검증이 필요할 때는 수동으로 `uv run tele-quant pair-watch-cleanup --apply`를 실행하거나 WSL을 상시 켜두세요.
 > - 자동 실행 진단: `uv run tele-quant ops-doctor`
 
 ### 자동 실행 복구 명령
@@ -135,6 +141,7 @@ uv run tele-quant ops-doctor
 systemctl --user restart tele-quant-weekday.timer
 systemctl --user restart tele-quant-weekend-macro.timer
 systemctl --user restart tele-quant-weekly.timer
+systemctl --user restart tele-quant-pair-watch-cleanup.timer
 
 # 3. 수동 1회 실행 (send 없이 확인)
 DIGEST_MODE=no_llm uv run tele-quant once --no-send

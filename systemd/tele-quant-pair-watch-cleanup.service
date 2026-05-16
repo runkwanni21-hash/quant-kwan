@@ -1,0 +1,10 @@
+[Unit]
+Description=Tele Quant pair-watch cleanup (신호 시점 가격 백필 + legacy 정리)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+ExecStart=%h/.local/bin/uv run tele-quant pair-watch-cleanup --apply
+StandardOutput=journal
+StandardError=journal

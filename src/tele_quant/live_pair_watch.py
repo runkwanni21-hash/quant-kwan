@@ -1415,6 +1415,9 @@ def build_pair_watch_weekly_review(
     )
     legacy_count = len(rows) - len(has_price) - unverified_count
 
+    exact_count = sum(1 for r in rows if r.get("backfill_source") == "exact_date_close")
+    nearest_count = sum(1 for r in rows if r.get("backfill_source") == "nearest_trading_day_close")
+
     # Deduplicate: one entry per (source, target, direction, relation_type)
     groups = _group_pair_rows(has_price)
     rep_rows: list[dict] = [_best_rep_row(g) for g in groups.values()]
@@ -1609,6 +1612,12 @@ def build_pair_watch_weekly_review(
 
         if hidden_count > 0:
             lines.append(f"  (그 외 {hidden_count}개 dedupe 후 숨김 — source·target 최대 2개 한도)")
+
+    # Verified price breakdown summary
+    lines.append(
+        f"- 가격 검증: exact {exact_count}개 / nearest {nearest_count}개"
+        + (f" / unverified {unverified_count}개 제외" if unverified_count > 0 else "")
+    )
 
     # Unverified / no-price summary — single line only, no details
     if unverified_count > 0:

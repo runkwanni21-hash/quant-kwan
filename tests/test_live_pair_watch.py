@@ -1203,8 +1203,6 @@ def test_pair_watch_section_header_contains_metadata():
 
 def test_save_pair_watch_signals_deduplicates_same_key(tmp_path):
     """같은 dedupe_key로 저장하면 seen_count가 올라가고 row가 중복 삽입되지 않는다."""
-    from pathlib import Path
-
     from tele_quant.db import Store
     from tele_quant.live_pair_watch import LivePairSignal
 
@@ -1341,7 +1339,6 @@ def test_pair_watch_cleanup_dry_run_no_changes(tmp_path):
         )
 
     # Insert 10 identical pairs manually (bypassing upsert to simulate legacy state)
-    now_iso = "2026-05-16T06:00:00+00:00"
     with store.connect() as conn:
         for i in range(10):
             conn.execute(
@@ -1480,7 +1477,7 @@ def test_weekly_review_excludes_unverified_from_details(tmp_path):
 
 def test_backfill_uses_signal_date_not_latest(tmp_path):
     """_fetch_historical_close는 최신가가 아닌 signal_date 시점 가격을 반환한다."""
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     import pandas as pd
 

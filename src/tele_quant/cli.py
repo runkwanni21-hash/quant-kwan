@@ -1404,6 +1404,7 @@ def ops_doctor() -> None:
         "tele-quant-weekday.timer",
         "tele-quant-weekend-macro.timer",
         "tele-quant-weekly.timer",
+        "tele-quant-pair-watch-cleanup.timer",
     ]
 
     timer_ok = True
@@ -1481,6 +1482,8 @@ def ops_doctor() -> None:
 
     last_run_age_h: float | None = None
     run_report_status = "[red]FAIL: 없음[/red]"
+    _pw_unverified: int = 0
+    _pw_unverified_oldest_h: float = 0.0
     if db_exists:
         try:
             store = Store(db_path)
@@ -1529,6 +1532,63 @@ def ops_doctor() -> None:
                 )
             else:
                 db_table.add_row("pair_watch_history 최근", "없음", "[dim]저장 없음[/dim]")
+        except Exception:
+            pass
+
+        # pair_watch cleanup state
+        try:
+            store_pw = Store(db_path)
+            pw_stats = store_pw.pair_watch_cleanup_stats()
+            _pw_unverified = pw_stats.get("unverified_legacy", 0)
+            with store_pw.connect() as _conn:
+                _exact = _conn.execute(
+                    "SELECT COUNT(*) FROM pair_watch_history"
+                    " WHERE backfill_source='exact_date_close'"
+                    " AND (archived IS NULL OR archived=0)"
+                ).fetchone()[0]
+                _nearest = _conn.execute(
+                    "SELECT COUNT(*) FROM pair_watch_history"
+                    " WHERE backfill_source='nearest_trading_day_close'"
+                    " AND (archived IS NULL OR archived=0)"
+                ).fetchone()[0]
+                _failed = _conn.execute(
+                    "SELECT COUNT(*) FROM pair_watch_history"
+                    " WHERE backfill_source='failed_no_price'"
+                    " AND (archived IS NULL OR archived=0)"
+                ).fetchone()[0]
+                _archived_cnt = _conn.execute(
+                    "SELECT COUNT(*) FROM pair_watch_history WHERE archived=1"
+                ).fetchone()[0]
+                _oldest_unverified_row = _conn.execute(
+                    "SELECT created_at FROM pair_watch_history"
+                    " WHERE backfill_status='unverified_legacy_backfill'"
+                    " AND (archived IS NULL OR archived=0)"
+                    " ORDER BY created_at ASC LIMIT 1"
+                ).fetchone()
+            if _oldest_unverified_row and _oldest_unverified_row[0]:
+                from tele_quant.models import parse_dt as _parse_dt2
+                _ov_dt = _parse_dt2(_oldest_unverified_row[0])
+                _pw_unverified_oldest_h = (
+                    (utc_now() - _ov_dt).total_seconds() / 3600 if _ov_dt else 0.0
+                )
+            if _pw_unverified == 0:
+                pw_cleanup_status = "[green]OK — unverified 0개[/green]"
+            elif _pw_unverified_oldest_h <= 24:
+                pw_cleanup_status = (
+                    f"[yellow]WARN: unverified {_pw_unverified}개"
+                    f" (최대 {_pw_unverified_oldest_h:.0f}h) — 장 마감 후 재실행[/yellow]"
+                )
+            else:
+                pw_cleanup_status = (
+                    f"[red]FAIL: unverified {_pw_unverified}개"
+                    f" ({_pw_unverified_oldest_h:.0f}h 방치)[/red]"
+                )
+            db_table.add_row(
+                "pair-watch cleanup",
+                f"exact={_exact} / nearest={_nearest} / failed={_failed}"
+                f" / unverified={_pw_unverified} / archived={_archived_cnt}",
+                pw_cleanup_status,
+            )
         except Exception:
             pass
 
@@ -1609,10 +1669,28 @@ def ops_doctor() -> None:
             "    cp systemd/tele-quant-weekend-macro.timer ~/.config/systemd/user/\n"
             "    cp systemd/tele-quant-weekly.service ~/.config/systemd/user/\n"
             "    cp systemd/tele-quant-weekly.timer ~/.config/systemd/user/\n"
+            "    cp systemd/tele-quant-pair-watch-cleanup.service ~/.config/systemd/user/\n"
+            "    cp systemd/tele-quant-pair-watch-cleanup.timer ~/.config/systemd/user/\n"
             "    systemctl --user daemon-reload\n"
             "    systemctl --user enable --now tele-quant-weekday.timer\n"
             "    systemctl --user enable --now tele-quant-weekend-macro.timer\n"
-            "    systemctl --user enable --now tele-quant-weekly.timer"
+            "    systemctl --user enable --now tele-quant-weekly.timer\n"
+            "    systemctl --user enable --now tele-quant-pair-watch-cleanup.timer"
+        )
+
+    if _pw_unverified > 0 and _pw_unverified_oldest_h > 24:
+        recs.append(
+            f"[red]FAIL: pair-watch unverified legacy {_pw_unverified}개"
+            f" ({_pw_unverified_oldest_h:.0f}h 방치)[/red]\n"
+            "  pair-watch-cleanup --apply를 실행하거나 timer 동작을 확인하세요.\n"
+            "  수동 실행: uv run tele-quant pair-watch-cleanup --apply"
+        )
+    elif _pw_unverified > 0:
+        recs.append(
+            f"[yellow]WARN: pair-watch unverified {_pw_unverified}개"
+            f" — 장 마감 후 자동 정리 예정[/yellow]\n"
+            "  장 중이거나 당일 미개장 종목일 수 있음.\n"
+            "  즉시 정리: uv run tele-quant pair-watch-cleanup --apply"
         )
 
     if last_run_age_h is not None and last_run_age_h > 12:
@@ -1946,6 +2024,29 @@ def lint_report(
     pw_rows = store.recent_pair_watch_signals(since=utc_now() - timedelta(hours=24))
     if not pw_rows:
         global_issues.append("[yellow]WARN: 최근 24시간 pair_watch_history 저장 없음[/yellow]")
+
+    # pair_watch cleanup state check
+    try:
+        _pw_stats = store.pair_watch_cleanup_stats()
+        _pw_unverified_lint = _pw_stats.get("unverified_legacy", 0)
+        if _pw_unverified_lint > 0:
+            global_issues.append(
+                f"[yellow]WARN: pair_watch unverified legacy {_pw_unverified_lint}개[/yellow]"
+                " — 장 마감 후 pair-watch-cleanup --apply 실행 필요"
+            )
+        with store.connect() as _lc:
+            _pw_failed_lint = _lc.execute(
+                "SELECT COUNT(*) FROM pair_watch_history"
+                " WHERE backfill_source='failed_no_price'"
+                " AND (archived IS NULL OR archived=0)"
+            ).fetchone()[0]
+        if _pw_failed_lint > 0:
+            global_issues.append(
+                f"[yellow]WARN: pair_watch failed_no_price {_pw_failed_lint}개[/yellow]"
+                " — yfinance 조회 실패. pair-watch-cleanup --apply 재실행 또는 네트워크 확인"
+            )
+    except Exception:
+        pass
 
     # scenario_history check (most recent) with reason diagnosis
     sc_rows_recent = store.recent_scenarios(since=utc_now() - timedelta(hours=24))
