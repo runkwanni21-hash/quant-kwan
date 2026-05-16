@@ -1,77 +1,63 @@
-# model/feature_builder.py
-
 import pandas as pd
 import numpy as np
+from typing import List, Optional
 from .base_model import BaseFeatureBuilder
 
-# model/feature_builder.py
 class AdvancedMacroRegimeBuilder(BaseFeatureBuilder):
-    def __init__(self, target_window=60):
-        self.target_window = target_window
+    """
+    자산의 직접적인 비중이 아닌, 4대 거시 경제 팩터의 강도(-1.0 ~ 1.0)를 정답지로 생성합니다.
+    """
+    
+    def __init__(self, target_window: int = 20) -> None:
+        self.target_window: int = target_window
+        self.max_window: int = target_window
 
     def build_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        out = df.copy()
+        out: pd.DataFrame = df.copy()
         
-        # 주가 파생 피처
-        out["spy_return_60d"] = out["Close_SPY"].pct_change(60, fill_method=None)
-        rolling_max = out["Close_SPY"].rolling(252, min_periods=1).max()
-        out["spy_drawdown"] = out["Close_SPY"] / rolling_max - 1
-        
-        # 리더십 피처 (QQQ, EWY) Z-score
-        if "Close_QQQ" in out.columns and "Close_SPY" in out.columns:
-            ratio = out["Close_QQQ"] / out["Close_SPY"]
-            out["qqq_spy_mom_20d"] = ratio.pct_change(20, fill_method=None)
-            out["qqq_spy_z_252d"] = (ratio - ratio.rolling(252).mean()) / (ratio.rolling(252).std() + 1e-6)
-
-        if "Close_EWY" in out.columns and "Close_SPY" in out.columns:
-            ratio = out["Close_EWY"] / out["Close_SPY"]
-            out["ewy_spy_mom_20d"] = ratio.pct_change(20, fill_method=None)
-            out["ewy_spy_z_252d"] = (ratio - ratio.rolling(252).mean()) / (ratio.rolling(252).std() + 1e-6)
-
-        out.replace([np.inf, -np.inf], np.nan, inplace=True)
-        return out
-
-    def build_labels(self, df: pd.DataFrame) -> pd.DataFrame:
-        out = df.copy()
-        # 🌟 Binary Label 제거 -> 순수 기대수익률(Continuous Target)로 변경
-        past_returns = df["Close_SPY"].pct_change(self.target_window, fill_method=None)
-        out["target_return"] = past_returns.shift(-self.target_window)
-        return out
-
-class LatentStressFeatureBuilder(BaseFeatureBuilder):
-    def build_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        out = df.copy()
-        
-        # 🌟 1. 기초 구조적 취약성 (Fragility Core)
-        if "Close_RSP" in out.columns and "Close_SPY" in out.columns:
-            out["breadth_mom"] = (out["Close_RSP"] / out["Close_SPY"]).pct_change(20, fill_method=None)
+        if "Close_SPY" in out.columns:
+            out["spy_return_60d"] = out["Close_SPY"].pct_change(60, fill_method=None)
+            rolling_max = out["Close_SPY"].rolling(252, min_periods=1).max()
+            out["spy_drawdown"] = out["Close_SPY"] / rolling_max - 1
+            out["momentum_acceleration"] = out["Close_SPY"].pct_change(20, fill_method=None) - (out["spy_return_60d"] / 3) 
+            
         if "Close_^VIX" in out.columns and "Close_^VIX3M" in out.columns:
-            out["vix_term"] = out["Close_^VIX"] / out["Close_^VIX3M"]
-        if "Close_LQD" in out.columns and "Close_HYG" in out.columns:
-            out["credit_spread"] = (out["Close_LQD"] / out["Close_HYG"]).pct_change(20, fill_method=None)
+            out["vix_level"] = out["Close_^VIX"]
+            out["vix_term_structure"] = out["Close_^VIX3M"] - out["Close_^VIX"]
             
-        # 🌟 2. 복구된 강력한 매크로/유동성 지표 (Orthogonal Factors)
-        
-        # A. 유동성/신용 스트레스 (안전자산 국채 vs 위험자산 하이일드)
-        if "Close_IEF" in out.columns and "Close_HYG" in out.columns:
-            out["liquidity_stress"] = (out["Close_IEF"] / out["Close_HYG"]).pct_change(20, fill_method=None)
+        if "Close_HYG" in out.columns and "Close_LQD" in out.columns:
+            out["credit_spread_ratio"] = out["Close_HYG"] / out["Close_LQD"]
             
-        # B. 반도체 주도력 (AI 및 글로벌 경기민감 척도)
-        if "Close_SMH" in out.columns and "Close_SPY" in out.columns:
-            out["semi_breadth"] = (out["Close_SMH"] / out["Close_SPY"]).pct_change(20, fill_method=None)
-            
-        # C. 경기소비재 vs 필수소비재 (실물 경제 활력)
-        if "Close_XLY" in out.columns and "Close_XLP" in out.columns:
-            out["consumer_cyclical"] = (out["Close_XLY"] / out["Close_XLP"]).pct_change(20, fill_method=None)
-            
-        # 3. 당일 긴급 충격 지표
-        if "Open_SPY" in out.columns and "Close_SPY" in out.columns:
-            out["gap_shock"] = (out["Open_SPY"] / out["Close_SPY"].shift(1)) - 1
-        if "Close_^VIX" in out.columns:
-            out["vix_jump"] = out["Close_^VIX"].pct_change(fill_method=None)
+        if "Close_DX-Y.NYB" in out.columns:
+            out["dxy_momentum_20d"] = out["Close_DX-Y.NYB"].pct_change(20, fill_method=None)
+
+        if "Close_^IRX" in out.columns and "Close_^TNX" in out.columns:
+            out["yield_curve_spread"] = out["Close_^TNX"] - out["Close_^IRX"]
 
         out.replace([np.inf, -np.inf], np.nan, inplace=True)
         return out
 
     def build_labels(self, df: pd.DataFrame) -> pd.DataFrame:
-        return df
+        out: pd.DataFrame = df.copy()
+        w: int = self.target_window
+        
+        future_spy = df["Close_SPY"].pct_change(w, fill_method=None).shift(-w)
+        future_lqd = df["Close_LQD"].pct_change(w, fill_method=None).shift(-w) if "Close_LQD" in df.columns else future_spy * 0
+        future_gld = df["Close_GLD"].pct_change(w, fill_method=None).shift(-w) if "Close_GLD" in df.columns else future_spy * 0
+        future_krw = df["Close_KRW=X"].pct_change(w, fill_method=None).shift(-w) if "Close_KRW=X" in df.columns else future_spy * 0
+        future_vix = df["Close_^VIX"].pct_change(w, fill_method=None).shift(-w) if "Close_^VIX" in df.columns else future_spy * 0
+        
+        def get_continuous_target(spread: pd.Series, rolling_window: int = 252, z_scaler: float = 2.0) -> pd.Series:
+            z_score = (spread - spread.rolling(rolling_window).mean()) / spread.rolling(rolling_window).std()
+            smoothed_z = z_score.rolling(3).mean() 
+            target = np.tanh(smoothed_z / z_scaler) 
+            target[spread.isna()] = np.nan
+            return target
+
+        # 🌟 4대 매크로 팩터 타겟 생성
+        out["macro_growth"] = get_continuous_target(future_spy - future_lqd)
+        out["macro_inflation"] = get_continuous_target(future_gld - future_lqd)
+        out["macro_liquidity"] = get_continuous_target(-future_krw)
+        out["macro_stress"] = get_continuous_target(future_vix, z_scaler=1.5)
+
+        return out
