@@ -153,6 +153,7 @@ uv run tele-quant output-lint --file /tmp/daily_alpha.log --fail-on-high
 - 한 주간 리포트 요약 (80점 이상 첫 신호 성과 포함)
 - Daily Alpha / Supply-chain Alpha / Pair-watch / Quantamental Theme Board / Sector Cycle 섹션
 - 다음 주 가중치 제안
+- 성과 리뷰 가격 조회 시 `.KS` / `.KQ` 접미사 중복 방지 (yfinance 심볼 안전 처리)
 
 ---
 
