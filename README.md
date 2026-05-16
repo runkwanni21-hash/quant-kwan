@@ -93,7 +93,26 @@
 - 장 마감 후 Daily Alpha 후보의 당일 성과 확인
 - LONG/SHORT 성과 분리, style/scenario별 성과 요약
 
-### 8. Sector Cycle Rulebook v2
+### 8. Output Quality Gate
+
+텔레그램 출력 품질을 7개 규칙으로 자동 검증합니다.
+
+| 게이트 | 설명 |
+|--------|------|
+| **Evidence Attribution Guard** | 증거 문장이 해당 티커/종목명 whole-word를 포함하는지 검증, 조각 문장·메타 노이즈 차단 |
+| **BB Price Scale Sanity** | 4H 종가 ÷ 일봉 종가 비율이 0.5~2.0 벗어나면 `PRICE_SCALE_WARN` — 가격대 미출력 |
+| **Pair-watch Direction Guard** | source 수익률 음수 → "급락 후 약세 전이", 양수 → "상승 후 후행" 동적 표현 |
+| **Price Unavailable Fold** | 가격 조회 실패 후보는 상단 상세 출력 금지 — 하단 1줄 요약으로 접힘 |
+| **Noise/Metadata Cleaner** | Web발신, 보고서링크, IB 투자의견 헤더, 브로커 인사말, 조각 문장 전량 제거 |
+| **Score Bucket Enforcement** | 60~69점/저유동성 후보는 "관망/추적 후보" 레이블 — 정식 후보 섹션 금지 |
+| **output-lint CLI** | 위 7개 규칙을 사후 린팅, HIGH 이슈 0개 목표 (`--fail-on-high` CI 연동 가능) |
+
+```bash
+uv run tele-quant output-lint --file /tmp/report.log
+uv run tele-quant output-lint --file /tmp/daily_alpha.log --fail-on-high
+```
+
+### 9. Sector Cycle Rulebook v2
 
 시장 자금이 어떤 순서로 이동하는지를 13개 사이클로 정의하고, 현재 사이클 위치에서 LONG/SHORT 후보를 보강합니다.
 
@@ -297,6 +316,10 @@ uv run tele-quant sector-cycle-audit --fail-on-high
 uv run tele-quant ops-doctor
 uv run tele-quant lint-report --hours 24
 uv run tele-quant alias-audit --high-only --fail-on-high
+
+# Output Quality Lint (출력 파일 사후 검증)
+uv run tele-quant output-lint --file /tmp/report.log
+uv run tele-quant output-lint --file /tmp/daily_alpha.log --fail-on-high
 ```
 
 ---
@@ -311,6 +334,12 @@ uv run tele-quant lint-report --hours 24
 uv run tele-quant pair-watch-cleanup --dry-run
 uv run tele-quant theme-board --market KR --no-send
 uv run tele-quant sector-cycle-audit
+
+# Output Quality Gate: 실제 출력 파일 사후 린팅
+DIGEST_MODE=no_llm uv run tele-quant once --no-send --hours 4 | tee /tmp/once.log
+uv run tele-quant daily-alpha --market KR --no-send --top-n 4 | tee /tmp/kr.log
+uv run tele-quant output-lint --file /tmp/once.log --fail-on-high
+uv run tele-quant output-lint --file /tmp/kr.log --fail-on-high
 ```
 
 ---
