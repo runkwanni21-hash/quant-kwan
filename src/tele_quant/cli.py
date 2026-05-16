@@ -1392,18 +1392,13 @@ def theme_board_cmd(
     if not no_send:
         import asyncio
 
-        import httpx
-
-        from tele_quant.telegram_sender import TelegramSender
+        from tele_quant.telegram_sender import TelegramGateway, TelegramSender
 
         async def _send() -> None:
-            async with httpx.AsyncClient(timeout=30) as client:
-                sender = TelegramSender(
-                    client,
-                    token=settings.telegram_token,
-                    chat_id=settings.telegram_chat_id,
-                )
+            async with TelegramGateway(settings) as gateway:
+                sender = TelegramSender(settings, gateway=gateway)
                 await sender.send(report)
+
         asyncio.run(_send())
         console.print("[green]theme-board 전송 완료[/green]")
 
