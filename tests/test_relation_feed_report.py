@@ -139,12 +139,13 @@ def test_digest_contains_asof_date():
     assert "2026-05-04" in result
 
 
-def test_digest_contains_source_symbol():
-    """급등 source 심볼이 섹션에 표시됨."""
+def test_digest_contains_relation_section_with_fold_summary():
+    """라이브 확인 없이 digest 생성 시 fold 요약 또는 source 심볼이 섹션에 표시됨."""
     pack = _make_pack()
     feed = _make_feed()
     result = build_macro_digest(pack, [], _make_stats(), hours=4, relation_feed=feed)
-    assert "ZSL" in result or "오로스" in result
+    # live_checks=None이면 candidates 접힘 → fold 요약 또는 section 자체 포함
+    assert "라이브 확인 미실행" in result or "후행 관찰 후보" in result
 
 
 def test_digest_contains_disclaimer():

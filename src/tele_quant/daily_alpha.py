@@ -1302,7 +1302,7 @@ def run_daily_alpha(
     symbols_info = {sym: (name, sec) for sym, name, sec in universe}
     try:
         from tele_quant.supply_chain_alpha import run_spillover_engine
-        sp_long, sp_short = run_spillover_engine(
+        sp_long, sp_short, sp_excluded = run_spillover_engine(
             market=market,
             store=store,
             daily_data=daily_data,
@@ -1311,6 +1311,11 @@ def run_daily_alpha(
         )
         long_picks = _merge_picks(long_picks, sp_long, top_n)
         short_picks = _merge_picks(short_picks, sp_short, top_n)
+        if sp_excluded > 0:
+            log.info(
+                "[daily-alpha] spillover: 가격만 움직인 저신뢰 source %d개는 수혜 후보 생성에서 제외",
+                sp_excluded,
+            )
     except Exception as exc:
         log.warning("[daily-alpha] spillover engine error: %s", exc)
 

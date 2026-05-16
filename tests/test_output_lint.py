@@ -77,6 +77,43 @@ def test_fail_on_high_exits_nonzero():
     assert result.returncode == 1, f"exit 0 반환됨 — HIGH 미감지:\n{result.stdout}"
 
 
+def test_bad_fixture_catches_global_guru():
+    """글로벌 투자 구루 일일 브리핑을 HIGH로 감지해야 한다."""
+    result = _run_lint()
+    combined = result.stdout + result.stderr
+    assert "글로벌" in combined or "구루" in combined, f"글로벌 투자 구루 미감지:\n{combined}"
+
+
+def test_bad_fixture_catches_wall_street_news():
+    """월가 주요 뉴스 헤더를 HIGH로 감지해야 한다."""
+    result = _run_lint()
+    combined = result.stdout + result.stderr
+    assert "월가" in combined, f"월가 주요 뉴스 미감지:\n{combined}"
+
+
+def test_bad_fixture_catches_earnings_trend_header():
+    """이익동향(5월 4주차) 헤더를 HIGH로 감지해야 한다."""
+    result = _run_lint()
+    combined = result.stdout + result.stderr
+    assert "이익동향" in combined, f"이익동향 미감지:\n{combined}"
+
+
+def test_bad_fixture_catches_unknown_price_connection():
+    """가격만 움직임(이유 불명) + 연결고리를 HIGH로 감지해야 한다."""
+    result = _run_lint()
+    combined = result.stdout + result.stderr
+    assert "unknown_price_only" in combined or "연결고리" in combined or "이유 불명" in combined, (
+        f"unknown_price_only 연결고리 미감지:\n{combined}"
+    )
+
+
+def test_bad_fixture_catches_live_unconfirmed_repeat():
+    """라이브 확인 미실행 — 통계만 참고가 2회 이상 반복되면 HIGH 감지."""
+    result = _run_lint()
+    combined = result.stdout + result.stderr
+    assert "라이브 확인 미실행" in combined, f"라이브 확인 미실행 반복 미감지:\n{combined}"
+
+
 def test_clean_output_passes_lint(tmp_path: Path):
     """깨끗한 출력은 output-lint에서 HIGH 0이고 exit 0이어야 한다."""
     clean = tmp_path / "clean.txt"

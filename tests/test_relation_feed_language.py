@@ -183,18 +183,18 @@ def test_section_no_forbidden_words():
 
 
 def test_section_up_contains_today_watchpoints():
-    """급등 후보 섹션에 '오늘 볼 것: 거래량 증가'가 포함됨."""
+    """급등 후보 섹션에 '오늘 볼 것: 거래량 증가'가 포함됨 (debug_mode=True)."""
     movers = [_mover("006910", "보성파워텍", 18.8)]
     rows = [_ll("006910", "보성파워텍", 18.8, "024850", "HLB이노베이션")]
     feed = _feed(movers, rows)
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert "오늘 볼 것" in section
     assert "거래량 증가" in section
     assert "4H RSI" in section
 
 
 def test_section_down_contains_today_watchpoints():
-    """급락 후보 섹션에 '반등 실패 + 거래량 동반 하락'이 포함됨."""
+    """급락 후보 섹션에 '반등 실패 + 거래량 동반 하락'이 포함됨 (debug_mode=True)."""
     movers = [_mover("052020", "에스티큐브", 10.0, move_type="DOWN")]
     rows = [
         _ll(
@@ -209,7 +209,7 @@ def test_section_down_contains_today_watchpoints():
         )
     ]
     feed = _feed(movers, rows)
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert "오늘 볼 것" in section
     assert "반등 실패" in section
 
@@ -218,11 +218,11 @@ def test_section_down_contains_today_watchpoints():
 
 
 def test_max_two_targets_per_source():
-    """source당 target은 최대 2개만 표시."""
+    """source당 target은 최대 2개만 표시 (debug_mode=True)."""
     movers = [_mover("006910", "보성파워텍", 18.8)]
     rows = [_ll("006910", "보성파워텍", 18.8, f"TGT{i:03d}", f"Target{i}") for i in range(5)]
     feed = _feed(movers, rows)
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     # Count how many "→ 후행 관찰 후보" target-block lines appear (exclude header line)
     target_lines = [
         ln
@@ -236,7 +236,7 @@ def test_max_two_targets_per_source():
 
 
 def test_max_six_total_candidates():
-    """전체 relation 섹션에서 source-target 쌍은 최대 6개."""
+    """전체 relation 섹션에서 source-target 쌍은 최대 6개 (debug_mode=True)."""
     movers = [_mover(f"SRC{i:03d}", f"Source{i}", 10.0 + i) for i in range(5)]
     rows = [
         _ll(f"SRC{i:03d}", f"Source{i}", 10.0 + i, f"TGT{j:03d}", f"Target{j}")
@@ -244,7 +244,7 @@ def test_max_six_total_candidates():
         for j in range(3)
     ]
     feed = _feed(movers, rows)
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     # Total "→ 후행 관찰 후보" / "→ 약세 전이" target-block lines (exclude header)
     target_lines = [
         ln
@@ -278,11 +278,11 @@ def test_disclaimer_constant_content():
 
 
 def test_section_lift_humanized():
-    """섹션에서 lift가 '평소보다 약 5.8배 자주'로 출력됨."""
+    """섹션에서 lift가 '평소보다 약 5.8배 자주'로 출력됨 (debug_mode=True)."""
     movers = [_mover("006910", "보성파워텍", 18.8)]
     rows = [_ll("006910", "보성파워텍", 18.8, "024850", "HLB이노베이션", lift=5.8)]
     feed = _feed(movers, rows)
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert "5.8배" in section
     assert "평소보다" in section
 
@@ -291,11 +291,11 @@ def test_section_lift_humanized():
 
 
 def test_section_medium_confidence_humanized():
-    """섹션에서 medium confidence가 '현재 가격 확인 필요'로 출력됨."""
+    """섹션에서 medium confidence가 '현재 가격 확인 필요'로 출력됨 (debug_mode=True)."""
     movers = [_mover("006910", "보성파워텍", 18.8)]
     rows = [_ll("006910", "보성파워텍", 18.8, "024850", "HLB이노베이션", confidence="medium")]
     feed = _feed(movers, rows)
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert "현재 가격 확인 필요" in section
 
 
@@ -414,14 +414,18 @@ def test_section_shows_current_check_label():
     assert "미확인" in section or "불일치" in section
 
 
-def test_section_no_live_checks_shows_fallback_label():
-    """live_checks=None이면 라이브 확인 미실행 표시 (현재가 확인 불가 미출력)."""
+def test_section_no_live_checks_folds_candidates():
+    """live_checks=None이면 상세 접힘 — 라이브 확인 미실행 통계 후보 N개는 상세 제외 요약 출력."""
     movers = [_mover("006910", "보성파워텍", 18.8)]
     rows = [_ll("006910", "보성파워텍", 18.8, "024850", "HLB이노베이션")]
     feed = _feed(movers, rows)
     section = build_relation_feed_section(feed, live_checks=None)
-    assert "현재 확인" in section
-    assert "라이브 확인 미실행" in section
+    # 상세 후보 블록 금지
+    assert "라이브 확인 미실행 — 통계만 참고" not in section
+    assert "현재 확인:" not in section
+    # 요약 문구 표시
+    assert "라이브 확인 미실행 통계 후보" in section
+    assert "상세 제외" in section
     assert "현재가 확인 불가" not in section
 
 

@@ -573,8 +573,12 @@ def build_relation_feed_section(
     max_targets: int = 3,
     settings: Any = None,
     live_checks: dict[str, RelationTargetLiveCheck] | None = None,
+    debug_mode: bool = False,
 ) -> str:
-    """Build the relation feed digest section."""
+    """Build the relation feed digest section.
+
+    debug_mode=True: live_checks=None이어도 상세 후보를 표시 (테스트/디버그 전용).
+    """
     if settings is not None:
         max_movers = int(getattr(settings, "relation_feed_max_movers", max_movers))
         max_targets = int(getattr(settings, "relation_feed_max_targets_per_mover", max_targets))
@@ -713,11 +717,15 @@ def build_relation_feed_section(
                     ret_sign = "+" if chk.today_return_pct > 0 else ""
                     live_label += f" ({ret_sign}{chk.today_return_pct:.1f}%)"
             else:
+                # live_checks=None → 오프라인/미실행 — 상세 접힘 처리 (debug_mode 제외)
+                if not debug_mode:
+                    _no_price_blocked += 1
+                    continue
                 live_label = "라이브 확인 미실행 — 통계만 참고"
                 judgment = "가격 확인 전 관찰 후보"
 
-            # live_checks가 있으나 가격 미확인인 경우만 접힘 처리
-            if live_checks is not None and "확인 불가" in live_label:
+            # live_checks가 있으나 가격 미확인인 경우 접힘 처리
+            if "확인 불가" in live_label:
                 _no_price_blocked += 1
                 continue
 
@@ -804,11 +812,14 @@ def build_relation_feed_section(
                     fb_ret_sign = "+" if fb_chk.today_return_pct > 0 else ""
                     fb_live_label += f" ({fb_ret_sign}{fb_chk.today_return_pct:.1f}%)"
             else:
+                # live_checks=None → 오프라인/미실행 — 상세 접힘 처리 (debug_mode 제외)
+                if not debug_mode:
+                    _no_price_blocked += 1
+                    continue
                 fb_live_label = "라이브 확인 미실행 — 통계만 참고"
                 fb_judgment = "가격 확인 전 관찰 후보"
-            # live_checks가 None이면 오프라인/테스트 모드 — 통계만 표시
-            # live_checks가 있으나 가격 미확인인 경우만 접힘 처리
-            if live_checks is not None and "확인 불가" in fb_live_label:
+            # live_checks가 있으나 가격 미확인인 경우 접힘 처리
+            if "확인 불가" in fb_live_label:
                 _no_price_blocked += 1
                 continue
             lines.append(f"{i}. {src_label} {sign}{cand.source_return_pct:.1f}%")
@@ -827,7 +838,10 @@ def build_relation_feed_section(
             lines.append("  (medium 후보 없음 — low 신뢰도 상위 3개만 표시)")
 
     if _no_price_blocked > 0:
-        lines.append(f"  (가격 미확인 통계 후보 {_no_price_blocked}개 — 상세 제외, 가격 확인 후 참고)")
+        if live_checks is None:
+            lines.append(f"  (라이브 확인 미실행 통계 후보 {_no_price_blocked}개는 상세 제외)")
+        else:
+            lines.append(f"  (가격 미확인 통계 후보 {_no_price_blocked}개 — 상세 제외, 가격 확인 후 참고)")
     lines.append("")
     lines.append(f"※ {_RELATION_FEED_DISCLAIMER}")
 

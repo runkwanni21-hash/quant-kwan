@@ -411,7 +411,7 @@ def test_fallback_in_relation_feed_section():
         )
     ]
 
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert "fallback" in section.lower() or "자체 계산" in section
     assert "조건부확률" in section
     assert "배" in section or "조건부확률" in section

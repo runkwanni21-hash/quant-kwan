@@ -526,19 +526,19 @@ def run_spillover_engine(
     daily_data: dict[str, dict[str, Any]],
     symbols_info: dict[str, tuple[str, str]],
     top_n: int = 4,
-) -> tuple[list[DailyAlphaPick], list[DailyAlphaPick]]:
-    """Full spillover pipeline. Returns (long_picks, short_picks)."""
+) -> tuple[list[DailyAlphaPick], list[DailyAlphaPick], int]:
+    """Full spillover pipeline. Returns (long_picks, short_picks, excluded_unknown_count)."""
     log.info("[spillover] engine start market=%s", market)
 
     try:
         rules = load_supply_chain_rules()
     except Exception as exc:
         log.warning("[spillover] rule load failed: %s", exc)
-        return [], []
+        return [], [], 0
 
     movers = detect_source_movers(market, daily_data, symbols_info, store)
     if not movers:
-        return [], []
+        return [], [], 0
 
     long_targets, short_targets = find_spillover_targets(movers, rules)
 
@@ -548,19 +548,27 @@ def run_spillover_engine(
         "rsi": None, "obv": "데이터 부족", "bb_pct": None, "close": None, "vol_ratio": None,
     }
 
+    _excluded_unknown: list[str] = []  # unknown_price_only source로 제외된 target 이름
+
     def _deep_score(targets: list[SpilloverTarget], side: str) -> list[DailyAlphaPick]:
         from tele_quant.scenario_alpha import compute_reason_quality
 
         picks: list[DailyAlphaPick] = []
         seen: set[str] = set()
-        # Dedup by (source, target, relation_type) within this batch
         seen_key: set[tuple[str, str, str]] = set()
         for t in targets[:25]:  # max 25 deep fetches per side
             if t.symbol in seen:
                 continue
-            # Skip duplicate source+target+relation combinations
             key = (t.source.symbol, t.symbol, t.relation_type)
             if key in seen_key:
+                continue
+            # unknown_price_only source → 정식 후보 생성 금지, 카운트만 기록
+            if t.source.reason_type == "unknown_price_only":
+                _excluded_unknown.append(t.name or t.symbol)
+                log.debug(
+                    "[spillover] excluded unknown_price_only src=%s → %s",
+                    t.source.symbol, t.symbol,
+                )
                 continue
             seen.add(t.symbol)
             seen_key.add(key)
@@ -571,7 +579,6 @@ def run_spillover_engine(
             if sc < _MIN_SPILLOVER_SCORE:
                 continue
             pick = _build_pick(t, side, sc, d3, d4h, f, store)
-            # reason_quality gate: < 50 → mark as speculative (추적 후보만)
             src_confidence = t.source.confidence
             rq = compute_reason_quality(t.source.reason_type, src_confidence)
             pick.reason_quality = rq
@@ -590,5 +597,8 @@ def run_spillover_engine(
     for rank, p in enumerate(short_picks[:top_n], 1):
         p.rank = rank
 
+    excluded_count = len(set(_excluded_unknown))
+    if excluded_count > 0:
+        log.info("[spillover] excluded %d unknown_price_only source targets", excluded_count)
     log.info("[spillover] done LONG=%d SHORT=%d", len(long_picks[:top_n]), len(short_picks[:top_n]))
-    return long_picks[:top_n], short_picks[:top_n]
+    return long_picks[:top_n], short_picks[:top_n], excluded_count

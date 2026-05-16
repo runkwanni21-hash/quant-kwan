@@ -908,26 +908,27 @@ def build_theme_board(market: str, store: Any, settings: Any) -> str:
     lines.append("")
 
     # ════════════════════════════════════════════════════
-    # 2. 주도 섹터 Top 5
+    # 2. 섹터 현황 (주도/관찰/약한 후보 분리)
     # ════════════════════════════════════════════════════
     lines.append("━" * 36)
-    lines.append("2️⃣  주도 섹터 Top 5")
+    lines.append("2️⃣  섹터 현황")
     lines.append("")
+
+    _THRESHOLD_LEADER = 70.0
+    _THRESHOLD_WATCH = 60.0
+    _THRESHOLD_WEAK = 50.0
+
     if top_secs:
-        top5 = top_secs[:5]
-        for rank, (sec, score) in enumerate(top5, 1):
+        leading_secs = [(s, sc) for s, sc in top_secs if sc >= _THRESHOLD_LEADER]
+        watch_secs = [(s, sc) for s, sc in top_secs if _THRESHOLD_WATCH <= sc < _THRESHOLD_LEADER]
+        weak_secs = [(s, sc) for s, sc in top_secs if _THRESHOLD_WEAK <= sc < _THRESHOLD_WATCH]
+
+        def _render_sector_block(sec: str, score: float, label: str) -> None:
             sent = sector_sentiment.get(sec, 50.0)
-            # 해당 섹터 주도주·후발·피해 후보 수집
-            sec_leaders = [
-                c for c in sections["leader"].candidates if c.sector == sec
-            ][:1]
-            sec_lagging = [
-                c for c in sections["lagging"].candidates if c.sector == sec
-            ][:1]
-            sec_victims = [
-                c for c in sections["victim"].candidates if c.sector == sec
-            ][:1]
-            lines.append(f"  {rank}. {sec}  (점수 {score:.0f} / 감성 {sent:.0f}/100)")
+            sec_leaders = [c for c in sections["leader"].candidates if c.sector == sec][:1]
+            sec_lagging = [c for c in sections["lagging"].candidates if c.sector == sec][:1]
+            sec_victims = [c for c in sections["victim"].candidates if c.sector == sec][:1]
+            lines.append(f"  [{label}] {sec}  (점수 {score:.0f} / 감성 {sent:.0f}/100)")
             if sec_leaders:
                 c = sec_leaders[0]
                 lines.append(
@@ -937,12 +938,29 @@ def build_theme_board(market: str, store: Any, settings: Any) -> str:
                 lines.append(f"     초보자 해석: {c.beginner_reason[:80] or c.why_now[:80]}")
             if sec_lagging:
                 c = sec_lagging[0]
-                lines.append(
-                    f"     후발 수혜 관찰: {c.name} ({c.symbol})  {c.price_1d_pct:+.1f}%"
-                )
+                lines.append(f"     후발 수혜 관찰: {c.name} ({c.symbol})  {c.price_1d_pct:+.1f}%")
             if sec_victims:
                 c = sec_victims[0]
                 lines.append(f"     피해/주의: {c.name} ({c.symbol})")
+            lines.append("")
+
+        if leading_secs:
+            lines.append("  🔥 주도 섹터")
+            for sec, score in leading_secs:
+                _render_sector_block(sec, score, "주도")
+        else:
+            lines.append("  🔥 주도 섹터: 강한 주도 테마 없음")
+            lines.append("")
+
+        if watch_secs:
+            lines.append("  👀 관찰 섹터")
+            for sec, score in watch_secs:
+                _render_sector_block(sec, score, "관찰")
+
+        if weak_secs:
+            lines.append("  📌 약한 후보 섹터")
+            for sec, score in weak_secs:
+                lines.append(f"  - {sec}  (점수 {score:.0f})")
             lines.append("")
     else:
         lines.append("  - 섹터 데이터 부족")

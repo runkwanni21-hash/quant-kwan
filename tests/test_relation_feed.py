@@ -266,7 +266,7 @@ def _fake_yf_module(df):
 
 def test_report_section_generation():
     feed = _make_feed_with_rows()
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert "후행 관찰 후보" in section
     assert "SNDK" in section
     assert "통계적 관찰 목록" in section
@@ -274,7 +274,7 @@ def test_report_section_generation():
 
 def test_report_section_shows_target():
     feed = _make_feed_with_rows()
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert "MU" in section
     assert "Micron" in section
 
@@ -290,7 +290,7 @@ def test_report_section_no_stale_hidden():
     """is_stale=True여도 섹션이 숨겨지지 않는다 (stale 개념 제거됨)."""
     feed = _make_feed_with_rows()
     feed.is_stale = True  # 하위호환 — 이제 무시됨
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert "후행 관찰 후보" in section
 
 
@@ -315,13 +315,13 @@ def test_report_section_scan_stats():
 
 def test_no_forbidden_expressions():
     feed = _make_feed_with_rows()
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert not _FORBIDDEN_PATTERNS.search(section), f"금지 표현 발견: {section}"
 
 
 def test_no_forbidden_expressions_macro_only():
     feed = _make_feed_with_rows()
-    section = build_relation_feed_section(feed, macro_only=True)
+    section = build_relation_feed_section(feed, macro_only=True, debug_mode=True)
     assert not _MACRO_ONLY_FORBIDDEN.search(section), f"macro_only 금지 표현 발견: {section}"
 
 
@@ -351,7 +351,7 @@ def test_target_deduplication():
             ),
         ],
     )
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert section.count("MU") <= 2
 
 
@@ -399,7 +399,7 @@ def test_fresh_feed_section_shown():
     feed = _make_feed_with_rows()
     feed.is_stale = False
     feed.feed_age_hours = 0.0
-    section = build_relation_feed_section(feed)
+    section = build_relation_feed_section(feed, debug_mode=True)
     assert section != ""
     assert "후행 관찰 후보" in section
 

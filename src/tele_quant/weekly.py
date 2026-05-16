@@ -246,9 +246,16 @@ def build_relation_signal_review_section(
                 hit_label = "✅ 약세 전이 적중" if e.get("hit") else "❌ 부진"
             else:
                 hit_label = "✅ 적중" if e.get("hit") else "❌ 부진"
+            if direction == "risk":
+                perf_basis = "SHORT 관찰 기준 (가격 하락 = +성과)"
+            elif direction == "beneficiary":
+                perf_basis = "LONG 관찰 기준 (가격 상승 = +성과)"
+            else:
+                perf_basis = "후보 방향 기준"
             lines.append(f"{idx}. {src} → {tgt}")
             lines.append(f"   - 신호 시점: {_fmt_kst_datetime(created_at_str)}")
             lines.append(f"   - 방향: {dir_label}")
+            lines.append(f"   - 성과 계산: {perf_basis}")
             if cond_prob is not None and lift_val is not None:
                 lines.append(f"   - 조건부확률/lift: {cond_prob * 100:.1f}% / {lift_val:.1f}x")
             if s_price is not None:

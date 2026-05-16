@@ -267,6 +267,10 @@ _FINAL_DROP_LINE_RES = [
     re.compile(r"국장\s+마이너리티\s+리포트"),
     # Date-only IB opinion headers: "5월 14일 주요 종목에 대한 IB 투자의견"
     re.compile(r"\d+월\s*\d+일\s*주요\s*종목에\s*대한\s*IB\s*투자의견"),
+    # Global guru / briefing channel headers
+    re.compile(r"글로벌\s*투자\s*구루\s*일일\s*브리핑", re.IGNORECASE),
+    re.compile(r"월가\s*주요\s*뉴스", re.IGNORECASE),
+    re.compile(r"이익동향\s*\(\d+월\s*\d+주차\)", re.IGNORECASE),
     # Report-header-only lines
     re.compile(r"^Report\s*\)\s*$", re.IGNORECASE),
     re.compile(r"^\d{1,2}/\d{1,2}\s*Report\s*$", re.IGNORECASE),

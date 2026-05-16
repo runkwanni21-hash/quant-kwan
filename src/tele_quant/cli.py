@@ -1444,13 +1444,20 @@ def output_lint_cmd(
     file: Annotated[
         str, typer.Option("--file", help="검사할 리포트 파일 경로 (없으면 stdin 대기)")
     ] = "",
+    html: Annotated[
+        str, typer.Option("--html", help="Telegram export HTML 파일 경로")
+    ] = "",
     fail_on_high: Annotated[
         bool, typer.Option("--fail-on-high", help="HIGH 이슈 발견 시 exit-code 1")
     ] = False,
+    last: Annotated[
+        int, typer.Option("--last", help="HTML 모드에서 최근 N개 메시지만 검사 (0=전체)")
+    ] = 0,
 ) -> None:
     """Daily Alpha / 4H 브리핑 리포트 출력 품질 검사.
 
     Example: uv run tele-quant output-lint --file /tmp/daily_alpha.log
+             uv run tele-quant output-lint --html /path/to/messages.html --last 20
              uv run tele-quant daily-alpha --market KR --no-send | uv run tele-quant output-lint --file /dev/stdin
     """
     import re as _re
@@ -1458,8 +1465,47 @@ def output_lint_cmd(
 
     from rich.table import Table
 
-    # 검사 대상 텍스트 로드
-    if file:
+    # ── HTML 모드: Telegram export HTML 파싱 ──────────────────────────────────
+    if html:
+        try:
+            html_content = _Path(html).read_text(encoding="utf-8", errors="ignore")
+        except FileNotFoundError:
+            console.print(f"[red]HTML 파일 없음: {html}[/red]")
+            raise SystemExit(1) from None
+
+        # Extract message text from Telegram HTML export
+        # Format: <div class="text">...</div> or <div class="body">...</div>
+        msg_texts: list[tuple[str, str]] = []  # (msg_id_or_ts, text)
+        _msg_id_re = _re.compile(r'<div class="message[^"]*"\s+id="message(\d+)"', _re.IGNORECASE)
+        _text_re = _re.compile(r'<div class="text">(.*?)</div>', _re.IGNORECASE | _re.DOTALL)
+        _date_re = _re.compile(r'<div class="date[^"]*"[^>]*title="([^"]+)"', _re.IGNORECASE)
+        _tag_re = _re.compile(r"<[^>]+>")
+
+        # Split by message blocks
+        msg_blocks = _re.split(r'(?=<div class="message)', html_content)
+        for block in msg_blocks:
+            mid_m = _msg_id_re.search(block)
+            msg_id = mid_m.group(1) if mid_m else "?"
+            date_m = _date_re.search(block)
+            ts = date_m.group(1) if date_m else ""
+            text_m = _text_re.search(block)
+            if text_m:
+                raw = text_m.group(1)
+                clean = _tag_re.sub("", raw).strip()
+                if clean:
+                    msg_texts.append((f"msg#{msg_id}({ts})", clean))
+
+        if last > 0:
+            msg_texts = msg_texts[-last:]
+
+        if not msg_texts:
+            console.print("[yellow]HTML에서 메시지 텍스트를 찾지 못했습니다.[/yellow]")
+            return
+
+        console.print(f"[dim]HTML 모드: {len(msg_texts)}개 메시지 검사[/dim]")
+        text = "\n".join(t for _, t in msg_texts)
+    elif file:
+        # 검사 대상 텍스트 로드
         try:
             text = _Path(file).read_text(encoding="utf-8", errors="ignore")
         except FileNotFoundError:
@@ -1493,12 +1539,35 @@ def output_lint_cmd(
     _check("HIGH", "국장 마이너리티 리포트", "채널명 헤더 잔류")
     _check("HIGH", "안녕하세요", "브로커 인사말 잔류")
     _check("HIGH", r"IB\s*투자의견", "IB 투자의견 헤더 잔류", regex=True)
+    _check("HIGH", r"글로벌\s*투자\s*구루\s*일일\s*브리핑", "글로벌 투자 구루 채널 헤더 잔류", regex=True)
+    _check("HIGH", r"월가\s*주요\s*뉴스", "월가 주요 뉴스 헤더 잔류", regex=True)
+    _check("HIGH", r"이익동향\s*\(\d+월\s*\d+주차\)", "이익동향 메타 헤더 잔류", regex=True)
     _check("HIGH", r"^   왜 지금: (?:치 |드 |이를 )", "왜지금 문장 조각", regex=True)
     # 줄 시작 조각 문장 — headline_cleaner를 우회한 fragment
     _check("HIGH", r"^치 후 |^드 플|^이를 정당화", "줄 시작 조각 문장 잔류", regex=True)
     # 잘못된 섹션 표기
     _check("HIGH", "숏/매도 경계 후보", "숏/매도 경계 후보 표기 오류 — SHORT 관찰 후보·관망 표기여야 함")
     _check("HIGH", "현재가 확인 불가", "현재가 확인 불가 텍스트 직접 노출 — 접힘 처리 누락")
+    # unknown_price_only source가 연결고리 생성에 쓰인 경우
+    _check(
+        "HIGH",
+        r"가격만 움직임\(이유 불명\).*연결고리",
+        "unknown_price_only source가 연결고리 생성에 사용됨",
+        regex=True,
+    )
+    # 라이브 확인 미실행 상세 반복 (2회 이상 = 접힘 처리 누락)
+    _live_unconf_lines = [
+        ln for ln, line_txt in enumerate(lines_raw, 1)
+        if "라이브 확인 미실행 — 통계만 참고" in line_txt
+    ]
+    if len(_live_unconf_lines) >= 2:
+        issues.append({
+            "severity": "HIGH",
+            "line": str(_live_unconf_lines[1]),
+            "pattern": "라이브 확인 미실행 상세 반복",
+            "message": f"라이브 확인 미실행 — 통계만 참고 {len(_live_unconf_lines)}회 반복 — 접힘 처리 누락",
+            "excerpt": lines_raw[_live_unconf_lines[1] - 1].strip()[:80],
+        })
 
     # HIGH: 가격 스케일 이상 (삼성전자 등 KR 대형주 과거 미분할 가격)
     for suspicious_bb in ["BB.*311,0", "BB.*2,160,", "BB.*755,6", "BB.*1,715,"]:

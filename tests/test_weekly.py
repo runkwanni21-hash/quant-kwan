@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 from tele_quant.models import RunReport
-from tele_quant.weekly import build_weekly_deterministic_summary, build_weekly_input
+from tele_quant.weekly import (
+    build_relation_signal_review_section,
+    build_weekly_deterministic_summary,
+    build_weekly_input,
+)
 
 SAMPLE_DIGEST_1 = """
 🧠 Tele Quant 4시간 매크로/주식 핵심
@@ -356,3 +361,73 @@ def test_smart_reader_result_key_events_truncated_in_text() -> None:
     # as_narrative_text only shows first 4
     assert "이벤트5" not in text
     assert "이벤트4" in text
+
+
+# ── Pair-watch direction explanation ─────────────────────────────────────────
+
+def test_pair_watch_risk_direction_shows_short_basis() -> None:
+    """약세 전이 후보(risk direction)는 SHORT 관찰 기준 설명이 포함되어야 한다."""
+    store = MagicMock()
+    now = datetime.now(UTC)
+    signal_price = 100000.0
+    review_price = 85000.0  # 가격 하락 → SHORT 기준으로 +성과
+
+    store.recent_mover_chain_signals.return_value = [
+        {
+            "id": 1,
+            "source_symbol": "000660.KS",
+            "source_name": "SK하이닉스",
+            "target_symbol": "051910.KS",
+            "target_name": "LG화학",
+            "direction": "risk",
+            "relation_type": "DEMAND_SLOWDOWN",
+            "target_price_at_signal": signal_price,
+            "target_price_at_review": review_price,
+            "outcome_return_pct": (signal_price - review_price) / signal_price * 100,
+            "hit": 1,
+            "conditional_prob": 0.6,
+            "lift": 2.0,
+            "target_market": "KR",
+            "lag_days": 3,
+            "created_at": (now - timedelta(days=7)).isoformat(),
+        }
+    ]
+
+    since = now - timedelta(days=8)
+    result = build_relation_signal_review_section(store, since=since)
+    assert "SHORT 관찰 기준" in result, f"SHORT 관찰 기준 미포함:\n{result}"
+    assert "가격 하락 = +성과" in result, f"가격 하락 = +성과 미포함:\n{result}"
+
+
+def test_pair_watch_beneficiary_direction_shows_long_basis() -> None:
+    """동행 후보(beneficiary direction)는 LONG 관찰 기준 설명이 포함되어야 한다."""
+    store = MagicMock()
+    now = datetime.now(UTC)
+    signal_price = 50000.0
+    review_price = 55000.0  # 가격 상승 → LONG 기준으로 +성과
+
+    store.recent_mover_chain_signals.return_value = [
+        {
+            "id": 2,
+            "source_symbol": "NVDA",
+            "source_name": "NVIDIA",
+            "target_symbol": "AMD",
+            "target_name": "AMD",
+            "direction": "beneficiary",
+            "relation_type": "PEER_MOMENTUM",
+            "target_price_at_signal": signal_price,
+            "target_price_at_review": review_price,
+            "outcome_return_pct": (review_price - signal_price) / signal_price * 100,
+            "hit": 1,
+            "conditional_prob": 0.55,
+            "lift": 1.8,
+            "target_market": "US",
+            "lag_days": 3,
+            "created_at": (now - timedelta(days=7)).isoformat(),
+        }
+    ]
+
+    since = now - timedelta(days=8)
+    result = build_relation_signal_review_section(store, since=since)
+    assert "LONG 관찰 기준" in result, f"LONG 관찰 기준 미포함:\n{result}"
+    assert "가격 상승 = +성과" in result, f"가격 상승 = +성과 미포함:\n{result}"

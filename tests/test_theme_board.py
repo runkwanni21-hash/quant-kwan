@@ -481,3 +481,36 @@ def test_is_kr_symbol():
     assert _is_kr_symbol("000660")
     assert not _is_kr_symbol("NVDA")
     assert not _is_kr_symbol("AAPL")
+
+
+# ── Threshold polish tests ────────────────────────────────────────────────────
+
+def test_build_theme_board_uses_threshold_labels():
+    """테마 보드가 점수 70+ 주도, 60~69 관찰, 50~59 약한 후보로 분리한다."""
+    top = [("반도체", 72.0), ("자동차", 64.0), ("미분류", 52.0), ("식품", 48.0)]
+    leading = [s for s, sc in top if sc >= 70.0]
+    watch = [s for s, sc in top if 60.0 <= sc < 70.0]
+    weak = [s for s, sc in top if 50.0 <= sc < 60.0]
+    hidden = [s for s, sc in top if sc < 50.0]
+
+    assert "반도체" in leading
+    assert "자동차" in watch
+    assert "미분류" in weak
+    assert "식품" in hidden
+
+
+def test_sector_below_50_hidden():
+    """50점 미만 섹터는 출력에서 숨겨져야 한다."""
+    top = [("식품", 45.0), ("유통", 38.0)]
+    hidden = [s for s, sc in top if sc < 50.0]
+    assert "식품" in hidden
+    assert "유통" in hidden
+
+
+def test_sector_64_is_watch_not_leading():
+    """64점 섹터는 주도 섹터가 아니라 관찰 섹터여야 한다."""
+    top = [("자동차", 64.0)]
+    leading = [s for s, sc in top if sc >= 70.0]
+    watch = [s for s, sc in top if 60.0 <= sc < 70.0]
+    assert "자동차" not in leading
+    assert "자동차" in watch
