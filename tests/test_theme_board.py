@@ -412,15 +412,13 @@ def test_build_theme_board_sections_present():
     with patch("tele_quant.theme_board._fetch_price_batch", side_effect=_price):
         result = build_theme_board("KR", store, settings)
 
-    # All major sections present
-    assert "주도 섹터" in result
+    # All major sections present (v2 포맷)
+    assert "돈 흐름" in result or "주도 섹터" in result
     assert "급등주" in result
     assert "급락주" in result
-    assert "수혜주" in result
-    assert "피해주" in result
-    assert "섹터 주도주" in result
-    assert "후발 수혜주" in result
-    assert "과열" in result
+    assert "후발 수혜" in result or "수혜" in result
+    assert "피해" in result
+    assert "과열" in result or "주의" in result
 
 
 def test_build_theme_board_disclaimer_present():

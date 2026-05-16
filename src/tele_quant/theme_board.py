@@ -1,10 +1,12 @@
-"""퀀터멘탈 테마 보드 — price momentum + sentiment + evidence + relation을 결합한 테마 분류.
+"""퀀터멘탈 테마 보드 — price momentum + sentiment + evidence + relation + sector cycle 종합.
 
-섹션:
-  📌 퀀터멘탈 테마 보드
-  ① 오늘 주도 섹터   ② 급등주   ③ 급락주
-  ④ 수혜주 후보      ⑤ 피해주 후보
-  ⑥ 섹터 주도주      ⑦ 후발 수혜주   ⑧ 과열/주의 후보
+섹션 (v2):
+  1. 오늘 시장의 돈 흐름
+  2. 주도 섹터 Top 5
+  3. 급등주/급락주 해석
+  4. 후발 수혜 후보
+  5. 피해/주의 후보
+  + 매크로 가드  + 상대 후행 감지
 """
 
 from __future__ import annotations
@@ -67,6 +69,10 @@ class ThemeCandidate:
     expected_direction: str = "UP"
     rsi_3d: float | None = None
     rsi_4h: float | None = None
+    # Sector Cycle v2
+    cycle_id: str = ""
+    cycle_stage: str = ""
+    beginner_reason: str = ""
 
 
 @dataclass
@@ -701,46 +707,121 @@ def _fmt_section(sec: ThemeSection, show_detail: bool = True) -> list[str]:
     return lines
 
 
+# ── Candidate cycle annotation ────────────────────────────────────────────────
+
+
+def _annotate_cycle(
+    candidates: list[ThemeCandidate],
+    symbol_index: dict[str, list[tuple[str, str, int]]],
+    rules: list[dict[str, Any]],
+) -> None:
+    """ThemeCandidate에 cycle_id, cycle_stage, beginner_reason 주입 (in-place)."""
+    for c in candidates:
+        entries = symbol_index.get(c.symbol, [])
+        if not entries:
+            continue
+        cid, stage, _ = entries[0]
+        c.cycle_id = cid
+        c.cycle_stage = stage
+        rule = next((r for r in rules if r.get("cycle_id") == cid), {})
+        c.beginner_reason = rule.get("beginner_explanation", "")[:100]
+
+
+# ── New 5-section renderer ────────────────────────────────────────────────────
+
+
+def _market_mood(candidates: list[ThemeCandidate], sector_sentiment: dict[str, float]) -> str:
+    """위험선호 / 방어적 / 혼조 판정."""
+    if not candidates:
+        return "혼조"
+    up = sum(1 for c in candidates if c.price_1d_pct >= 1.0 and c.role != ROLE_VICTIM)
+    down = sum(1 for c in candidates if c.price_1d_pct <= -1.0)
+    avg_sent = sum(sector_sentiment.values()) / len(sector_sentiment) if sector_sentiment else 50.0
+    if up > down * 2 and avg_sent > 60:
+        return "위험선호"
+    if down > up * 2 or avg_sent < 40:
+        return "방어적"
+    return "혼조"
+
+
+def _fmt_candidate_v2(c: ThemeCandidate, idx: int, section_label: str) -> list[str]:
+    """새 포맷: 역할·왜·연결고리·기술·리스크·초보자해석 순."""
+    lines: list[str] = []
+    p1d = _fmt_pct(c.price_1d_pct)
+    p3d = _fmt_pct(c.price_3d_pct)
+    role_ko = _ROLE_KO.get(c.role, c.role)
+    stage_ko = ""
+    if c.cycle_stage:
+        from tele_quant.sector_cycle import _STAGE_KO
+        stage_ko = f" [{_STAGE_KO.get(c.cycle_stage, c.cycle_stage)}]"
+
+    lines.append(f"{idx}. {c.name} ({c.symbol}){stage_ko}")
+    lines.append(f"   역할: {role_ko}  |  테마점수: {c.theme_score:.0f}/100")
+    lines.append(f"   가격: 1D {p1d} / 3D {p3d}  거래량: {c.volume_ratio:.1f}배")
+    if c.connection:
+        lines.append(f"   연결고리: {c.connection}")
+    if c.catalyst:
+        lines.append(f"   Catalyst: {c.catalyst[:80]}")
+    lines.append(f"   왜 지금: {c.why_now}")
+    lines.append(f"   4H 기술: {c.tech_4h}  |  3D 기술: {c.tech_3d}")
+    lines.append(f"   무효화: {c.invalidation}")
+    lines.append(f"   리스크: {c.risk}")
+    if c.beginner_reason:
+        exp = c.beginner_reason.strip().replace("\n", " ")
+        lines.append(f"   초보자 해석: {exp[:100]}")
+    if c.cycle_id:
+        lines.append(f"   사이클: {c.cycle_id} / 단계: {c.cycle_stage or '-'}")
+    return lines
+
+
+def _render_section_v2(
+    label: str,
+    icon: str,
+    candidates: list[ThemeCandidate],
+    max_items: int = 5,
+) -> list[str]:
+    lines: list[str] = []
+    top = candidates[:max_items]
+    if not top:
+        lines.append(f"{icon} {label}: 해당 후보 없음")
+        return lines
+    lines.append(f"{icon} {label} ({len(top)}개)")
+    for i, c in enumerate(top, 1):
+        lines.extend(_fmt_candidate_v2(c, i, label))
+        lines.append("")
+    return lines
+
+
 # ── Main builder ──────────────────────────────────────────────────────────────
 
 
 def build_theme_board(market: str, store: Any, settings: Any) -> str:
-    """Build Quantamental Theme Board report string."""
+    """Build Quantamental Theme Board report string (v2 — 5섹션 포맷)."""
     now_kst = datetime.now(_KST).strftime("%Y-%m-%d %H:%M KST")
     since_7d = datetime.now(_UTC) - timedelta(days=7)
     since_24h = datetime.now(_UTC) - timedelta(hours=24)
 
     lines: list[str] = [
-        f"📌 퀀터멘탈 테마 보드 ({market})",
+        f"📌 퀀터멘탈 테마 보드 v2 ({market})",
         f"- 생성: {now_kst}",
-        "- 기준: price momentum + sentiment + 직접증거 + 선행·후행 관계 종합",
+        "- 기준: 가격·거래량·감성·직접증거·선행후행 관계·사이클 종합",
         "- 주의: 통계적 관찰 후보입니다. 실제 매수·매도 권장 아님",
         "",
     ]
 
-    # 1. Collect universe
+    # ── 데이터 수집 ──
     universe = _collect_universe(market, store, since_7d)
     if not universe:
         lines.append("- 최근 7일 DB 신호 없음 (종목 후보 없음)")
         return "\n".join(lines)
 
-    symbols = list(universe.keys())
-    # Limit to 50 for performance
-    symbols = symbols[:50]
-
-    # 2. Batch fetch price data
+    symbols = list(universe.keys())[:50]
     price_map = _fetch_price_batch(symbols, market)
-
-    # 3. DB summary
     db_summary = _build_db_summary(store, since_7d)
-
-    # 4. Relation maps
     lagging_map, victim_map = _build_relation_maps(store, since_7d)
-
-    # 5. Sector sentiment
     sector_sentiment = _get_sector_sentiment(store, since_24h)
 
-    # 6. Build candidates (only symbols with price data)
+    # ── 후보 빌드 ──
     candidates: list[ThemeCandidate] = []
     for sym in symbols:
         if sym not in price_map:
@@ -751,7 +832,6 @@ def build_theme_board(market: str, store: Any, settings: Any) -> str:
             name = db_data["name"]
         if db_data.get("sector"):
             sector = db_data["sector"]
-
         role = _assign_role(sym, price_map[sym], db_data, lagging_map, victim_map)
         cand = _build_candidate(
             sym, name, sector, market, role,
@@ -765,27 +845,246 @@ def build_theme_board(market: str, store: Any, settings: Any) -> str:
         lines.append("- 가격 데이터 조회 실패 (yfinance 오류 또는 종목 없음)")
         return "\n".join(lines)
 
+    # ── Sector Cycle 주입 ──
+    try:
+        from tele_quant.sector_cycle import (
+            _build_symbol_index,
+            _extract_macro_from_store,
+            _extract_sector_sentiments,
+            compute_macro_guard,
+            compute_relative_lagging,
+            load_sector_cycle_rules,
+        )
+        sc_rules = load_sector_cycle_rules()
+        sym_index = _build_symbol_index(sc_rules)
+        _annotate_cycle(candidates, sym_index, sc_rules)
+
+        macro_data = _extract_macro_from_store(store)
+        sc_sentiments = _extract_sector_sentiments(store)
+        macro_guard = compute_macro_guard(
+            fear_greed_score=macro_data.get("fear_greed_score"),
+            us_10y_rate=macro_data.get("us_10y_rate"),
+            vix=macro_data.get("vix"),
+            dollar_index=macro_data.get("dollar_index"),
+            oil_price=macro_data.get("oil_price"),
+            sector_sentiments=sc_sentiments,
+        )
+        lagging_signals = compute_relative_lagging(sc_rules, price_map, market)
+    except Exception as exc:
+        log.debug("sector_cycle integration failed: %s", exc)
+        macro_guard = None
+        lagging_signals = []
+        sc_rules = []
+
+    # ── 섹션 분류 ──
+    sections = _classify_sections(candidates)
+    top_secs = _top_sectors(candidates, sector_sentiment)
+    mood = _market_mood(candidates, sector_sentiment)
+
     lines.append(f"- 분석 종목: {len(candidates)}개")
     lines.append("")
 
-    # 7. Leading sectors
-    top_secs = _top_sectors(candidates, sector_sentiment)
-    lines.append("🏆 오늘 주도 섹터")
-    if top_secs:
-        for rank, (sec, score) in enumerate(top_secs, 1):
-            sent = sector_sentiment.get(sec, 50.0)
-            lines.append(f"  {rank}. {sec}  (종합점수 {score:.0f} / 감성 {sent:.0f}/100)")
-    else:
-        lines.append("  - 섹터 데이터 부족")
+    # ════════════════════════════════════════════════════
+    # 1. 오늘 시장의 돈 흐름
+    # ════════════════════════════════════════════════════
+    lines.append("━" * 36)
+    lines.append(f"1️⃣  오늘 시장의 돈 흐름  [{mood}]")
     lines.append("")
 
-    # 8. Classify into sections
-    sections = _classify_sections(candidates)
+    # 주도 테마
+    if top_secs:
+        leading = [s for s, _ in top_secs if sector_sentiment.get(s, 50) >= 55]
+        weak = [s for s, _ in top_secs if sector_sentiment.get(s, 50) < 45]
+        lagging_themes = [s for s, _ in top_secs if 45 <= sector_sentiment.get(s, 50) < 55]
+        lines.append(f"  주도 테마:  {', '.join(leading) or '-'}")
+        lines.append(f"  약한 테마:  {', '.join(weak) or '-'}")
+        lines.append(f"  후발 관찰:  {', '.join(lagging_themes) or '-'}")
+    else:
+        lines.append("  - 섹터 데이터 부족")
 
-    # 9. Render each section
-    for key in ["surge", "crash", "beneficiary", "victim", "leader", "lagging", "overheated"]:
-        sec = sections[key]
-        lines.extend(_fmt_section(sec, show_detail=True))
+    # 매크로 주의점
+    if macro_guard and macro_guard.warnings:
+        lines.append(f"  매크로 주의: [{macro_guard.risk_level}] " + " / ".join(macro_guard.warnings[:2]))
+    lines.append("")
 
-    lines.append("※ 이 보드는 통계적 관찰 후보 분류입니다. 실제 수익 보장 아님.")
+    # ════════════════════════════════════════════════════
+    # 2. 주도 섹터 Top 5
+    # ════════════════════════════════════════════════════
+    lines.append("━" * 36)
+    lines.append("2️⃣  주도 섹터 Top 5")
+    lines.append("")
+    if top_secs:
+        top5 = top_secs[:5]
+        for rank, (sec, score) in enumerate(top5, 1):
+            sent = sector_sentiment.get(sec, 50.0)
+            # 해당 섹터 주도주·후발·피해 후보 수집
+            sec_leaders = [
+                c for c in sections["leader"].candidates if c.sector == sec
+            ][:1]
+            sec_lagging = [
+                c for c in sections["lagging"].candidates if c.sector == sec
+            ][:1]
+            sec_victims = [
+                c for c in sections["victim"].candidates if c.sector == sec
+            ][:1]
+            lines.append(f"  {rank}. {sec}  (점수 {score:.0f} / 감성 {sent:.0f}/100)")
+            if sec_leaders:
+                c = sec_leaders[0]
+                lines.append(
+                    f"     주도주: {c.name} ({c.symbol})  {c.price_1d_pct:+.1f}%"
+                    f"  | Catalyst: {c.catalyst[:50] if c.catalyst else '-'}"
+                )
+                lines.append(f"     초보자 해석: {c.beginner_reason[:80] or c.why_now[:80]}")
+            if sec_lagging:
+                c = sec_lagging[0]
+                lines.append(
+                    f"     후발 수혜 관찰: {c.name} ({c.symbol})  {c.price_1d_pct:+.1f}%"
+                )
+            if sec_victims:
+                c = sec_victims[0]
+                lines.append(f"     피해/주의: {c.name} ({c.symbol})")
+            lines.append("")
+    else:
+        lines.append("  - 섹터 데이터 부족")
+        lines.append("")
+
+    # ════════════════════════════════════════════════════
+    # 3. 급등주/급락주 해석
+    # ════════════════════════════════════════════════════
+    lines.append("━" * 36)
+    lines.append("3️⃣  급등주 / 급락주 해석")
+    lines.append("")
+
+    lines.append("🚀 급등주 관찰 후보")
+    surge = sections["surge"].candidates[:4]
+    if surge:
+        for i, c in enumerate(surge, 1):
+            p1d = _fmt_pct(c.price_1d_pct)
+            reason = c.catalyst or c.why_now
+            ev_note = "공시/뉴스 근거 있음" if c.direct_evidence > 0 else "가격·거래량 모멘텀"
+            lines.append(f"  {i}. {c.name} ({c.symbol})  {p1d}  거래량 {c.volume_ratio:.1f}배")
+            lines.append(f"     왜 올랐나: {reason[:70]}")
+            lines.append(f"     근거 유형: {ev_note}  |  무효화: {c.invalidation[:50]}")
+            if c.beginner_reason:
+                lines.append(f"     연결 가능 수혜: {c.beginner_reason[:80]}")
+            lines.append("")
+    else:
+        lines.append("  - 급등 후보 없음")
+        lines.append("")
+
+    lines.append("💥 급락주 관찰 후보")
+    crash = sections["crash"].candidates[:4]
+    if crash:
+        for i, c in enumerate(crash, 1):
+            p1d = _fmt_pct(c.price_1d_pct)
+            reason = c.catalyst or c.why_now
+            ev_note = "공시/뉴스 근거 있음" if c.direct_evidence > 0 else "가격·거래량"
+            lines.append(f"  {i}. {c.name} ({c.symbol})  {p1d}  거래량 {c.volume_ratio:.1f}배")
+            lines.append(f"     왜 내렸나: {reason[:70]}")
+            lines.append(f"     근거 유형: {ev_note}")
+            if c.connection:
+                lines.append(f"     피해 연결 가능: {c.connection[:70]}")
+            lines.append("")
+    else:
+        lines.append("  - 급락 후보 없음")
+        lines.append("")
+
+    # ════════════════════════════════════════════════════
+    # 4. 후발 수혜 후보
+    # ════════════════════════════════════════════════════
+    lines.append("━" * 36)
+    lines.append("4️⃣  후발 수혜 후보  (아직 덜 오른 관찰 대상)")
+    lines.append("")
+
+    # Sector Cycle 기반 후발 (우선)
+    if lagging_signals:
+        lines.append("⏳ 사이클 기반 상대 후행 감지")
+        for sig in lagging_signals[:3]:
+            tgt_str = ", ".join(sig.target_symbols[:2])
+            lines.append(
+                f"  {sig.source_theme} +{sig.source_return_1d:.1f}%"
+                f" → {sig.target_theme} {sig.target_return_1d:+.1f}%"
+                f"  (후행폭 {sig.relative_lag:.1f}%p)"
+            )
+            lines.append(f"     관찰 후보: {tgt_str or '-'}")
+            lines.append(f"     연결고리: {sig.risk[:80]}")
+            exp = sig.beginner_explanation.strip().replace("\n", " ")
+            if exp:
+                lines.append(f"     초보자 해석: {exp[:100]}")
+            lines.append("")
+
+    # DB 기반 후발 후보
+    lagging_cands = sections["lagging"].candidates[:3]
+    if lagging_cands:
+        lines.append("⏳ DB 신호 기반 후발 수혜 관찰")
+        for i, c in enumerate(lagging_cands, 1):
+            p1d = _fmt_pct(c.price_1d_pct)
+            lines.append(f"  {i}. {c.name} ({c.symbol})  {p1d}  | 거래량 {c.volume_ratio:.1f}배")
+            lines.append(f"     덜 오른 이유: {c.why_now[:80]}")
+            lines.append(f"     기술적 상태: {c.tech_3d}")
+            lines.append(f"     가치 매력: {c.value_signal}")
+            lines.append(f"     source 연결: {c.connection[:80] or '-'}")
+            if c.beginner_reason:
+                lines.append(f"     초보자 해석: {c.beginner_reason[:100]}")
+            lines.append("")
+
+    if not lagging_signals and not lagging_cands:
+        lines.append("  - 이번 구간 후발 수혜 후보 없음")
+        lines.append("")
+
+    # ════════════════════════════════════════════════════
+    # 5. 피해/주의 후보
+    # ════════════════════════════════════════════════════
+    lines.append("━" * 36)
+    lines.append("5️⃣  피해 / 주의 후보")
+    lines.append("")
+
+    victim_cands = sections["victim"].candidates[:4]
+    if victim_cands:
+        for i, c in enumerate(victim_cands, 1):
+            p1d = _fmt_pct(c.price_1d_pct)
+            rsi_note = f"RSI {c.rsi_3d:.0f}" if c.rsi_3d else ""
+            lines.append(f"  {i}. {c.name} ({c.symbol})  {p1d}")
+            lines.append(f"     왜 피해 받을 수 있나: {c.why_now[:80]}")
+            lines.append(f"     기술 상태: {c.tech_3d}" + (f"  {rsi_note}" if rsi_note else ""))
+            lines.append(f"     연결고리: {c.connection[:80] or '-'}")
+            lines.append(f"     리스크: {c.risk[:80]}")
+            lines.append("")
+    else:
+        lines.append("  - 피해 후보 없음")
+        lines.append("")
+
+    # 과열/주의 후보
+    overheated = sections["overheated"].candidates[:3]
+    if overheated:
+        lines.append("⚠️  과열/주의 후보 (추격 자제)")
+        for i, c in enumerate(overheated, 1):
+            p1d = _fmt_pct(c.price_1d_pct)
+            rsi_note = f"RSI {c.rsi_3d:.0f}" if c.rsi_3d else ""
+            lines.append(
+                f"  {i}. {c.name} ({c.symbol})  {p1d}  "
+                + (rsi_note if rsi_note else "")
+                + f"  거래량 {c.volume_ratio:.1f}배"
+            )
+            lines.append(f"     무효화: {c.invalidation[:80]}")
+            lines.append("     SHORT 가능성: 별도 확인 필요")
+        lines.append("")
+
+    # ════════════════════════════════════════════════════
+    # 매크로 가드 상세
+    # ════════════════════════════════════════════════════
+    if macro_guard and macro_guard.warnings:
+        lines.append("━" * 36)
+        lines.append(f"⚠ 매크로 가드  [리스크 {macro_guard.risk_level}]")
+        for w in macro_guard.warnings:
+            lines.append(f"- {w}")
+        if macro_guard.long_score_adj != 0:
+            lines.append(
+                f"- LONG 점수 조정: {macro_guard.long_score_adj:+.0f} / "
+                f"방어섹터 가점: {macro_guard.defensive_score_adj:+.0f}"
+            )
+        lines.append("")
+
+    lines.append("━" * 36)
+    lines.append("※ 이 보드는 통계적 관찰 후보 분류입니다. 실제 매수·매도 보장 아님.")
     return "\n".join(lines)

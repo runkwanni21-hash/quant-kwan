@@ -1,0 +1,957 @@
+# Sector Cycle Rulebook v2 — 시장 자금 흐름 사이클 규칙서
+# 구조: 1차 주도 → 2차 수혜 → 3차 후행 → 피해/주의
+# 주의: 매수·매도 지시 아님. 통계적 관찰 후보 분류용.
+
+version: "2.0"
+
+cycles:
+
+  # ── A. 금리 하락 / 위험선호 사이클 ──────────────────────────────────────
+  - cycle_id: rate_cut_risk_on
+    name: 금리 하락 / 위험선호
+    macro_regime: risk_on
+    trigger_keywords:
+      - 금리인하
+      - 피벗
+      - 금리 하락
+      - 고용 둔화
+      - 실업률 상승
+      - 달러 약세
+      - 나스닥 강세
+      - 코스닥 강세
+      - FOMC 인하
+      - CPI 둔화
+    source_sectors: [채권, 금리, 통화정책, 연준]
+    confirmation_data:
+      - "미국 10년물 국채 하락 (4.0% 미만)"
+      - "달러지수(DXY) 하락 (100 미만)"
+      - "공포탐욕지수 개선 (55 이상)"
+      - "VIX 하락 (20 미만)"
+    invalidation_conditions:
+      - "CPI/PCE 재상승으로 금리인하 기대 후퇴"
+      - "연준 매파 발언으로 피벗 기대 약화"
+      - "고용지표 재강세"
+    first_order_beneficiaries:
+      - sector: 증권
+        connection: 금리 하락 → 거래대금 증가 + 위험선호 회복 → 증권사 수익 기대
+        symbols:
+          - {symbol: 016360.KS, name: 삼성증권}
+          - {symbol: 071050.KS, name: 한국금융지주}
+          - {symbol: 039490.KS, name: 키움증권}
+          - {symbol: 005940.KS, name: NH투자증권}
+          - {symbol: SCHW, name: Charles Schwab}
+          - {symbol: GS, name: Goldman Sachs}
+      - sector: 반도체
+        connection: 금리 하락 → 고PER 성장주 밸류에이션 부담 완화 → 반도체 선호
+        symbols:
+          - {symbol: 000660.KS, name: SK하이닉스}
+          - {symbol: 005930.KS, name: 삼성전자}
+          - {symbol: NVDA, name: NVIDIA}
+          - {symbol: AMD, name: AMD}
+          - {symbol: AVGO, name: Broadcom}
+      - sector: 바이오
+        connection: 금리 하락 → 고PER 성장주/바이오 밸류에이션 부담 완화 → 임상 파이프라인 재평가
+        symbols:
+          - {symbol: 207940.KS, name: 삼성바이오로직스}
+          - {symbol: 068270.KS, name: 셀트리온}
+          - {symbol: LLY, name: Eli Lilly}
+          - {symbol: MRNA, name: Moderna}
+      - sector: 부동산/리츠
+        connection: 금리 하락 → 모기지 부담 완화 → 부동산 수요 회복 기대
+        symbols:
+          - {symbol: AMT, name: American Tower}
+          - {symbol: SPG, name: Simon Property}
+    second_order_beneficiaries:
+      - sector: 건설
+        connection: 금리 하락 → 부동산 회복 → 건설 수주 증가 기대 (금리인하 확인 필요)
+        symbols:
+          - {symbol: 000720.KS, name: 현대건설}
+          - {symbol: 006360.KS, name: GS건설}
+          - {symbol: 047040.KS, name: 대우건설}
+      - sector: 소비재
+        connection: 금리 하락 → 가계 부담 완화 → 소비 회복 기대
+        symbols:
+          - {symbol: AMZN, name: Amazon}
+          - {symbol: 004370.KS, name: 농심}
+      - sector: 광고/미디어
+        connection: 위험선호 회복 → 기업 광고비 지출 증가 기대
+        symbols:
+          - {symbol: GOOGL, name: Alphabet}
+          - {symbol: META, name: Meta}
+    third_order_beneficiaries:
+      - sector: 여행/면세
+        connection: 소비 회복 → 여행·면세 수요 후행 기대
+        symbols:
+          - {symbol: 030200.KS, name: KT}
+          - {symbol: MAR, name: Marriott}
+          - {symbol: ABNB, name: Airbnb}
+    victims:
+      - sector: 은행
+        connection: 금리 하락 → NIM(순이자마진) 축소 → 은행 수익성 부담
+        symbols:
+          - {symbol: 105560.KS, name: KB금융}
+          - {symbol: 055550.KS, name: 신한지주}
+          - {symbol: JPM, name: JP Morgan}
+          - {symbol: BAC, name: Bank of America}
+    overheated_risks:
+      - "성장주 PER 급팽창 시 조정 위험"
+      - "금리인하 기대 과도 선반영 후 실망"
+    beginner_explanation: >
+      금리가 내려갈 기대가 생기면 돈의 가격이 낮아져 성장주와 위험자산에 먼저 돈이
+      들어옵니다. 이후 거래대금 증가로 증권주, 투자심리 개선으로 건설·소비주가
+      후행할 수 있습니다. 단, 건설·소비는 금리인하가 실제로 확인되어야 효과가 납니다.
+
+  # ── B. 금리 상승 / 위험회피 사이클 ──────────────────────────────────────
+  - cycle_id: rate_hike_risk_off
+    name: 금리 상승 / 위험회피
+    macro_regime: risk_off
+    trigger_keywords:
+      - 금리 상승
+      - CPI 상승
+      - PCE 상승
+      - 연준 긴축
+      - 매파
+      - 고용 강함
+      - 달러 강세
+      - 장기채 급등
+      - 10년물 상승
+    source_sectors: [채권, 금리, 통화정책, 연준]
+    confirmation_data:
+      - "미국 10년물 국채 상승 (4.5% 이상)"
+      - "달러지수(DXY) 상승 (103 이상)"
+      - "VIX 상승 (22 이상)"
+      - "공포탐욕지수 하락 (45 미만)"
+    invalidation_conditions:
+      - "CPI 급락으로 금리인하 기대 재부상"
+      - "경기침체 신호로 연준 인하 압박"
+    first_order_beneficiaries:
+      - sector: 은행
+        connection: 금리 상승 → NIM 개선 → 은행 수익성 회복 기대
+        symbols:
+          - {symbol: 105560.KS, name: KB금융}
+          - {symbol: 055550.KS, name: 신한지주}
+          - {symbol: 086790.KS, name: 하나금융지주}
+          - {symbol: JPM, name: JP Morgan}
+          - {symbol: BAC, name: Bank of America}
+          - {symbol: WFC, name: Wells Fargo}
+      - sector: 보험
+        connection: 금리 상승 → 채권 운용 수익 개선 → 보험사 수익성 기대
+        symbols:
+          - {symbol: 000810.KS, name: 삼성화재}
+          - {symbol: 032830.KS, name: 삼성생명}
+          - {symbol: MET, name: MetLife}
+          - {symbol: PRU, name: Prudential}
+      - sector: 에너지/방어주
+        connection: 위험회피 → 실물 자산·배당주 선호 → 에너지·방어주 유입
+        symbols:
+          - {symbol: XOM, name: ExxonMobil}
+          - {symbol: CVX, name: Chevron}
+          - {symbol: PG, name: Procter & Gamble}
+    second_order_beneficiaries: []
+    third_order_beneficiaries: []
+    victims:
+      - sector: 고PER 성장주/바이오
+        connection: 금리 상승 → 미래 현금흐름 할인율 상승 → 고PER 밸류에이션 부담
+        symbols:
+          - {symbol: NVDA, name: NVIDIA}
+          - {symbol: TSLA, name: Tesla}
+          - {symbol: MRNA, name: Moderna}
+          - {symbol: 207940.KS, name: 삼성바이오로직스}
+      - sector: 부동산/건설
+        connection: 금리 상승 → 모기지·PF 부담 증가 → 부동산 수요 억제
+        symbols:
+          - {symbol: 000720.KS, name: 현대건설}
+          - {symbol: 006360.KS, name: GS건설}
+          - {symbol: AMT, name: American Tower}
+    overheated_risks:
+      - "금리 급등 시 신용경색 전이 위험"
+      - "경기침체 동반 시 은행도 함께 하락 가능"
+    beginner_explanation: >
+      금리가 오르면 미래 성장 기대보다 현재 이익과 현금흐름이 중요해집니다.
+      고PER 성장주·바이오·건설·2차전지는 부담이 커지고, 은행·보험·에너지 같은
+      현금흐름 안정주가 상대적으로 선호될 수 있습니다.
+
+  # ── C. 증권주 강세 → 거래대금 / 위험선호 사이클 ────────────────────────
+  - cycle_id: brokerage_risk_on
+    name: 증권주 강세 → 거래대금/위험선호
+    macro_regime: risk_on
+    trigger_keywords:
+      - 증권주 상승
+      - 거래대금 증가
+      - IPO 활성화
+      - 코스닥 강세
+      - 테마주 순환
+      - 위험선호
+    source_sectors: [증권, 금융, 거래대금]
+    source_symbols:
+      - {symbol: 016360.KS, name: 삼성증권}
+      - {symbol: 071050.KS, name: 한국금융지주}
+      - {symbol: 039490.KS, name: 키움증권}
+    first_order_beneficiaries:
+      - sector: 코스닥 성장주
+        connection: 거래대금 증가 → 개인투자자 활성화 → 코스닥 성장주·소형주 수혜
+        symbols:
+          - {symbol: 086900.KS, name: 메디오젠}
+          - {symbol: 196170.KS, name: 알테오젠}
+      - sector: 바이오/AI소프트
+        connection: 위험선호 회복 → 고성장 테마주 유입 가속
+        symbols:
+          - {symbol: 293490.KS, name: 카카오페이}
+          - {symbol: 035720.KS, name: 카카오}
+    second_order_beneficiaries:
+      - sector: 건설/부동산 (금리 하락 동반 시에만)
+        connection: >
+          금리 하락이 동시 발생할 때만 건설·부동산 후행 수혜 인정.
+          증권주 단독 상승만으로는 건설 수혜 판단 금지.
+        symbols:
+          - {symbol: 000720.KS, name: 현대건설}
+    victims:
+      - sector: 과열 테마주
+        connection: 거래대금 급증 + 테마 쏠림 → 단기 과열 후 차익 실현 위험
+        symbols: []
+    overheated_risks:
+      - "증권주 단독 상승만으로 건설·부동산 후행 수혜 자동 판단 금지"
+      - "IPO 과열 → 시장 유동성 분산 → 기존 종목 압박"
+    confirmation_data:
+      - "거래대금 일평균 15조 이상 (KR)"
+      - "코스닥 지수 동반 강세"
+      - "공포탐욕지수 55 이상"
+    invalidation_conditions:
+      - "금리 상승 동반 시 건설/부동산 후행 수혜 무효"
+      - "거래대금 급감 시 위험선호 약화"
+    beginner_explanation: >
+      증권주가 오른다는 것은 시장 거래대금이 늘고 투자자들이 위험자산에 적극적으로
+      참여한다는 신호입니다. 이때 바이오·AI소프트웨어·코스닥 성장주가 후행할 수 있지만,
+      건설·부동산은 반드시 금리 하락이 동반되어야 수혜입니다.
+
+  # ── D. 건설 / 인프라 사이클 ─────────────────────────────────────────────
+  - cycle_id: construction_infra
+    name: 건설 / 인프라
+    macro_regime: neutral
+    trigger_keywords:
+      - 건설 수주
+      - SOC
+      - 인프라 투자
+      - 금리인하
+      - 부동산 규제 완화
+      - 재건축
+      - 착공
+      - 수주 잔고
+    source_sectors: [건설, 부동산, SOC, 인프라]
+    source_symbols:
+      - {symbol: 000720.KS, name: 현대건설}
+      - {symbol: 006360.KS, name: GS건설}
+      - {symbol: 047040.KS, name: 대우건설}
+      - {symbol: 000210.KS, name: DL이앤씨}
+      - {symbol: 012630.KS, name: HDC현대산업개발}
+      - {symbol: 028260.KS, name: 삼성물산}
+    first_order_beneficiaries:
+      - sector: 철강
+        connection: 건설 수요 증가 → 봉형강·철근 수요 직접 연결
+        symbols:
+          - {symbol: 005490.KS, name: POSCO홀딩스}
+          - {symbol: 004020.KS, name: 현대제철}
+          - {symbol: 001230.KS, name: 동국제강}
+          - {symbol: 001430.KS, name: 세아베스틸지주}
+      - sector: 시멘트
+        connection: 착공 증가 → 시멘트·레미콘 수요 직접 연결
+        symbols:
+          - {symbol: 003410.KS, name: 쌍용C&E}
+          - {symbol: 003300.KS, name: 한일시멘트}
+          - {symbol: 004980.KS, name: 성신양회}
+          - {symbol: 002380.KS, name: KCC}
+      - sector: 건자재
+        connection: 건설 확장 → 창호·단열재·마감재 수요 연쇄
+        symbols:
+          - {symbol: 108670.KS, name: LX하우시스}
+          - {symbol: 001450.KS, name: 벽산}
+      - sector: 건설기계
+        connection: 착공 증가 → 굴착기·중장비 수요 기대
+        symbols:
+          - {symbol: 267270.KS, name: HD현대건설기계}
+          - {symbol: 241560.KS, name: 두산밥캣}
+    second_order_beneficiaries:
+      - sector: 전력기기
+        connection: 인프라 투자 → 수변전·변압기 수요 기대
+        symbols:
+          - {symbol: 267260.KS, name: HD현대일렉트릭}
+          - {symbol: 298040.KS, name: 효성중공업}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
+      - sector: 운송/물류
+        connection: 건설 자재 물동량 증가 → 물류 수요 기대
+        symbols:
+          - {symbol: 000120.KS, name: CJ대한통운}
+    third_order_beneficiaries:
+      - sector: 은행/보험
+        connection: 부동산 활성화 → PF 대출 회복 → 금융 수익 기대
+        symbols:
+          - {symbol: 105560.KS, name: KB금융}
+    victims:
+      - sector: 철강 원가 부담
+        connection: 철강 가격 급등 시 건설사 원가 상승 → 건설사 마진 부담
+        symbols:
+          - {symbol: 000720.KS, name: 현대건설}
+      - sector: 건설 (금리 상승 시)
+        connection: 금리 상승 → PF·모기지 부담 → 건설 수요 억제
+        symbols:
+          - {symbol: 006360.KS, name: GS건설}
+    confirmation_data:
+      - "건설 수주 YoY 증가"
+      - "금리 하락 또는 인하 기대"
+      - "부동산 규제 완화 정책"
+    invalidation_conditions:
+      - "유가 급등으로 건설 원가 부담"
+      - "금리 급등으로 PF 위기"
+      - "철강 가격 급등으로 마진 압박"
+    overheated_risks:
+      - "이미 많이 오른 철강/시멘트는 추격보다 후발 저평가 건자재 관찰"
+    beginner_explanation: >
+      건설이 좋아지면 건설사가 쓰는 철강·시멘트·건자재·중장비 수요가 따라올 수 있습니다.
+      단, 이미 철강·시멘트가 많이 올랐다면 추격보다 아직 덜 오른 건자재나 건설기계를
+      후발 수혜주로 관찰합니다.
+
+  # ── E. AI / 반도체 / 데이터센터 사이클 ─────────────────────────────────
+  - cycle_id: ai_semiconductor_dc
+    name: AI / 반도체 / 데이터센터
+    macro_regime: risk_on
+    trigger_keywords:
+      - AI
+      - 반도체
+      - NVIDIA
+      - HBM
+      - 데이터센터
+      - GPU
+      - AI 서버
+      - capex
+      - AI 인프라
+      - 빅테크 투자
+    source_sectors: [반도체, AI, 데이터센터, GPU]
+    source_symbols:
+      - {symbol: NVDA, name: NVIDIA}
+      - {symbol: AMD, name: AMD}
+      - {symbol: AVGO, name: Broadcom}
+      - {symbol: TSM, name: TSMC}
+      - {symbol: ASML, name: ASML}
+      - {symbol: 000660.KS, name: SK하이닉스}
+      - {symbol: 005930.KS, name: 삼성전자}
+      - {symbol: 042700.KS, name: 한미반도체}
+    first_order_beneficiaries:
+      - sector: 메모리/HBM
+        connection: AI GPU 수요 → HBM·DDR5 메모리 수요 직결
+        symbols:
+          - {symbol: 000660.KS, name: SK하이닉스}
+          - {symbol: 005930.KS, name: 삼성전자}
+          - {symbol: MU, name: Micron}
+      - sector: 반도체 장비
+        connection: AI 반도체 생산 증설 → 노광·식각·검사 장비 수요 증가
+        symbols:
+          - {symbol: ASML, name: ASML}
+          - {symbol: AMAT, name: Applied Materials}
+          - {symbol: LRCX, name: Lam Research}
+          - {symbol: KLAC, name: KLA Corp}
+          - {symbol: 042700.KS, name: 한미반도체}
+          - {symbol: 039030.KS, name: 이오테크닉스}
+          - {symbol: 092600.KS, name: 넥스틴}
+      - sector: 기판/소재
+        connection: AI 반도체 패키징 증가 → FC-BGA·소재 수요 연쇄
+        symbols:
+          - {symbol: 240340.KS, name: 크래프톤}
+          - {symbol: 089010.KS, name: 대덕전자}
+          - {symbol: 036540.KS, name: 심텍}
+          - {symbol: 427950.KS, name: 솔브레인}
+          - {symbol: 311320.KS, name: 동진쎄미켐}
+    second_order_beneficiaries:
+      - sector: 서버/인프라
+        connection: AI 서버 수요 급증 → 서버·스위치·스토리지 업체 수혜
+        symbols:
+          - {symbol: SMCI, name: Super Micro Computer}
+          - {symbol: DELL, name: Dell}
+          - {symbol: HPE, name: HPE}
+      - sector: 전력기기
+        connection: AI 데이터센터 전력 수요 폭증 → 변압기·전력기기 수혜
+        symbols:
+          - {symbol: ETN, name: Eaton}
+          - {symbol: GEV, name: GE Vernova}
+          - {symbol: VRT, name: Vertiv}
+          - {symbol: PWR, name: Quanta Services}
+          - {symbol: 267260.KS, name: HD현대일렉트릭}
+          - {symbol: 298040.KS, name: 효성중공업}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
+          - {symbol: 033100.KS, name: 제룡전기}
+      - sector: 냉각/데이터센터 인프라
+        connection: AI 서버 열 밀도 증가 → 액침냉각·항온 인프라 수요 기대
+        symbols:
+          - {symbol: VRT, name: Vertiv}
+          - {symbol: CARR, name: Carrier Global}
+    third_order_beneficiaries:
+      - sector: 원전/ESS
+        connection: 전력 수요 급증 → 안정적 전원 필요 → 원전·ESS 후행 수혜
+        symbols:
+          - {symbol: CEG, name: Constellation Energy}
+          - {symbol: VST, name: Vistra}
+          - {symbol: SMR, name: NuScale Power}
+          - {symbol: 034020.KS, name: 두산에너빌리티}
+      - sector: 전선/구리
+        connection: 데이터센터 전력망 확충 → 전선·구리 수요 후행
+        symbols:
+          - {symbol: 010120.KS, name: LS}
+          - {symbol: 001440.KS, name: 대한전선}
+          - {symbol: FCX, name: Freeport-McMoRan}
+    victims:
+      - sector: 전통 IT/레거시
+        connection: AI 전환 압박 → 레거시 소프트웨어·하드웨어 교체 수요 감소
+        symbols:
+          - {symbol: IBM, name: IBM}
+          - {symbol: INTC, name: Intel}
+    confirmation_data:
+      - "빅테크 capex 가이던스 상향"
+      - "HBM 수요 상향"
+      - "AI 서버 출하 증가 데이터"
+    invalidation_conditions:
+      - "대중 AI 수출 규제 강화"
+      - "AI capex 축소 신호"
+      - "전력 인프라 병목으로 데이터센터 지연"
+    overheated_risks:
+      - "NVIDIA 등 주도주 PER 100배 이상 → 추격주의"
+      - "AI 투자 거품론 재부상 시 밸류에이션 조정 위험"
+    beginner_explanation: >
+      AI 반도체가 오르면 GPU만 보는 게 아닙니다. AI 서버를 돌릴 전력·냉각·전선·
+      변압기·원전·ESS까지 수요가 이어집니다. 주도주가 너무 올랐다면 아직 덜 오른
+      후발 인프라 수혜주(전력기기, 원전, 냉각)를 관찰합니다.
+
+  # ── F. 전력기기 / 원전 / ESS 사이클 ────────────────────────────────────
+  - cycle_id: power_nuclear_ess
+    name: 전력기기 / 원전 / ESS
+    macro_regime: neutral
+    trigger_keywords:
+      - 전력망 투자
+      - 변압기 부족
+      - AI 전력 수요
+      - 원전 정책
+      - ESS 수요
+      - 데이터센터 전력
+      - 전력기기
+      - 원전 수출
+    source_sectors: [전력기기, 원전, 에너지, 데이터센터]
+    source_symbols:
+      - {symbol: 267260.KS, name: HD현대일렉트릭}
+      - {symbol: 298040.KS, name: 효성중공업}
+      - {symbol: 010120.KS, name: LS ELECTRIC}
+      - {symbol: 033100.KS, name: 제룡전기}
+      - {symbol: 012170.KS, name: 일진전기}
+      - {symbol: ETN, name: Eaton}
+      - {symbol: GEV, name: GE Vernova}
+      - {symbol: VRT, name: Vertiv}
+      - {symbol: PWR, name: Quanta Services}
+    first_order_beneficiaries:
+      - sector: 원전
+        connection: 전력 수요 급증 → 안정적 기저 전원으로 원전 선호 → 원전 기자재 수혜
+        symbols:
+          - {symbol: 034020.KS, name: 두산에너빌리티}
+          - {symbol: 082920.KS, name: 보성파워텍}
+          - {symbol: CEG, name: Constellation Energy}
+          - {symbol: VST, name: Vistra}
+          - {symbol: BWXT, name: BWX Technologies}
+          - {symbol: SMR, name: NuScale Power}
+      - sector: ESS
+        connection: 재생에너지·원전 보완 → ESS 수요 증가 기대
+        symbols:
+          - {symbol: 373220.KS, name: LG에너지솔루션}
+          - {symbol: 006400.KS, name: 삼성SDI}
+          - {symbol: FLNC, name: Fluence Energy}
+    second_order_beneficiaries:
+      - sector: 전선/구리
+        connection: 전력망 확충 → 전선·구리 수요 증가
+        symbols:
+          - {symbol: 010120.KS, name: LS}
+          - {symbol: 001440.KS, name: 대한전선}
+          - {symbol: 103140.KS, name: 풍산}
+          - {symbol: FCX, name: Freeport-McMoRan}
+          - {symbol: SCCO, name: Southern Copper}
+      - sector: 냉각/UPS
+        connection: 데이터센터 전력·냉각 인프라 수요 연쇄
+        symbols:
+          - {symbol: VRT, name: Vertiv}
+    victims:
+      - sector: 전력 다소비 산업
+        connection: 전력 부족·가격 급등 → 전력 집약 산업 원가 부담
+        symbols:
+          - {symbol: 005490.KS, name: POSCO홀딩스}
+    confirmation_data:
+      - "전력기기 주문잔고 증가 공시"
+      - "원전 수출 계약 뉴스"
+      - "AI 데이터센터 전력 계약 체결"
+    invalidation_conditions:
+      - "전력기기 단기 과열 후 조정"
+      - "정책 지연 (원전 인허가·계통 연결)"
+      - "구리 가격 급등 → 원가 부담"
+    overheated_risks:
+      - "전력기기 단기 과열 → 추격주의"
+      - "구리 가격 급등 시 전선 원가 부담"
+    beginner_explanation: >
+      AI와 전기차로 전력 수요가 폭증하면서 변압기·전력기기·원전이 주도합니다.
+      그 다음으로 전력망에 필요한 전선·구리가 후행할 수 있고, 재생에너지를
+      보완하는 ESS도 관찰 대상입니다.
+
+  # ── G. 조선 / 방산 / 우주 사이클 ───────────────────────────────────────
+  - cycle_id: shipbuilding_defense_space
+    name: 조선 / 방산 / 우주
+    macro_regime: neutral
+    trigger_keywords:
+      - 조선 수주
+      - LNG선
+      - 방산 수출
+      - 지정학 리스크
+      - NATO
+      - 해군 예산
+      - 우주 발사
+      - 방위비
+    source_sectors: [조선, 방산, 우주항공]
+    source_symbols:
+      - {symbol: 329180.KS, name: HD현대중공업}
+      - {symbol: 010140.KS, name: 삼성중공업}
+      - {symbol: 042660.KS, name: 한화오션}
+      - {symbol: 012450.KS, name: 한화에어로스페이스}
+      - {symbol: 079550.KS, name: LIG넥스원}
+      - {symbol: 047810.KS, name: 한국항공우주}
+      - {symbol: LMT, name: Lockheed Martin}
+      - {symbol: RTX, name: RTX}
+      - {symbol: NOC, name: Northrop Grumman}
+      - {symbol: GD, name: General Dynamics}
+    first_order_beneficiaries:
+      - sector: 조선 기자재
+        connection: 조선 수주 급증 → 엔진·의장품·배관 기자재 수요 연쇄
+        symbols:
+          - {symbol: 010600.KS, name: 현대미포조선}
+          - {symbol: 005440.KS, name: 현대글로비스}
+      - sector: 철강 후판
+        connection: 선박 건조 → 후판 수요 직결 (조선용 두꺼운 철판)
+        symbols:
+          - {symbol: 005490.KS, name: POSCO홀딩스}
+          - {symbol: 004020.KS, name: 현대제철}
+      - sector: 항공우주 부품
+        connection: 방산·항공우주 생산 증가 → 부품·소재 수요 연쇄
+        symbols:
+          - {symbol: 047810.KS, name: 한국항공우주}
+          - {symbol: HII, name: Huntington Ingalls}
+    second_order_beneficiaries:
+      - sector: 방산 부품/소재
+        connection: 방산 수출 증가 → 탄약·부품·소재 수요 후행
+        symbols:
+          - {symbol: 012450.KS, name: 한화에어로스페이스}
+          - {symbol: 000880.KS, name: 한화}
+    victims:
+      - sector: 원자재 가격 상승 시 조선사 원가
+        connection: 원자재(철강·구리) 가격 급등 → 조선사 수주 마진 부담
+        symbols:
+          - {symbol: 329180.KS, name: HD현대중공업}
+    confirmation_data:
+      - "신규 수주 공시 (LNG선·VLCC)"
+      - "방산 수출 계약 뉴스"
+      - "지정학 리스크 고조 헤드라인"
+    invalidation_conditions:
+      - "수주 공백 (3개월 이상 신규 수주 없음)"
+      - "환율 급변 (조선 수익성 악화)"
+      - "철강 가격 급등 (원가 부담)"
+    overheated_risks:
+      - "수주 기대감 선반영 후 실적 실망"
+    beginner_explanation: >
+      LNG선·방산 수주가 늘면 조선사가 주도합니다. 조선사가 배를 만들려면 엔진·
+      배관·후판(두꺼운 철판)이 필요하므로 기자재·철강이 후행할 수 있습니다.
+      방산은 지정학 리스크 고조 시 예산 증가 기대로 수혜받습니다.
+
+  # ── H. K뷰티 / 소비 / 중국 사이클 ─────────────────────────────────────
+  - cycle_id: kbeauty_consumer_china
+    name: K뷰티 / 소비 / 중국
+    macro_regime: neutral
+    trigger_keywords:
+      - 한국콜마
+      - 코스맥스
+      - K뷰티
+      - 중국 소비
+      - 면세
+      - 화장품 수출
+      - ODM
+      - 브랜드
+    source_sectors: [화장품, K뷰티, 소비, ODM]
+    source_symbols:
+      - {symbol: 161890.KQ, name: 한국콜마}
+      - {symbol: 192820.KS, name: 코스맥스}
+      - {symbol: 090430.KS, name: 아모레퍼시픽}
+      - {symbol: 051900.KS, name: LG생활건강}
+      - {symbol: 214370.KS, name: 파마리서치}
+      - {symbol: 237880.KQ, name: 클리오}
+      - {symbol: ELF, name: ELF Beauty}
+      - {symbol: ULTA, name: Ulta Beauty}
+    first_order_beneficiaries:
+      - sector: ODM/브랜드
+        connection: K뷰티 수요 급증 → ODM 주문 증가 → 코스맥스·한국콜마 수혜
+        symbols:
+          - {symbol: 192820.KS, name: 코스맥스}
+          - {symbol: 161890.KQ, name: 한국콜마}
+      - sector: 화장품 브랜드
+        connection: K뷰티 트렌드 → 아모레·LG생건 등 브랜드 수출 기대
+        symbols:
+          - {symbol: 090430.KS, name: 아모레퍼시픽}
+          - {symbol: 051900.KS, name: LG생활건강}
+          - {symbol: 237880.KQ, name: 클리오}
+    second_order_beneficiaries:
+      - sector: 면세/여행
+        connection: 한국 관광 증가 → 면세 매출 회복 기대
+        symbols:
+          - {symbol: 004170.KS, name: 신세계}
+          - {symbol: 069960.KS, name: 현대백화점}
+      - sector: 패키징/광고
+        connection: 화장품 판매 증가 → 용기·패키징·광고 수요 연쇄
+        symbols:
+          - {symbol: 034830.KS, name: 한국토지신탁}
+    victims:
+      - sector: 중국 로컬 브랜드 수혜
+        connection: 중국 소비 회복이 한국 제품보다 자국 브랜드 선호로 가면 K뷰티 역풍
+        symbols: []
+    confirmation_data:
+      - "화장품 수출 YoY 증가 통계"
+      - "중국 소비 지표 개선"
+      - "면세 매출 회복"
+    invalidation_conditions:
+      - "중국 소비 둔화"
+      - "원/달러 환율 악화 (수출 단가 부담)"
+      - "원가(성분) 상승"
+    overheated_risks:
+      - "ODM 주문 집중도 과도 → 단가 협상력 약화"
+    beginner_explanation: >
+      K뷰티 붐이 오면 ODM 공장(한국콜마·코스맥스)이 먼저 수혜를 받고, 이후
+      아모레·LG생건 같은 브랜드와 면세·여행이 후행할 수 있습니다. 단, 중국 경기와
+      환율이 핵심 변수입니다.
+
+  # ── I. 바이오 / 제약 / 임상 사이클 ─────────────────────────────────────
+  - cycle_id: bio_pharma_clinical
+    name: 바이오 / 제약 / 임상
+    macro_regime: neutral
+    trigger_keywords:
+      - FDA 승인
+      - 임상 성공
+      - 임상 실패
+      - GLP-1
+      - 항암
+      - CDMO
+      - 의료기기
+      - 바이오시밀러
+      - 임상 3상
+    source_sectors: [바이오, 제약, 의료기기, CDMO]
+    source_symbols:
+      - {symbol: 207940.KS, name: 삼성바이오로직스}
+      - {symbol: 068270.KS, name: 셀트리온}
+      - {symbol: 196170.KS, name: 알테오젠}
+      - {symbol: 028300.KS, name: HLB}
+      - {symbol: 000100.KS, name: 유한양행}
+      - {symbol: LLY, name: Eli Lilly}
+      - {symbol: NVO, name: Novo Nordisk}
+      - {symbol: MRK, name: Merck}
+      - {symbol: PFE, name: Pfizer}
+      - {symbol: MRNA, name: Moderna}
+    first_order_beneficiaries:
+      - sector: 같은 질환군 피어
+        connection: FDA 승인·임상 성공 → 동일 질환군 파이프라인 재평가
+        symbols:
+          - {symbol: 196170.KS, name: 알테오젠}
+          - {symbol: 028300.KS, name: HLB}
+      - sector: CDMO
+        connection: 바이오 의약품 생산 수요 → CDMO 위탁 생산 계약 기대
+        symbols:
+          - {symbol: 207940.KS, name: 삼성바이오로직스}
+          - {symbol: 068270.KS, name: 셀트리온}
+    second_order_beneficiaries:
+      - sector: 바이오 장비/CRO
+        connection: 임상 활성화 → 장비·연구기관(CRO) 수요 증가
+        symbols:
+          - {symbol: IQVIA, name: IQVIA}
+          - {symbol: A, name: Agilent Technologies}
+    victims:
+      - sector: 경쟁 파이프라인
+        connection: 특정 약물 승인 → 동일 기전 경쟁 약물 가치 희석
+        symbols: []
+    confirmation_data:
+      - "FDA 승인 공시"
+      - "임상 3상 긍정 결과 발표"
+      - "CDMO 대규모 계약 공시"
+    invalidation_conditions:
+      - "임상 실패 (같은 질환군 피어 동반 하락)"
+      - "경쟁약 출시로 시장 잠식"
+      - "규제·소송 리스크"
+    overheated_risks:
+      - "바이오는 뉴스 진위·임상 단계 확인 필수"
+      - "단순 루머는 SPECULATIVE로 분류"
+    beginner_explanation: >
+      특정 바이오가 FDA 승인을 받으면 같은 질환 파이프라인을 가진 피어가 재평가됩니다.
+      그리고 그 약을 생산할 CDMO 위탁업체도 수혜를 받을 수 있습니다.
+      단, 임상 실패는 피어 전체를 같이 끌어내릴 수 있으므로 주의합니다.
+
+  # ── J. 자동차 / 배터리 / 소재 사이클 ──────────────────────────────────
+  - cycle_id: ev_battery_materials
+    name: 자동차 / 배터리 / 소재
+    macro_regime: neutral
+    trigger_keywords:
+      - EV 판매
+      - 배터리
+      - 보조금
+      - IRA
+      - 자동차 수출
+      - 전기차
+      - 리튬
+      - 니켈
+      - 배터리셀
+    source_sectors: [자동차, 배터리, EV, 소재]
+    source_symbols:
+      - {symbol: 005380.KS, name: 현대차}
+      - {symbol: 000270.KS, name: 기아}
+      - {symbol: TSLA, name: Tesla}
+      - {symbol: GM, name: General Motors}
+      - {symbol: F, name: Ford}
+    first_order_beneficiaries:
+      - sector: 배터리
+        connection: EV 판매 증가 → 배터리셀 수요 직결
+        symbols:
+          - {symbol: 373220.KS, name: LG에너지솔루션}
+          - {symbol: 006400.KS, name: 삼성SDI}
+      - sector: 배터리 소재
+        connection: 배터리 수요 증가 → 양극재·음극재·전해액 수요 연쇄
+        symbols:
+          - {symbol: 247540.KQ, name: 에코프로비엠}
+          - {symbol: 003670.KS, name: 포스코퓨처엠}
+          - {symbol: 066970.KQ, name: 엘앤에프}
+      - sector: 자동차 부품
+        connection: 자동차 생산 증가 → 핵심 부품 수요 연쇄
+        symbols:
+          - {symbol: 012330.KS, name: 현대모비스}
+          - {symbol: 060980.KQ, name: HL만도}
+    second_order_beneficiaries:
+      - sector: EV 충전 인프라
+        connection: EV 보급 확대 → 충전 인프라 수요 증가 기대
+        symbols:
+          - {symbol: CHPT, name: ChargePoint}
+          - {symbol: BLNK, name: Blink Charging}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
+    victims:
+      - sector: 전통 내연기관 부품
+        connection: EV 전환 가속 → 내연기관 부품 수요 장기 감소
+        symbols:
+          - {symbol: 018880.KS, name: 한온시스템}
+    confirmation_data:
+      - "EV 월별 판매 데이터 증가"
+      - "IRA 보조금 적용 차종 확대"
+      - "배터리 공장 가동률 상승"
+    invalidation_conditions:
+      - "EV 보조금 축소"
+      - "관세 부과 (미중 무역 갈등)"
+      - "리튬·니켈 가격 급등 → 원가 부담"
+      - "EV 수요 둔화 지표"
+    overheated_risks:
+      - "배터리 소재 과잉공급 시 가격 하락 위험"
+      - "리튬 가격 변동성"
+    beginner_explanation: >
+      현대차·기아·테슬라 같은 완성차가 EV를 많이 팔면 배터리셀이 필요하고, 배터리셀을
+      만들려면 양극재·음극재·전해액이 필요합니다. 또 충전소 인프라 수요도 따라옵니다.
+      단, 리튬·니켈 가격과 보조금 정책이 핵심 변수입니다.
+
+  # ── K. 에너지 / 유가 / 화학 사이클 ─────────────────────────────────────
+  - cycle_id: energy_oil_chemicals
+    name: 에너지 / 유가 / 화학
+    macro_regime: neutral
+    trigger_keywords:
+      - 유가 상승
+      - 천연가스
+      - 중동 리스크
+      - EIA 재고
+      - 정유 마진
+      - 원유
+      - OPEC
+      - 에너지 위기
+    source_sectors: [에너지, 정유, 천연가스]
+    source_symbols:
+      - {symbol: XOM, name: ExxonMobil}
+      - {symbol: CVX, name: Chevron}
+      - {symbol: COP, name: ConocoPhillips}
+      - {symbol: SLB, name: Schlumberger}
+      - {symbol: 010950.KS, name: S-Oil}
+    first_order_beneficiaries:
+      - sector: 정유/에너지
+        connection: 유가 상승 → 정유 마진 개선 → 정유사 수익성 기대
+        symbols:
+          - {symbol: XOM, name: ExxonMobil}
+          - {symbol: CVX, name: Chevron}
+          - {symbol: 010950.KS, name: S-Oil}
+          - {symbol: 267250.KS, name: HD현대오일뱅크}
+      - sector: LNG/조선
+        connection: 천연가스 가격 상승 → LNG선 수요 기대
+        symbols:
+          - {symbol: 329180.KS, name: HD현대중공업}
+          - {symbol: 010140.KS, name: 삼성중공업}
+    second_order_beneficiaries:
+      - sector: 에너지 서비스
+        connection: 유가 상승 → 탐사·시추 투자 확대 기대
+        symbols:
+          - {symbol: SLB, name: Schlumberger}
+          - {symbol: HAL, name: Halliburton}
+    victims:
+      - sector: 항공
+        connection: 유가 상승 → 항공유 비용 급증 → 항공사 수익성 압박
+        symbols:
+          - {symbol: 003490.KS, name: 대한항공}
+          - {symbol: 020560.KS, name: 아시아나항공}
+          - {symbol: DAL, name: Delta Air Lines}
+          - {symbol: UAL, name: United Airlines}
+      - sector: 화학
+        connection: 납사·원유 원가 상승 → 화학 제품 마진 압박
+        symbols:
+          - {symbol: 011170.KS, name: 롯데케미칼}
+          - {symbol: 010610.KS, name: 금호석유}
+          - {symbol: LYB, name: LyondellBasell}
+      - sector: 건설/소비재
+        connection: 유가 상승 → 원자재·물류비용 상승 → 원가 부담
+        symbols:
+          - {symbol: 000720.KS, name: 현대건설}
+    confirmation_data:
+      - "WTI 유가 $85 이상"
+      - "EIA 재고 감소"
+      - "중동 지정학 리스크 고조"
+    invalidation_conditions:
+      - "OPEC 증산 결정"
+      - "글로벌 경기침체 → 수요 급감"
+      - "대체에너지 전환 가속"
+    overheated_risks:
+      - "유가 급등 시 수요 파괴 → 다시 하락 가능"
+    beginner_explanation: >
+      유가가 오르면 에너지·정유주는 마진이 좋아질 수 있지만, 원가가 올라
+      항공·화학·건설·소비재는 부담이 됩니다. 천연가스 상승은 LNG선 수요로
+      조선주에 긍정적일 수 있습니다.
+
+  # ── L. 구리 / 원자재 / 전선 사이클 ─────────────────────────────────────
+  - cycle_id: copper_materials_cable
+    name: 구리 / 원자재 / 전선
+    macro_regime: neutral
+    trigger_keywords:
+      - 구리 가격
+      - 전력망
+      - EV 수요
+      - AI 인프라
+      - 광산
+      - 전선
+      - 재생에너지
+      - 구리 공급 부족
+    source_sectors: [구리, 원자재, 전선, 광산]
+    source_symbols:
+      - {symbol: FCX, name: Freeport-McMoRan}
+      - {symbol: SCCO, name: Southern Copper}
+      - {symbol: 010120.KS, name: LS}
+      - {symbol: 001440.KS, name: 대한전선}
+    first_order_beneficiaries:
+      - sector: 구리 광산
+        connection: 구리 수요 급증 + 공급 부족 → 광산주 직접 수혜
+        symbols:
+          - {symbol: FCX, name: Freeport-McMoRan}
+          - {symbol: SCCO, name: Southern Copper}
+          - {symbol: 103140.KS, name: 풍산}
+      - sector: 전선
+        connection: 전력망·EV 충전 인프라 → 전선 수요 직결
+        symbols:
+          - {symbol: 010120.KS, name: LS}
+          - {symbol: 001440.KS, name: 대한전선}
+          - {symbol: 103140.KS, name: 풍산}
+    second_order_beneficiaries:
+      - sector: 전력기기
+        connection: 전력망 확충 → 전력기기 동반 수요
+        symbols:
+          - {symbol: 010120.KS, name: LS ELECTRIC}
+          - {symbol: 298040.KS, name: 효성중공업}
+    victims:
+      - sector: 구리 원가 비중 높은 제조업
+        connection: 구리 가격 급등 → 구리 원가 비중 높은 전자·전선·건설 원가 부담
+        symbols:
+          - {symbol: 005930.KS, name: 삼성전자}
+          - {symbol: 000720.KS, name: 현대건설}
+    confirmation_data:
+      - "LME 구리 가격 $10,000/톤 이상"
+      - "전력망 투자 계획 발표"
+      - "AI 데이터센터 건설 가속화"
+    invalidation_conditions:
+      - "글로벌 경기침체 → 산업 수요 급감"
+      - "칠레·페루 광산 공급 회복"
+    overheated_risks:
+      - "구리 가격 급등 시 전선·제조업 원가 부담 동반 상승"
+    beginner_explanation: >
+      AI·EV·재생에너지·전력망 확충 모두 구리가 필요합니다. 구리 가격이 오르면
+      광산주와 전선주가 직접 수혜를 받지만, 구리를 많이 쓰는 제조업·건설업은
+      원가 부담이 커집니다.
+
+  # ── M. 금융 / 증권 / 보험 사이클 ───────────────────────────────────────
+  - cycle_id: financial_brokerage_insurance
+    name: 금융 / 증권 / 보험
+    macro_regime: neutral
+    trigger_keywords:
+      - 거래대금
+      - 밸류업
+      - 배당
+      - 주주환원
+      - 자사주 매입
+      - 금융주
+      - 증시 상승
+      - IPO
+      - 코스피 상승
+    source_sectors: [금융, 증권, 보험, 은행]
+    source_symbols:
+      - {symbol: 105560.KS, name: KB금융}
+      - {symbol: 055550.KS, name: 신한지주}
+      - {symbol: 086790.KS, name: 하나금융지주}
+      - {symbol: 016360.KS, name: 삼성증권}
+      - {symbol: 071050.KS, name: 한국금융지주}
+      - {symbol: 000810.KS, name: 삼성화재}
+      - {symbol: JPM, name: JP Morgan}
+      - {symbol: GS, name: Goldman Sachs}
+    first_order_beneficiaries:
+      - sector: 증권 (거래대금 증가 시)
+        connection: 증시 상승 + 거래대금 증가 → 증권사 브로커리지 수익 직결
+        symbols:
+          - {symbol: 016360.KS, name: 삼성증권}
+          - {symbol: 071050.KS, name: 한국금융지주}
+          - {symbol: 039490.KS, name: 키움증권}
+          - {symbol: 005940.KS, name: NH투자증권}
+      - sector: 은행 (금리 상승 시)
+        connection: 금리 상승 → NIM 개선 → 은행 수익성 기대
+        symbols:
+          - {symbol: 105560.KS, name: KB금융}
+          - {symbol: 055550.KS, name: 신한지주}
+          - {symbol: JPM, name: JP Morgan}
+      - sector: 보험 (금리·배당 수혜)
+        connection: 금리 상승 + 밸류업 정책 → 보험사 배당·주주환원 기대
+        symbols:
+          - {symbol: 000810.KS, name: 삼성화재}
+          - {symbol: 032830.KS, name: 삼성생명}
+          - {symbol: MET, name: MetLife}
+    second_order_beneficiaries:
+      - sector: 코스닥 성장주/테마주 (증권 강세 시)
+        connection: >
+          거래대금 급증 + 위험선호 회복 → 코스닥 소형 성장주·테마주 후행 가능.
+          단, 금리 하락이 동반될 때만 건설·부동산 후행 수혜 인정.
+        symbols:
+          - {symbol: 035720.KS, name: 카카오}
+          - {symbol: 293490.KS, name: 카카오페이}
+    victims:
+      - sector: 저금리 수혜 금융 (금리 상승 시)
+        connection: 금리 상승 → 보험사 부채 부담 감소 수혜 vs 대출 수요 감소 is mixed
+        symbols: []
+    confirmation_data:
+      - "일평균 거래대금 15조 이상"
+      - "코스피/코스닥 동반 강세"
+      - "밸류업 프로그램 정책 뉴스"
+      - "자사주 소각·배당 공시"
+    invalidation_conditions:
+      - "금리 상승으로 증시 전반 하락"
+      - "경기침체로 거래대금 급감"
+    overheated_risks:
+      - "증권주 단독 상승만으로 건설 수혜 판단 금지 — 금리·부동산 정책 동반 확인 필수"
+      - "IPO 과열 → 시장 유동성 분산"
+    beginner_explanation: >
+      증권주가 오른다는 것은 거래대금이 늘고 투자자들이 시장에 적극적으로 참여한다는
+      신호입니다. 은행은 금리가 오를 때, 보험은 배당·금리 수혜가 같이 올 때 좋습니다.
+      증권주 단독 상승만으로 건설·부동산이 자동으로 수혜받는 것은 아닙니다.

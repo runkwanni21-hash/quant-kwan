@@ -1403,6 +1403,42 @@ def theme_board_cmd(
         console.print("[green]theme-board 전송 완료[/green]")
 
 
+@app.command("sector-cycle")
+def sector_cycle_cmd(
+    market: Annotated[
+        str, typer.Option("--market", help="KR 또는 US")
+    ] = "KR",
+    no_send: Annotated[
+        bool, typer.Option("--no-send/--send", help="전송 없이 출력만")
+    ] = True,
+) -> None:
+    """Sector Cycle Rulebook v2 — 시장 자금 흐름 사이클 분석.
+
+    Example: uv run tele-quant sector-cycle --market KR --no-send
+             uv run tele-quant sector-cycle --market US --no-send
+    """
+    from tele_quant.db import Store
+    from tele_quant.sector_cycle import build_sector_cycle_section
+
+    settings = _settings()
+    store = Store(settings.sqlite_path)
+    report = build_sector_cycle_section(market.upper(), store, settings)
+    console.print(report)
+
+    if not no_send:
+        import asyncio
+
+        from tele_quant.telegram_sender import TelegramGateway, TelegramSender
+
+        async def _send() -> None:
+            async with TelegramGateway(settings) as gateway:
+                sender = TelegramSender(settings, gateway=gateway)
+                await sender.send(report)
+
+        asyncio.run(_send())
+        console.print("[green]sector-cycle 전송 완료[/green]")
+
+
 @app.command("ops-doctor")
 def ops_doctor() -> None:
     """자동 실행 상태와 DB 최신성을 진단합니다.

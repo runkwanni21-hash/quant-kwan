@@ -1448,6 +1448,18 @@ def build_weekly_deterministic_summary(
         lines.append("14. " + theme_board_section)
         lines.append("")
 
+    # 15. Sector Cycle Rulebook v2 돈 흐름 요약
+    if daily_alpha_store is not None:
+        try:
+            from tele_quant.sector_cycle import build_sector_cycle_section
+            kr_cycle = build_sector_cycle_section("KR", daily_alpha_store, None)
+            us_cycle = build_sector_cycle_section("US", daily_alpha_store, None)
+            cycle_section = kr_cycle + "\n\n" + us_cycle
+            lines.append("15. " + cycle_section)
+            lines.append("")
+        except Exception:
+            pass
+
     lines += [
         "─" * 30,
         "공개 정보 기반 개인 리서치 보조용이며 투자 판단 책임은 사용자에게 있음.",

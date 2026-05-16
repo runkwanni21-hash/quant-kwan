@@ -117,6 +117,13 @@ class DailyAlphaPick:
     source_reason: str = ""        # detailed reason text for source mover
     relation_path: str = ""        # e.g. "NVDA → HBM 공급 → SK하이닉스"
     data_quality: str = "medium"   # high / medium / low
+    # Sector Cycle Rulebook v2 fields
+    cycle_id: str = ""             # e.g. "ai_semiconductor_dc"
+    cycle_stage: str = ""          # LEADER / SECOND_ORDER / THIRD_ORDER / VICTIM / OVERHEATED
+    macro_guard: str = ""          # 매크로 가드 요약
+    relative_lag_score: float = 0.0  # 주도 테마 대비 후발 폭 (클수록 후발)
+    beginner_reason: str = ""      # 초보자 해석
+    next_confirmation: str = ""    # 다음 확인 체크포인트
 
 
 # ── Market index ──────────────────────────────────────────────────────────────
