@@ -1285,7 +1285,7 @@ def build_daily_alpha_report(
                 "LEADER": "주도주", "SECOND_ORDER": "후발 2차",
                 "THIRD_ORDER": "후발 3차", "VICTIM": "피해/주의", "OVERHEATED": "과열 주의",
             }.get(pick.cycle_stage, pick.cycle_stage)
-            block.append(f"   사이클: [{pick.cycle_id}] {_stage_ko}")
+            block.append(f"   사이클: ({pick.cycle_id}) {_stage_ko}")
         if pick.beginner_reason:
             block.append(f"   흐름 해석: {pick.beginner_reason}")
         if pick.macro_guard:
