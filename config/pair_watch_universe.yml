@@ -437,3 +437,251 @@ stocks:
     sector: defense
     theme: defense_aerospace
     role: target
+
+  - ticker: "064350.KS"
+    name: 현대로템
+    market: KR
+    sector: defense
+    theme: defense_ground
+    role: target
+
+  - ticker: "079550.KS"
+    name: LIG넥스원
+    market: KR
+    sector: defense
+    theme: defense_missile
+    role: target
+
+  - ticker: LMT
+    name: Lockheed Martin
+    market: US
+    sector: defense
+    theme: defense_aerospace
+    role: source
+
+  - ticker: RTX
+    name: RTX Corporation
+    market: US
+    sector: defense
+    theme: defense_aerospace
+    role: source
+
+  - ticker: NOC
+    name: Northrop Grumman
+    market: US
+    sector: defense
+    theme: defense_aerospace
+    role: source
+
+  - ticker: GD
+    name: General Dynamics
+    market: US
+    sector: defense
+    theme: defense_aerospace
+    role: source
+
+  # ── 섹터 5: 바이오 / 제약 ────────────────────────────────────────────
+  - ticker: LLY
+    name: Eli Lilly
+    market: US
+    sector: bio_pharma
+    theme: glp1_obesity
+    role: source
+
+  - ticker: ABBV
+    name: AbbVie
+    market: US
+    sector: bio_pharma
+    theme: immunology
+    role: source
+
+  - ticker: REGN
+    name: Regeneron
+    market: US
+    sector: bio_pharma
+    theme: oncology
+    role: source
+
+  - ticker: MRNA
+    name: Moderna
+    market: US
+    sector: bio_pharma
+    theme: mrna_vaccine
+    role: both
+
+  - ticker: AMGN
+    name: Amgen
+    market: US
+    sector: bio_pharma
+    theme: biotech
+    role: both
+
+  - ticker: "207940.KS"
+    name: 삼성바이오로직스
+    market: KR
+    sector: bio_pharma
+    theme: cdmo
+    role: both
+
+  - ticker: "068270.KS"
+    name: 셀트리온
+    market: KR
+    sector: bio_pharma
+    theme: biosimilar
+    role: both
+
+  - ticker: "000100.KS"
+    name: 유한양행
+    market: KR
+    sector: bio_pharma
+    theme: oncology_domestic
+    role: both
+
+  - ticker: "196170.KQ"
+    name: 알테오젠
+    market: KR
+    sector: bio_pharma
+    theme: antibody_platform
+    role: target
+
+  - ticker: "395400.KQ"
+    name: SK바이오팜
+    market: KR
+    sector: bio_pharma
+    theme: cns_drug
+    role: target
+
+  # ── 섹터 6: 자동차 / EV 배터리 ──────────────────────────────────────
+  - ticker: TSLA
+    name: Tesla
+    market: US
+    sector: auto_ev
+    theme: ev_autonomous
+    role: source
+
+  - ticker: F
+    name: Ford
+    market: US
+    sector: auto_ev
+    theme: ev_transition
+    role: both
+
+  - ticker: GM
+    name: General Motors
+    market: US
+    sector: auto_ev
+    theme: ev_transition
+    role: both
+
+  - ticker: "005380.KS"
+    name: 현대차
+    market: KR
+    sector: auto_ev
+    theme: ev_hybrid
+    role: both
+
+  - ticker: "000270.KS"
+    name: 기아
+    market: KR
+    sector: auto_ev
+    theme: ev_hybrid
+    role: both
+
+  - ticker: "012330.KS"
+    name: 현대모비스
+    market: KR
+    sector: auto_ev
+    theme: auto_parts
+    role: target
+
+  - ticker: "051910.KS"
+    name: LG화학
+    market: KR
+    sector: auto_ev
+    theme: battery_material
+    role: target
+
+  - ticker: "006400.KS"
+    name: 삼성SDI
+    market: KR
+    sector: auto_ev
+    theme: battery_cell
+    role: target
+
+  - ticker: "373220.KS"
+    name: LG에너지솔루션
+    market: KR
+    sector: auto_ev
+    theme: battery_cell
+    role: target
+
+  - ticker: "003670.KS"
+    name: 포스코퓨처엠
+    market: KR
+    sector: auto_ev
+    theme: battery_material
+    role: target
+
+  # ── 섹터 7: 금융 / 금리 ─────────────────────────────────────────────
+  - ticker: JPM
+    name: JPMorgan
+    market: US
+    sector: finance
+    theme: banking
+    role: source
+
+  - ticker: GS
+    name: Goldman Sachs
+    market: US
+    sector: finance
+    theme: investment_banking
+    role: source
+
+  - ticker: MS
+    name: Morgan Stanley
+    market: US
+    sector: finance
+    theme: investment_banking
+    role: source
+
+  - ticker: BAC
+    name: Bank of America
+    market: US
+    sector: finance
+    theme: banking
+    role: both
+
+  - ticker: "086790.KS"
+    name: 하나금융지주
+    market: KR
+    sector: finance
+    theme: banking_kr
+    role: both
+
+  - ticker: "055550.KS"
+    name: 신한지주
+    market: KR
+    sector: finance
+    theme: banking_kr
+    role: both
+
+  - ticker: "105560.KS"
+    name: KB금융
+    market: KR
+    sector: finance
+    theme: banking_kr
+    role: both
+
+  - ticker: "032830.KS"
+    name: 삼성생명
+    market: KR
+    sector: finance
+    theme: insurance_kr
+    role: target
+
+  - ticker: "000810.KS"
+    name: 삼성화재
+    market: KR
+    sector: finance
+    theme: insurance_kr
+    role: target

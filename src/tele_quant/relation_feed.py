@@ -13,24 +13,52 @@ log = logging.getLogger(__name__)
 # ── Self-computed mover universe ──────────────────────────────────────────────
 
 _UNIVERSE_US: list[str] = [
+    # 반도체/AI
     "NVDA", "AAPL", "MSFT", "GOOGL", "META", "AMZN", "TSLA", "AMD",
     "INTC", "QCOM", "AVGO", "MU", "TSM", "ASML", "ARM", "SMCI", "MRVL",
     "ON", "TXN", "LRCX", "KLAC", "AMAT",
+    # AI 서버/소프트웨어
+    "DELL", "APP", "PLTR", "ORCL", "CRM", "SNOW",
+    # AI 전력/원전/ESS — 2026 핵심 테마
+    "ETN", "PWR", "GEV", "VST", "CEG", "NEE", "FSLR", "FLNC",
+    # 방산/항공우주 — 지정학 테마
+    "LMT", "RTX", "NOC",
+    # 금융
     "JPM", "GS", "MS", "BAC",
-    "XOM", "CVX", "NEE", "FSLR", "FLNC",
-    "PLTR", "ORCL", "CRM", "SNOW",
-    "LLY", "UNH", "MRNA",
+    # 에너지
+    "XOM", "CVX",
+    # 바이오/헬스케어
+    "LLY", "UNH", "MRNA", "ABBV", "REGN",
+    # 크립토/핀테크
+    "COIN",
 ]
 
 _UNIVERSE_KR: list[str] = [
-    "005930.KS", "000660.KS", "035420.KS", "035720.KS",
+    # 반도체/전자
+    "005930.KS", "000660.KS", "066570.KS",
+    # IT서비스
+    "035420.KS", "035720.KS",
+    # 배터리/소재
     "051910.KS", "006400.KS", "373220.KS", "003670.KS",
-    "207940.KS", "005380.KS", "000270.KS", "068270.KS",
-    "012330.KS", "329180.KS", "096770.KS", "066570.KS",
-    "017670.KS", "030200.KS", "086790.KS", "034730.KS",
+    # 자동차
+    "005380.KS", "000270.KS", "012330.KS",
+    # 바이오/제약
+    "207940.KS", "068270.KS", "000100.KS",
+    # 조선/방산 — 2026 핵심 테마
+    "329180.KS", "010140.KS", "042660.KS",
+    "012450.KS", "064350.KS", "079550.KS",
+    # AI 전력기기
+    "267260.KS",
+    # K뷰티 source
+    "161890.KQ", "090430.KS",
+    # 에너지/화학/지주
+    "096770.KS", "034730.KS",
+    # 금융/통신
+    "086790.KS", "017670.KS", "030200.KS",
 ]
 
 _NAME_MAP: dict[str, str] = {
+    # US 반도체/AI
     "NVDA": "NVIDIA", "AAPL": "Apple", "MSFT": "Microsoft",
     "GOOGL": "Alphabet", "META": "Meta", "AMZN": "Amazon",
     "TSLA": "Tesla", "AMD": "AMD", "INTC": "Intel",
@@ -39,40 +67,95 @@ _NAME_MAP: dict[str, str] = {
     "SMCI": "Super Micro", "MRVL": "Marvell", "ON": "ON Semi",
     "TXN": "Texas Instruments", "LRCX": "Lam Research",
     "KLAC": "KLA Corp", "AMAT": "Applied Materials",
-    "JPM": "JPMorgan", "GS": "Goldman Sachs", "MS": "Morgan Stanley",
-    "BAC": "Bank of America", "XOM": "ExxonMobil", "CVX": "Chevron",
-    "NEE": "NextEra Energy", "FSLR": "First Solar", "FLNC": "Fluence Energy",
+    # AI 서버/소프트웨어
+    "DELL": "Dell Technologies", "APP": "AppLovin",
     "PLTR": "Palantir", "ORCL": "Oracle", "CRM": "Salesforce", "SNOW": "Snowflake",
+    # AI 전력/원전/ESS
+    "ETN": "Eaton", "PWR": "Quanta Services", "GEV": "GE Vernova",
+    "VST": "Vistra Energy", "CEG": "Constellation Energy",
+    "NEE": "NextEra Energy", "FSLR": "First Solar", "FLNC": "Fluence Energy",
+    # 방산
+    "LMT": "Lockheed Martin", "RTX": "RTX Corporation", "NOC": "Northrop Grumman",
+    # 금융
+    "JPM": "JPMorgan", "GS": "Goldman Sachs", "MS": "Morgan Stanley",
+    "BAC": "Bank of America",
+    # 에너지
+    "XOM": "ExxonMobil", "CVX": "Chevron",
+    # 바이오/헬스케어
     "LLY": "Eli Lilly", "UNH": "UnitedHealth", "MRNA": "Moderna",
-    "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "035420.KS": "NAVER",
-    "035720.KS": "카카오", "051910.KS": "LG화학", "006400.KS": "삼성SDI",
+    "ABBV": "AbbVie", "REGN": "Regeneron",
+    # 크립토
+    "COIN": "Coinbase",
+    # KR 반도체/전자
+    "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "066570.KS": "LG전자",
+    # KR IT
+    "035420.KS": "NAVER", "035720.KS": "카카오",
+    # KR 배터리/소재
+    "051910.KS": "LG화학", "006400.KS": "삼성SDI",
     "373220.KS": "LG에너지솔루션", "003670.KS": "포스코퓨처엠",
-    "207940.KS": "삼성바이오로직스", "005380.KS": "현대차",
-    "000270.KS": "기아", "068270.KS": "셀트리온", "012330.KS": "현대모비스",
-    "329180.KS": "HD현대중공업", "096770.KS": "SK이노베이션",
-    "066570.KS": "LG전자", "017670.KS": "SK텔레콤",
-    "030200.KS": "KT", "086790.KS": "하나금융지주", "034730.KS": "SK",
+    # KR 자동차
+    "005380.KS": "현대차", "000270.KS": "기아", "012330.KS": "현대모비스",
+    # KR 바이오
+    "207940.KS": "삼성바이오로직스", "068270.KS": "셀트리온", "000100.KS": "유한양행",
+    # KR 조선/방산
+    "329180.KS": "HD현대중공업", "010140.KS": "삼성중공업", "042660.KS": "한화오션",
+    "012450.KS": "한화에어로스페이스", "064350.KS": "현대로템", "079550.KS": "LIG넥스원",
+    # KR AI 전력
+    "267260.KS": "HD현대일렉트릭",
+    # KR K뷰티
+    "161890.KQ": "한국콜마", "090430.KS": "아모레퍼시픽",
+    # KR 기타
+    "096770.KS": "SK이노베이션", "034730.KS": "SK",
+    "086790.KS": "하나금융지주", "017670.KS": "SK텔레콤", "030200.KS": "KT",
 }
 
 _SECTOR_MAP: dict[str, str] = {
+    # US 반도체/AI
     "NVDA": "반도체/AI", "AMD": "반도체/AI", "INTC": "반도체", "QCOM": "반도체",
     "AVGO": "반도체", "MU": "반도체", "TSM": "반도체", "ASML": "반도체장비",
     "ARM": "반도체/AI", "SMCI": "서버/AI", "MRVL": "반도체", "ON": "반도체",
     "TXN": "반도체", "LRCX": "반도체장비", "KLAC": "반도체장비", "AMAT": "반도체장비",
     "AAPL": "빅테크", "MSFT": "빅테크/AI", "GOOGL": "빅테크/AI", "META": "소셜/AI",
     "AMZN": "이커머스/클라우드", "TSLA": "전기차/에너지",
+    # AI 서버/소프트웨어
+    "DELL": "AI서버", "APP": "AI소프트웨어",
     "PLTR": "AI소프트웨어", "ORCL": "클라우드", "CRM": "클라우드", "SNOW": "클라우드",
+    # AI 전력/원전/ESS
+    "ETN": "AI전력기기", "PWR": "AI전력EPC", "GEV": "발전설비",
+    "VST": "전력/원전", "CEG": "원전",
+    "NEE": "신재생에너지", "FSLR": "태양광", "FLNC": "ESS/에너지",
+    # 방산
+    "LMT": "방산/항공", "RTX": "방산/항공", "NOC": "방산/항공",
+    # 금융
     "JPM": "금융", "GS": "금융", "MS": "금융", "BAC": "금융",
-    "XOM": "에너지", "CVX": "에너지", "NEE": "신재생에너지",
-    "FSLR": "태양광", "FLNC": "ESS/에너지",
+    # 에너지
+    "XOM": "에너지", "CVX": "에너지",
+    # 바이오/헬스케어
     "LLY": "바이오/제약", "UNH": "헬스케어", "MRNA": "바이오/제약",
-    "005930.KS": "반도체/전자", "000660.KS": "반도체", "035420.KS": "IT서비스",
-    "035720.KS": "IT서비스", "051910.KS": "화학/배터리", "006400.KS": "배터리",
+    "ABBV": "바이오/제약", "REGN": "바이오/제약",
+    # 크립토
+    "COIN": "크립토/핀테크",
+    # KR 반도체/전자
+    "005930.KS": "반도체/전자", "000660.KS": "반도체", "066570.KS": "전자",
+    # KR IT
+    "035420.KS": "IT서비스", "035720.KS": "IT서비스",
+    # KR 배터리/소재
+    "051910.KS": "화학/배터리", "006400.KS": "배터리",
     "373220.KS": "배터리", "003670.KS": "배터리소재",
-    "207940.KS": "바이오", "005380.KS": "자동차", "000270.KS": "자동차",
-    "068270.KS": "바이오", "012330.KS": "자동차부품", "329180.KS": "조선",
-    "096770.KS": "에너지/화학", "066570.KS": "전자",
-    "017670.KS": "통신", "030200.KS": "통신", "086790.KS": "금융", "034730.KS": "지주/에너지",
+    # KR 자동차
+    "005380.KS": "자동차", "000270.KS": "자동차", "012330.KS": "자동차부품",
+    # KR 바이오
+    "207940.KS": "바이오/CDMO", "068270.KS": "바이오", "000100.KS": "바이오/제약",
+    # KR 조선/방산
+    "329180.KS": "조선/방산", "010140.KS": "조선", "042660.KS": "조선/방산",
+    "012450.KS": "방산/항공우주", "064350.KS": "방산/전차", "079550.KS": "방산/미사일",
+    # KR AI 전력
+    "267260.KS": "AI전력기기",
+    # KR K뷰티
+    "161890.KQ": "K뷰티ODM", "090430.KS": "K뷰티브랜드",
+    # KR 기타
+    "096770.KS": "에너지/화학", "034730.KS": "지주/에너지",
+    "086790.KS": "금융", "017670.KS": "통신", "030200.KS": "통신",
 }
 
 # Threshold: minimum abs(return_pct) to qualify as a mover
