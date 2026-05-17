@@ -3542,6 +3542,7 @@ def briefing_cmd(
              uv run tele-quant briefing --market ALL --no-send
     """
     from pathlib import Path as _Path
+
     from tele_quant.briefing import run_4h_briefing
     from tele_quant.db import Store as _Store
 
@@ -3588,6 +3589,7 @@ def portfolio_status_cmd(
     Example: uv run tele-quant portfolio-status --no-send
     """
     from pathlib import Path as _Path
+
     from tele_quant.db import Store as _Store
     from tele_quant.mock_portfolio import build_portfolio_section, get_portfolio_summary
 
@@ -3603,7 +3605,8 @@ def portfolio_status_cmd(
 
     if send and section:
         from datetime import UTC as _UTC
-        header = f"💼 모의 포트폴리오 현황 — {datetime.now(_UTC).strftime('%m/%d %H:%M')} UTC\n"
+        from datetime import datetime as _datetime
+        header = f"💼 모의 포트폴리오 현황 — {_datetime.now(_UTC).strftime('%m/%d %H:%M')} UTC\n"
         report = header + section + "\n\n⚠ 공개 정보 기반 리서치 보조. 투자 판단 책임은 사용자에게 있음"
 
         async def _send() -> None:

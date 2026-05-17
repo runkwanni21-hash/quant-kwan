@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from tele_quant.fundamentals import (
     FundamentalSnapshot,
     _calc_pe_discount,
     build_fundamental_line,
-    fetch_fundamentals,
     get_edge_label,
     is_institutional_blind_spot,
     score_fundamentals,
@@ -90,7 +86,7 @@ class TestScoreFundamentalsLong:
 
     def test_poor_fundamentals_low_score(self) -> None:
         s = _snap(pe_trailing=60.0, pb=9.0, roe=-5.0, eps_growth=-15.0, op_margin=2.0, is_blind_spot=False)
-        score, reason = score_fundamentals(s, "LONG")
+        score, _reason = score_fundamentals(s, "LONG")
         assert score < 60
 
     def test_52w_low_bonus(self) -> None:

@@ -21,7 +21,6 @@ from tele_quant.mock_portfolio import (
     get_portfolio_summary,
 )
 
-
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture()

@@ -17,7 +17,6 @@ from tele_quant.surge_alert import (
     is_market_open,
 )
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 def _make_surge(

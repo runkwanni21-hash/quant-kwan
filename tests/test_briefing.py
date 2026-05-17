@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
-import pytest
-
 from tele_quant.briefing import (
     _format_market_cap,
     _format_price,
@@ -14,7 +12,6 @@ from tele_quant.briefing import (
 )
 from tele_quant.fundamentals import FundamentalSnapshot
 from tele_quant.macro_pulse import MacroSnapshot
-
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
