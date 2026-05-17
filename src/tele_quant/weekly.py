@@ -1473,8 +1473,8 @@ def build_weekly_deterministic_summary(
     # 16. 수주잔고 현황 (DB 최근 7일 + 정적 레지스트리 fallback)
     try:
         from tele_quant.order_backlog import (
-            BacklogEvent,
             _STATIC_BACKLOG,
+            BacklogEvent,
             _static_backlog_event,
             build_backlog_section,
         )
@@ -1485,7 +1485,7 @@ def build_weekly_deterministic_summary(
         if daily_alpha_store is not None:
             raw_rows = daily_alpha_store.recent_all_backlog_events(days=7)
             for r in raw_rows:
-                try:
+                with contextlib.suppress(Exception):
                     bl_events.append(BacklogEvent(
                         symbol=r["symbol"],
                         market=r.get("market", ""),
@@ -1502,8 +1502,6 @@ def build_weekly_deterministic_summary(
                         chain_tier=r.get("chain_tier", 1),
                         backlog_tier=r.get("backlog_tier", "LOW"),
                     ))
-                except Exception:
-                    pass
 
         # 정적 레지스트리 항상 포함 (중복 제거)
         db_symbols = {e.symbol for e in bl_events if e.source != "STATIC"}

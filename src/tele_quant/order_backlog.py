@@ -269,17 +269,40 @@ def _fetch_dart_backlog_for_symbol(
     return events
 
 
-# ── SEC EDGAR 백로그/RPO 수집 ─────────────────────────────────────────────────
+# ── SEC EDGAR 수주·계약 8-K 수집 ─────────────────────────────────────────────
 
 _EDGAR_SEARCH = "https://efts.sec.gov/LATEST/search-index"
 _EDGAR_UA = "tele-quant/1.0 contact:tele-quant@example.com"
 
-# RPO/backlog 금액 패턴 (후보)
-_RPO_AMOUNT_RE = re.compile(
-    r"(?:remaining performance obligations?|backlog)[^$\d]{0,60}"
-    r"(\$[\d,\.]+\s*(?:billion|million|B|M)\b|\d+[\d,\.]*\s*(?:billion|million)\b)",
+# 8-K item 1.01 = contract award 키워드
+_CONTRACT_KEYWORDS = [
+    "contract award", "contract awarded", "government contract",
+    "DoD contract", "defense contract", "order received",
+    "backlog", "remaining performance obligations",
+]
+
+# USD 금액 패턴 — 공백 포함 넓은 탐색
+_USD_AMOUNT_RE = re.compile(
+    r"\$\s*([\d,]+(?:\.\d+)?)\s*(billion|million|B|M)\b"
+    r"|(?<!\w)([\d,]+(?:\.\d+)?)\s*(billion|million)\b",
     re.IGNORECASE,
 )
+
+
+def _extract_usd_from_text(text: str) -> float | None:
+    """텍스트에서 첫 번째 USD 금액 추출 → million USD."""
+    m = _USD_AMOUNT_RE.search(text)
+    if not m:
+        return None
+    # group1/group2 → '$X billion/million', group3/group4 → 'X billion/million'
+    val_str = m.group(1) or m.group(3) or ""
+    unit = (m.group(2) or m.group(4) or "").lower()
+    if not val_str:
+        return None
+    val = float(val_str.replace(",", ""))
+    if "b" in unit:
+        return val * 1_000.0
+    return val  # million
 
 
 def _fetch_edgar_backlog_for_symbol(
@@ -287,20 +310,27 @@ def _fetch_edgar_backlog_for_symbol(
     lookback_days: int,
     timeout: float,
 ) -> list[BacklogEvent]:
-    """EDGAR EFTS에서 10-K/10-Q 백로그/RPO 금액 수집."""
+    """EDGAR EFTS에서 8-K 계약·수주 이벤트 수집.
+
+    10-K/10-Q는 정기보고서라 신규 수주가 아님 → 8-K (실시간 이벤트) 위주로 검색.
+    날짜 post-filter: EFTS startdt가 불완전하므로 직접 필터링.
+    """
     import httpx
 
-    start_date = (datetime.now(UTC) - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    cutoff = datetime.now(UTC) - timedelta(days=lookback_days)
+    start_date = cutoff.strftime("%Y-%m-%d")
     headers = {"User-Agent": _EDGAR_UA, "Accept": "application/json"}
     events: list[BacklogEvent] = []
 
+    # 8-K 계약 수주 이벤트 검색
+    query = f'"{symbol}" ("contract award" OR "contract awarded" OR "government contract" OR "backlog")'
     try:
         with httpx.Client(timeout=timeout, headers=headers) as client:
             resp = client.get(
                 _EDGAR_SEARCH,
                 params={
-                    "q": f'"{symbol}" "remaining performance obligations" OR "{symbol}" backlog',
-                    "forms": "10-K,10-Q",
+                    "q": query,
+                    "forms": "8-K",
                     "dateRange": "custom",
                     "startdt": start_date,
                     "category": "form-type",
@@ -313,29 +343,27 @@ def _fetch_edgar_backlog_for_symbol(
         return []
 
     hits = data.get("hits", {}).get("hits", []) or []
-    for hit in hits[:5]:
+    for hit in hits[:10]:
         src = hit.get("_source") or {}
         entity = src.get("entity_name") or symbol
-        filed = src.get("file_date") or ""
-        form = src.get("form_type", "10-K")
-        # Extract a snippet to find amounts
-        highlight = hit.get("highlight", {})
-        snippet = " ".join(
-            s for v in highlight.values() for s in (v if isinstance(v, list) else [v])
-        )
+        filed = src.get("file_date") or src.get("period_of_report") or ""
 
         try:
             ev_date = datetime.strptime(filed, "%Y-%m-%d").replace(tzinfo=UTC)
         except Exception:
             ev_date = datetime.now(UTC)
 
-        # Try to extract RPO amount from snippet
-        usd_m = _parse_usd_million(snippet) if snippet else None
-        # Also try plain patterns
-        if usd_m is None:
-            m = _RPO_AMOUNT_RE.search(snippet)
-            if m:
-                usd_m = _parse_usd_million(m.group(1))
+        # 날짜 post-filter: EFTS startdt가 때때로 무시됨
+        if ev_date < cutoff:
+            continue
+
+        form = src.get("form_type", "8-K")
+        highlight = hit.get("highlight", {})
+        snippet = " ".join(
+            s for v in highlight.values() for s in (v if isinstance(v, list) else [v])
+        )
+
+        usd_m = _extract_usd_from_text(snippet) if snippet else None
         ok_krw = _usd_million_to_ok_krw(usd_m) if usd_m is not None else None
         tier = _classify_backlog_tier(ok_krw)
 
@@ -348,13 +376,13 @@ def _fetch_edgar_backlog_for_symbol(
             amount_ok_krw=ok_krw,
             amount_usd_million=usd_m,
             client="",
-            contract_type="BACKLOG",
+            contract_type="CONTRACT",
             raw_title=raw_title,
             raw_amount_text=snippet[:200],
             backlog_tier=tier,
         ))
 
-    log.debug("[backlog/edgar] %s → %d 건", symbol, len(events))
+    log.debug("[backlog/edgar] %s → %d 건 (cutoff=%s)", symbol, len(events), start_date)
     return events
 
 
@@ -550,15 +578,31 @@ def build_backlog_section(events: list[BacklogEvent], top_n: int = 10) -> str:
 
     lines = ["16. 📋 수주잔고 현황", ""]
 
-    # Static registry 제외 후 신규 공시 이벤트만
-    new_events = [e for e in events if e.source != "STATIC"]
+    # Static 제외 + 금액 파싱 성공 이벤트만 신규 공시 섹션에 표시
+    new_events = [
+        e for e in events
+        if e.source != "STATIC" and e.amount_ok_krw is not None
+    ]
     if new_events:
-        lines.append("▸ 이번 주 신규 수주·계약 공시")
+        lines.append("▸ 신규 수주·계약 공시 (금액 파싱 성공)")
         for ev in new_events[:top_n]:
             tier_emoji = {"HIGH": "🔥", "MEDIUM": "📌", "LOW": "•"}.get(ev.backlog_tier, "•")
             date_str = ev.event_date.strftime("%m/%d")
             amt = ev.amount_ok_krw_display
-            lines.append(f"  {tier_emoji} [{date_str}] {ev.symbol} {amt} — {ev.raw_title[:60]}")
+            src_tag = f"[{ev.source}]"
+            lines.append(f"  {tier_emoji} [{date_str}] {ev.symbol} {amt} {src_tag} — {ev.raw_title[:55]}")
+        lines.append("")
+
+    # 금액 미파싱 신규 공시는 별도 간략 표시 (DART만, EDGAR 제외)
+    dart_no_amt = [
+        e for e in events
+        if e.source == "DART" and e.amount_ok_krw is None
+    ]
+    if dart_no_amt:
+        lines.append("▸ DART 수주 공시 (금액 미파싱)")
+        for ev in dart_no_amt[:5]:
+            date_str = ev.event_date.strftime("%m/%d")
+            lines.append(f"  • [{date_str}] {ev.symbol} — {ev.raw_title[:65]}")
         lines.append("")
 
     # High-backlog 종목 요약 (static + api 합산)
