@@ -1,0 +1,8 @@
+[Unit]
+Description=Tele Quant Backlog Refresh — US 07:00 UTC (weekdays, pre-market)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+ExecStart=%h/.local/bin/uv run tele-quant backlog-refresh --market US --days 30 --save

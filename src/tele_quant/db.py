@@ -291,6 +291,19 @@ _COLUMN_MIGRATIONS: list[str] = [
     # backfill 출처 추적 컬럼
     "ALTER TABLE pair_watch_history ADD COLUMN backfill_source TEXT DEFAULT ''",
     "ALTER TABLE pair_watch_history ADD COLUMN backfill_status TEXT DEFAULT ''",
+    # order_backlog_events v2: DART 원문 파싱 + SEC EDGAR 강화 컬럼
+    "ALTER TABLE order_backlog_events ADD COLUMN rcept_no TEXT DEFAULT ''",
+    "ALTER TABLE order_backlog_events ADD COLUMN filing_url TEXT DEFAULT ''",
+    "ALTER TABLE order_backlog_events ADD COLUMN corp_name TEXT DEFAULT ''",
+    "ALTER TABLE order_backlog_events ADD COLUMN amount_ratio_to_revenue REAL",
+    "ALTER TABLE order_backlog_events ADD COLUMN contract_start TEXT DEFAULT ''",
+    "ALTER TABLE order_backlog_events ADD COLUMN contract_end TEXT DEFAULT ''",
+    "ALTER TABLE order_backlog_events ADD COLUMN parsed_confidence TEXT DEFAULT 'LOW'",
+    "ALTER TABLE order_backlog_events ADD COLUMN is_amendment INTEGER DEFAULT 0",
+    "ALTER TABLE order_backlog_events ADD COLUMN is_cancellation INTEGER DEFAULT 0",
+    "ALTER TABLE order_backlog_events ADD COLUMN cik TEXT DEFAULT ''",
+    "ALTER TABLE order_backlog_events ADD COLUMN accession_no TEXT DEFAULT ''",
+    "ALTER TABLE order_backlog_events ADD COLUMN source_raw_hash TEXT DEFAULT ''",
 ]
 
 # 기존 DB 백필: signal_price 컬럼 추가 후 close_price_at_report 값 복사
@@ -1495,8 +1508,11 @@ class Store:
                         INSERT OR IGNORE INTO order_backlog_events
                         (created_at, symbol, market, source, event_date,
                          amount_ok_krw, amount_usd_million, client, contract_type,
-                         chain_tier, raw_title, raw_amount_text, backlog_tier)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                         chain_tier, raw_title, raw_amount_text, backlog_tier,
+                         rcept_no, filing_url, corp_name, amount_ratio_to_revenue,
+                         contract_start, contract_end, parsed_confidence,
+                         is_amendment, is_cancellation, cik, accession_no, source_raw_hash)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
                         (
                             now,
@@ -1512,6 +1528,18 @@ class Store:
                             ev.raw_title,
                             ev.raw_amount_text,
                             ev.backlog_tier,
+                            getattr(ev, "rcept_no", ""),
+                            getattr(ev, "filing_url", ""),
+                            getattr(ev, "corp_name", ""),
+                            getattr(ev, "amount_ratio_to_revenue", None),
+                            getattr(ev, "contract_start", ""),
+                            getattr(ev, "contract_end", ""),
+                            getattr(ev, "parsed_confidence", "LOW"),
+                            int(getattr(ev, "is_amendment", False)),
+                            int(getattr(ev, "is_cancellation", False)),
+                            getattr(ev, "cik", ""),
+                            getattr(ev, "accession_no", ""),
+                            getattr(ev, "source_raw_hash", ""),
                         ),
                     )
                     count += conn.execute("SELECT changes()").fetchone()[0]

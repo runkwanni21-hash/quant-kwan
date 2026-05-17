@@ -251,7 +251,7 @@ uv run tele-quant universe-audit --fail-on-high  # CI 게이트
 
 ## 자동 실행 구조 (슬라이드 11)
 
-**9개 systemd user timer (WSL Ubuntu 상시 실행)**
+**12개 systemd user timer (WSL Ubuntu 상시 실행)**
 
 | 타이머 | 실행 시점 |
 |--------|----------|
@@ -264,6 +264,9 @@ uv run tele-quant universe-audit --fail-on-high  # CI 게이트
 | `tele-quant-alpha-review-kr` | 한국장 마감 후 |
 | `tele-quant-alpha-review-us` | 미국장 마감 후 |
 | `tele-quant-pair-watch-cleanup` | 장 마감 후 가격 검증 |
+| `tele-quant-backlog-kr` | 평일 07:30 KST — DART 수주 수집 |
+| `tele-quant-backlog-us` | 평일 07:00 UTC — EDGAR 수주 수집 |
+| `tele-quant-backlog-report` | 일요일 22:00 KST — 주간 수주 리포트 |
 
 > WSL/Ubuntu가 꺼져 있으면 타이머도 멈춥니다.  
 > Windows Task Scheduler로 WSL 자동 시작을 설정하면 안정적으로 운영됩니다.
@@ -354,6 +357,13 @@ uv run tele-quant alpha-review --market KR --send
 uv run tele-quant pair-watch-cleanup --dry-run
 uv run tele-quant pair-watch-cleanup --apply
 
+# 수주잔고 (Order Backlog)
+uv run tele-quant backlog-refresh --market KR --days 30 --save   # DART 수집 + DB 저장
+uv run tele-quant backlog-refresh --market US --days 30 --save   # EDGAR 수집 + DB 저장
+uv run tele-quant backlog-report --days 7 --top-n 15              # DB 기반 주간 리포트
+uv run tele-quant backlog-audit --fail-on-high                    # 설정·품질 감사
+uv run tele-quant order-backlog --symbol 329180.KS --days 30      # 특정 심볼 조회
+
 # 진단 및 품질 검증
 uv run tele-quant ops-doctor
 uv run tele-quant lint-report --hours 24
@@ -387,10 +397,14 @@ uv run tele-quant output-lint --file /tmp/us.log   --fail-on-high
 uv run tele-quant output-lint --file /tmp/tb.log   --fail-on-high
 uv run tele-quant output-lint --file /tmp/wk.log   --fail-on-high
 
+# 수주잔고 감사
+uv run tele-quant backlog-audit --fail-on-high
+
 # 금지 패턴 직접 확인 (비어야 통과)
 grep -E "Web발신|보고서링크|이익동향\(|월가 주요 뉴스|글로벌 투자 구루" /tmp/once.log
 grep -E "라이브 확인 미실행 — 통계만 참고" /tmp/once.log
 grep -E "가격만 움직임\(이유 불명\).*연결고리" /tmp/us.log
+grep -E "수주 확정 수혜|계약 = 매출 확정|해지.*호재" /tmp/wk.log
 ```
 
 ---

@@ -1,0 +1,9 @@
+[Unit]
+Description=Run Tele Quant Backlog Refresh KR every weekday at 07:30 KST
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 07:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

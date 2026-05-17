@@ -1501,6 +1501,18 @@ def build_weekly_deterministic_summary(
                         raw_amount_text=r.get("raw_amount_text", ""),
                         chain_tier=r.get("chain_tier", 1),
                         backlog_tier=r.get("backlog_tier", "LOW"),
+                        rcept_no=r.get("rcept_no", ""),
+                        filing_url=r.get("filing_url", ""),
+                        corp_name=r.get("corp_name", ""),
+                        amount_ratio_to_revenue=r.get("amount_ratio_to_revenue"),
+                        contract_start=r.get("contract_start", ""),
+                        contract_end=r.get("contract_end", ""),
+                        parsed_confidence=r.get("parsed_confidence", "LOW"),
+                        is_amendment=bool(r.get("is_amendment", 0)),
+                        is_cancellation=bool(r.get("is_cancellation", 0)),
+                        cik=r.get("cik", ""),
+                        accession_no=r.get("accession_no", ""),
+                        source_raw_hash=r.get("source_raw_hash", ""),
                     ))
 
         # 정적 레지스트리 항상 포함 (중복 제거)

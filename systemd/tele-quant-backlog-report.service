@@ -1,0 +1,8 @@
+[Unit]
+Description=Tele Quant Backlog Report — Sunday 22:00 KST (weekly summary)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+ExecStart=%h/.local/bin/uv run tele-quant backlog-report --days 7 --top-n 15 --send
