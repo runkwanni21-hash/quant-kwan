@@ -73,8 +73,11 @@ class MacroSnapshot:
 
 # ── Fetch ────────────────────────────────────────────────────────────────────
 
-def _fetch_one(ticker: str) -> tuple[float | None, float | None]:
-    """최신 종가 + 전일 대비 변화율(%) 반환."""
+def _fetch_one(ticker: str, as_bp: bool = False) -> tuple[float | None, float | None]:
+    """최신 종가 + 변화 반환.
+    as_bp=True  → 절대 변화(베이시스포인트 단위, 금리용)
+    as_bp=False → 퍼센트 변화율(일반 가격용)
+    """
     try:
         import yfinance as yf
 
@@ -83,7 +86,7 @@ def _fetch_one(ticker: str) -> tuple[float | None, float | None]:
             return None, None
         price = float(df["Close"].iloc[-1])
         prev = float(df["Close"].iloc[-2])
-        chg = (price - prev) / prev * 100 if prev > 0 else None
+        chg = (price - prev) * 100 if as_bp else (price - prev) / prev * 100 if prev > 0 else None
         return price, chg
     except Exception as exc:
         log.debug("[macro_pulse] fetch %s failed: %s", ticker, exc)
@@ -98,7 +101,10 @@ def fetch_macro_snapshot() -> MacroSnapshot:
     keys = list(_MACRO_TICKERS.keys())
 
     with ThreadPoolExecutor(max_workers=len(keys)) as pool:
-        futs = {pool.submit(_fetch_one, _MACRO_TICKERS[k]): k for k in keys}
+        futs = {
+            pool.submit(_fetch_one, _MACRO_TICKERS[k], k == "us10y"): k
+            for k in keys
+        }
         for fut in as_completed(futs):
             k = futs[fut]
             try:
@@ -110,8 +116,7 @@ def fetch_macro_snapshot() -> MacroSnapshot:
                 snap.wti_price, snap.wti_chg = price, chg
             elif k == "us10y":
                 snap.us10y = price
-                # 10Y는 % 단위이므로 bp로 환산
-                snap.us10y_chg = chg  # % 변화를 그대로 (표시 시 bp로 환산)
+                snap.us10y_chg = chg  # bp 단위 (as_bp=True로 수집)
             elif k == "usd_krw":
                 snap.usd_krw, snap.usd_krw_chg = price, chg
             elif k == "vix":
@@ -143,9 +148,11 @@ def macro_regime(snap: MacroSnapshot) -> str:
         elif snap.vix < _VIX_CALM:
             greed_signals += 1
 
-    # 10Y 급등 = 위험회피
-    if snap.us10y_chg is not None and snap.us10y_chg > 2.0:  # 2% 이상 변화 = 급등
+    # 10Y 급등 = 위험회피 (us10y_chg 단위: bp)
+    if snap.us10y_chg is not None and snap.us10y_chg > 15:  # +15bp 이상 단기 급등
         fear_signals += 2
+    elif snap.us10y_chg is not None and snap.us10y_chg < -15:
+        greed_signals += 1  # 금리 하락 = 성장주 우호
 
     # 달러 급등 = 신흥국 자금 이탈
     if snap.dxy_chg is not None and snap.dxy_chg > _DXY_SPIKE:
@@ -190,16 +197,16 @@ def interpret_macro(snap: MacroSnapshot) -> list[str]:
         elif snap.vix < 14:
             msgs.append(f"VIX {snap.vix:.0f} — 극도 안정 → 레버리지 과욕 주의")
 
-    # 금리
+    # 금리 (us10y_chg 단위: bp)
     if snap.us10y is not None:
         rate_str = f"미 10Y {snap.us10y:.2f}%"
         if snap.us10y_chg is not None:
-            chg_bp = snap.us10y_chg  # 이미 % 단위
+            chg_bp = snap.us10y_chg
             direction = "▲" if chg_bp > 0 else "▼"
-            rate_str += f" {direction}{abs(chg_bp):.1f}%"
-            if chg_bp > 2.0:
+            rate_str += f" {direction}{abs(chg_bp):.0f}bp"
+            if chg_bp > 15:
                 msgs.append(f"{rate_str} 급등 → 성장주·고PER 부담 확대, 배당주 상대 매력")
-            elif chg_bp < -2.0:
+            elif chg_bp < -15:
                 msgs.append(f"{rate_str} 하락 → 성장주 밸류에이션 부담 완화")
 
     # 달러·환율
@@ -231,13 +238,17 @@ def interpret_macro(snap: MacroSnapshot) -> list[str]:
         direction = "급등" if snap.gold_chg > 0 else "급락"
         msgs.append(f"금 {direction} {snap.gold_chg:+.1f}% → 안전자산 {'선호' if snap.gold_chg > 0 else '회피'} 신호")
 
-    # 주가지수 동반 하락
+    # 주가지수
     sp = snap.sp500_chg or 0
     kp = snap.kospi_chg or 0
     if sp < -1.5 and kp < -1.5:
         msgs.append(f"S&P500 {sp:+.1f}%  KOSPI {kp:+.1f}% 동반 약세 — 관망 우선")
     elif sp > 1.0 and kp > 0.5:
         msgs.append(f"S&P500 {sp:+.1f}%  KOSPI {kp:+.1f}% 동반 강세 — 위험자산 선호 확인")
+    elif kp < -3.0:
+        msgs.append(f"KOSPI {kp:+.1f}% 급락 — KR 포지션 신중히 관리")
+    elif sp < -2.0:
+        msgs.append(f"S&P500 {sp:+.1f}% 급락 — US 시장 리스크 점검")
 
     return msgs[:5]
 
@@ -254,19 +265,29 @@ def build_macro_section(snap: MacroSnapshot) -> str:
         chg_str = f"{snap.wti_chg:+.1f}%" if snap.wti_chg is not None else ""
         nums.append(f"WTI ${snap.wti_price:.1f}{chg_str}")
     if snap.us10y is not None:
-        chg_str = f"{snap.us10y_chg:+.1f}%" if snap.us10y_chg is not None else ""
+        chg_str = f"{snap.us10y_chg:+.0f}bp" if snap.us10y_chg is not None else ""
         nums.append(f"10Y {snap.us10y:.2f}%{chg_str}")
     if snap.usd_krw is not None:
         chg_str = f"{snap.usd_krw_chg:+.1f}%" if snap.usd_krw_chg is not None else ""
         nums.append(f"USD/KRW {snap.usd_krw:.0f}{chg_str}")
     if snap.vix is not None:
-        nums.append(f"VIX {snap.vix:.1f}")
+        chg_str = f"{snap.vix_chg:+.1f}%" if snap.vix_chg is not None else ""
+        nums.append(f"VIX {snap.vix:.1f}{chg_str}")
     if snap.gold_price is not None:
         chg_str = f"{snap.gold_chg:+.1f}%" if snap.gold_chg is not None else ""
         nums.append(f"금 ${snap.gold_price:.0f}{chg_str}")
+    if snap.sp500_chg is not None:
+        nums.append(f"S&P500 {snap.sp500_chg:+.1f}%")
+    if snap.kospi_chg is not None:
+        nums.append(f"KOSPI {snap.kospi_chg:+.1f}%")
 
     if nums:
-        lines.append("  ".join(nums))
+        # 2줄로 분리 (Telegram 가독성)
+        line1 = "  ".join(nums[:4])
+        line2 = "  ".join(nums[4:])
+        lines.append(line1)
+        if line2:
+            lines.append(line2)
 
     # 레짐
     regime_icon = {"위험선호": "🟢", "중립": "🟡", "위험회피": "🔴"}.get(snap.regime, "🟡")

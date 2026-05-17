@@ -55,7 +55,8 @@ class TestMacroRegime:
         assert macro_regime(s) == "중립"
 
     def test_fear_10y_spike(self) -> None:
-        s = _snap(us10y_chg=3.0, vix=28.0)
+        # us10y_chg 단위: bp — +20bp 이상이면 fear 신호
+        s = _snap(us10y_chg=20.0, vix=28.0)
         assert macro_regime(s) == "위험회피"
 
     def test_fear_dxy_spike(self) -> None:
@@ -102,10 +103,27 @@ class TestInterpretMacro:
         msgs = interpret_macro(s)
         assert any("강세" in m or "원화" in m for m in msgs)
 
+    def test_10y_spike_bp_message(self) -> None:
+        # us10y_chg=20bp → 급등 메시지 출력
+        s = _snap(us10y=4.60, us10y_chg=20.0)
+        msgs = interpret_macro(s)
+        assert any("bp" in m and "급등" in m for m in msgs)
+
+    def test_10y_small_move_no_message(self) -> None:
+        # us10y_chg=5bp → 메시지 없어야 함 (threshold 15bp)
+        s = _snap(us10y=4.45, us10y_chg=5.0)
+        msgs = interpret_macro(s)
+        assert not any("금리" in m for m in msgs)
+
     def test_dual_market_decline(self) -> None:
         s = _snap(sp500_chg=-2.0, kospi_chg=-2.0)
         msgs = interpret_macro(s)
         assert any("동반" in m or "약세" in m for m in msgs)
+
+    def test_kospi_single_crash(self) -> None:
+        s = _snap(sp500_chg=-0.5, kospi_chg=-4.0)
+        msgs = interpret_macro(s)
+        assert any("KOSPI" in m and "급락" in m for m in msgs)
 
     def test_max_5_messages(self) -> None:
         s = _snap(
@@ -138,6 +156,19 @@ class TestBuildMacroSection:
         s = _snap()
         text = build_macro_section(s)
         assert "VIX" in text
+
+    def test_10y_displayed_as_bp(self) -> None:
+        # "10Y 4.59%+13bp" 형식 — 변화량이 bp 단위로 표시돼야 함
+        s = _snap(us10y=4.59, us10y_chg=13.0)
+        text = build_macro_section(s)
+        assert "bp" in text
+        assert "10Y" in text
+
+    def test_sp500_kospi_in_section(self) -> None:
+        s = _snap(sp500_chg=-1.2, kospi_chg=-6.0)
+        text = build_macro_section(s)
+        assert "S&P500" in text
+        assert "KOSPI" in text
 
     def test_contains_regime(self) -> None:
         s = _snap(regime="위험선호")
