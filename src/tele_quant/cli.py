@@ -2719,6 +2719,62 @@ def lint_report(
         raise SystemExit(1)
 
 
+@app.command("universe-audit")
+def universe_audit_cmd(
+    fail_on_high: Annotated[
+        bool,
+        typer.Option("--fail-on-high/--no-fail-on-high", help="HIGH 이슈 존재 시 exit(1)"),
+    ] = False,
+    high_only: Annotated[
+        bool, typer.Option("--high-only", help="HIGH 심각도 이슈만 표시"),
+    ] = False,
+) -> None:
+    """Universe / pair-watch / supply-chain 데이터 정합성 감사.
+
+    Example: uv run tele-quant universe-audit
+             uv run tele-quant universe-audit --fail-on-high
+    """
+    from tele_quant.universe_audit import audit_summary, run_universe_audit
+
+    entries = run_universe_audit()
+    if high_only:
+        entries = [e for e in entries if e.severity == "HIGH"]
+
+    summary = audit_summary(entries)
+    high_cnt = summary.get("HIGH", 0)
+    med_cnt = summary.get("MEDIUM", 0)
+    low_cnt = summary.get("LOW", 0)
+    color = "red" if high_cnt else ("yellow" if med_cnt else "green")
+    console.print(
+        f"\n[{color}]Universe Audit — HIGH:{high_cnt} / MEDIUM:{med_cnt} / LOW:{low_cnt}[/{color}]\n"
+    )
+
+    if entries:
+        from rich.table import Table as _Table
+
+        tbl = _Table(title=f"Universe Audit ({len(entries)}건)", show_lines=True)
+        tbl.add_column("심각도", style="bold", width=8)
+        tbl.add_column("check", width=22)
+        tbl.add_column("대상", width=24)
+        tbl.add_column("상세")
+        _SEV_STYLE = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "dim"}
+        for e in entries[:80]:
+            tbl.add_row(
+                f"[{_SEV_STYLE.get(e.severity, '')}]{e.severity}[/]",
+                e.check,
+                e.target,
+                e.detail,
+            )
+        console.print(tbl)
+        if len(entries) > 80:
+            console.print(f"  ... 및 {len(entries) - 80}건 더")
+    else:
+        console.print("[green]이슈 없음[/green]")
+
+    if fail_on_high and high_cnt > 0:
+        raise SystemExit(1)
+
+
 @app.command("alias-audit")
 def alias_audit_cmd(
     save: Annotated[

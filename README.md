@@ -15,10 +15,12 @@
 | 자동화 리포트 종류 | 9종 (4H 브리핑 / Daily Alpha / Theme Board / Weekly 등) |
 | 자동 실행 타이머 | 9개 systemd timer |
 | 데이터 소스 | 14개 (Telegram·RSS·yfinance·DART·FRED·ECOS·EIA·SEC…) |
-| 서플라이 체인 규칙 | 16개 산업 체인 |
+| 서플라이 체인 규칙 | 19개 산업 체인 (PCB/케이블/조선기자재 추가) |
+| Pair-watch 관계 규칙 | 55개+ (DOWN_LEADS_DOWN·CDMO수주·방산2차 추가) |
 | Sector Cycle | 13개 자금 흐름 사이클 |
-| 테스트 케이스 | 1,171개 (ruff + pytest 전량 통과) |
+| 테스트 케이스 | 1,215개 (ruff + pytest 전량 통과) |
 | 출력 품질 게이트 | 7개 규칙 + output-lint CLI (HIGH 이슈 0 목표) |
+| Universe Audit | universe-audit CLI — 데이터 정합성 감사 (HIGH:0 목표) |
 
 ---
 
@@ -193,6 +195,34 @@ uv run tele-quant output-lint --file /tmp/report.log --fail-on-high
 uv run tele-quant output-lint --html /path/to/messages.html --last 20
 uv run tele-quant output-lint --html /path/to/messages.html --fail-on-high
 ```
+
+**universe-audit CLI** — 유니버스·관계규칙 데이터 정합성 감사
+```bash
+uv run tele-quant universe-audit
+uv run tele-quant universe-audit --fail-on-high  # CI 게이트
+
+# 검사 항목 (HIGH/MEDIUM/LOW 분류)
+# - universe 심볼 NAME_MAP/SECTOR_MAP 누락
+# - KR 티커 형식 오류 (^dddddd.(KS|KQ)$ 검증)
+# - pair_watch_rules 한글 placeholder 탐지
+# - 자기참조 self-loop, 중복 rule ID, 중복 source-target-direction
+# - min_source_move_pct 누락/비정상
+# - 짧은 티커 위험 (MS/ON/GS/APP/F/BE/C) 경고
+# - 브로커 연관 티커 pair_watch target 경고
+```
+
+**브로커 오탐 방지 + 짧은 티커 Context Gate**
+
+| 구분 | 처리 방식 |
+|------|-----------|
+| `Morgan Stanley raises AMD target` | MS 후보 제외, AMD만 근거 |
+| `Goldman Sachs Q1 earnings beat` | GS 허용 (자사 실적) |
+| `JP모건이 엔비디아 목표가 상향` | JPM 제외, NVDA만 근거 |
+| `Nomura/UBS comments on stock` | 브로커 attribution 처리 |
+| `ON AI demand` (단독) | ON 후보 금지 |
+| `ON Semiconductor raises guidance` | ON 허용 (전체 회사명) |
+| `Ford EV sales` | F 허용 (Ford alias) |
+| `F grade` | F 후보 금지 (no stock context) |
 
 ---
 

@@ -161,6 +161,9 @@ _BROKER_TICKERS: frozenset[str] = frozenset(
         "SMBC Nikko",
         "KeyBanc",
         "Stifel",
+        "Nomura",
+        "Daiwa",
+        "Macquarie",
     ]
 )
 _BROKER_SUFFIX_RE = re.compile(r"^[)\]]\s*|^\s*외\b|^:\s*")

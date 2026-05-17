@@ -1368,7 +1368,7 @@ stocks:
     name: "Ford"
     market: US
     sector: 자동차
-    aliases: ["포드", "Ford Motor"]
+    aliases: ["포드", "Ford Motor", "Ford", "Ford Motor Company"]
     require_context_aliases: ["F"]
 
   - symbol: "GM"
@@ -1839,7 +1839,7 @@ stocks:
     name: "Onsemi"
     market: US
     sector: 반도체
-    aliases: ["ON", "온세미", "Onsemi", "ON반도체"]
+    aliases: ["ON", "온세미", "Onsemi", "ON반도체", "ON Semiconductor", "onsemiconductor"]
     require_context_aliases: ["ON"]
 
   - symbol: "MCHP"
