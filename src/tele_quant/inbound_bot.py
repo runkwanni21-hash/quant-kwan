@@ -412,14 +412,15 @@ async def _handle_command(
 
     # ── /매크로 ───────────────────────────────────────────────────────────────
     if cmd in ("매크로", "macro"):
-        try:
+        def _do_macro() -> str:
             from tele_quant.macro_pulse import (
                 build_macro_section,
                 fetch_macro_snapshot,
             )
             snap = fetch_macro_snapshot()
-            reply = "📊 매크로 온도계\n\n" + build_macro_section(snap)
-            reply += f"\n\n{_DISCLAIMER}"
+            return "📊 매크로 온도계\n\n" + build_macro_section(snap) + f"\n\n{_DISCLAIMER}"
+        try:
+            reply = await asyncio.get_event_loop().run_in_executor(None, _do_macro)
         except Exception as exc:
             log.warning("[inbound] macro failed: %s", exc)
             reply = f"매크로 데이터 조회 실패: {exc}"
@@ -463,7 +464,10 @@ async def _handle_command(
             return
         try:
             from tele_quant.briefing import run_4h_briefing
-            reply = run_4h_briefing(market, store, settings)
+            _store, _settings, _market = store, settings, market
+            reply = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: run_4h_briefing(_market, _store, _settings)
+            )
         except Exception as exc:
             log.warning("[inbound] briefing failed: %s", exc)
             reply = f"브리핑 생성 실패: {exc}"
@@ -480,7 +484,10 @@ async def _handle_command(
             await _send(client, token, chat_id, f"'{args}' 종목을 찾을 수 없습니다.")
             return
         symbol, _market = resolved
-        reply = _find_beneficiaries(symbol, store)
+        _sym2, _st2 = symbol, store
+        reply = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _find_beneficiaries(_sym2, _st2)
+        )
         await _send(client, token, chat_id, reply)
         return
 
@@ -503,7 +510,10 @@ async def _handle_command(
     symbol, market = resolved
     await _send(client, token, chat_id, f"⏳ {symbol} 분석 중...")
     try:
-        reply = analyze_single(symbol, market, store)
+        _sym, _mkt, _st = symbol, market, store
+        reply = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: analyze_single(_sym, _mkt, _st)
+        )
     except Exception as exc:
         log.warning("[inbound] analyze_single failed %s: %s", symbol, exc)
         reply = f"{symbol} 분석 실패: {exc}"
