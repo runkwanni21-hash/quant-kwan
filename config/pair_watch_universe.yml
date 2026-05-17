@@ -134,6 +134,63 @@ stocks:
     theme: equipment
     role: target
 
+  - ticker: "058470.KQ"
+    name: 리노공업
+    market: KR
+    sector: semiconductor
+    theme: test_socket
+    role: target
+
+  - ticker: ARM
+    name: ARM Holdings
+    market: US
+    sector: semiconductor
+    theme: ip_license
+    role: source
+
+  - ticker: AVGO
+    name: Broadcom
+    market: US
+    sector: semiconductor
+    theme: asic_custom
+    role: source
+
+  # ── 섹터 1b: AI 인프라 / PCB / 케이블 ──────────────────────────────
+  - ticker: "007660.KS"
+    name: 이수페타시스
+    market: KR
+    sector: ai_infra
+    theme: mlb_pcb
+    role: target
+
+  - ticker: "353200.KS"
+    name: 대덕전자
+    market: KR
+    sector: ai_infra
+    theme: mlb_pcb
+    role: target
+
+  - ticker: "229640.KS"
+    name: LS에코에너지
+    market: KR
+    sector: cable
+    theme: power_cable
+    role: target
+
+  - ticker: "025820.KS"
+    name: 대한전선
+    market: KR
+    sector: cable
+    theme: power_cable
+    role: target
+
+  - ticker: "103140.KS"
+    name: 풍산
+    market: KR
+    sector: cable
+    theme: copper_material
+    role: target
+
   # ── 섹터 2: AI 데이터센터 / 전력 / ESS / 전력기기 ──────────────────
   - ticker: VST
     name: Vistra Energy
@@ -450,6 +507,27 @@ stocks:
     market: KR
     sector: defense
     theme: defense_missile
+    role: both
+
+  - ticker: "272210.KS"
+    name: 한화시스템
+    market: KR
+    sector: defense
+    theme: defense_electronic
+    role: target
+
+  - ticker: "214320.KQ"
+    name: 세진중공업
+    market: KR
+    sector: defense
+    theme: shipbuilding_block
+    role: target
+
+  - ticker: "097230.KS"
+    name: HJ중공업
+    market: KR
+    sector: defense
+    theme: shipbuilding_equipment
     role: target
 
   - ticker: LMT
@@ -550,6 +628,34 @@ stocks:
     sector: bio_pharma
     theme: cns_drug
     role: target
+
+  - ticker: "196170.KQ"
+    name: 알테오젠
+    market: KR
+    sector: bio_pharma
+    theme: adc_platform
+    role: both
+
+  - ticker: "303720.KS"
+    name: 에스티팜
+    market: KR
+    sector: bio_pharma
+    theme: cdmo_adc
+    role: target
+
+  - ticker: NVO
+    name: Novo Nordisk
+    market: US
+    sector: bio_pharma
+    theme: glp1_obesity
+    role: source
+
+  - ticker: AMGN
+    name: Amgen
+    market: US
+    sector: bio_pharma
+    theme: biotech_large
+    role: both
 
   # ── 섹터 6: 자동차 / EV 배터리 ──────────────────────────────────────
   - ticker: TSLA

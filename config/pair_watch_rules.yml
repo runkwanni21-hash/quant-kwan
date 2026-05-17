@@ -285,3 +285,279 @@ rules:
     direction: UP_LEADS_UP
     min_source_move_pct: 2.5
     note: "삼성중공업 급등 후 조선 피어 후행 관찰"
+
+  # ── 반도체 협력/수주 심화 ────────────────────────────────────────
+
+  - id: hynix_hbm_leads_equipment
+    sector: semiconductor
+    theme: memory_hbm → equipment
+    source: "000660.KS"
+    targets:
+      - "042700.KS"   # 한미반도체 (TC본더 독점 수주)
+      - "039030.KQ"   # 이오테크닉스 (레이저 장비)
+      - "058470.KQ"   # 리노공업 (소켓/테스트)
+      - "095340.KQ"   # ISC (테스트 소켓)
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "SK하이닉스 HBM 수주 강세 → TC본더·장비·소켓 업체 후행 관찰"
+
+  - id: hynix_leads_samsung_memory
+    sector: semiconductor
+    theme: memory_hbm → peer
+    source: "000660.KS"
+    targets:
+      - "005930.KS"   # 삼성전자 (메모리 피어)
+      - MU            # Micron (글로벌 피어)
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "SK하이닉스 실적·가이던스 강세 → 메모리 피어 후행 관찰"
+
+  - id: mu_down_leads_kr_memory_down
+    sector: semiconductor
+    theme: memory_hbm → peer_down
+    source: MU
+    targets:
+      - "000660.KS"   # SK하이닉스
+      - "005930.KS"   # 삼성전자
+    direction: DOWN_LEADS_DOWN
+    min_source_move_pct: 3.0
+    note: "Micron 실적 쇼크·급락 → 한국 메모리 연쇄 하락 관찰"
+
+  - id: nvda_down_leads_semi_down
+    sector: semiconductor
+    theme: ai_gpu → broad_semi_down
+    source: NVDA
+    targets:
+      - AMD
+      - MU
+      - "000660.KS"
+      - "042700.KS"
+    direction: DOWN_LEADS_DOWN
+    min_source_move_pct: 4.0
+    note: "NVDA 급락 후 AI 반도체·HBM 연쇄 하락 관찰"
+
+  - id: avgo_custom_chip_leads_tsm
+    sector: semiconductor
+    theme: asic_custom → foundry
+    source: AVGO
+    targets:
+      - TSM           # 파운드리 최대 고객
+      - ASML          # 장비 수요
+      - "005930.KS"   # 삼성전자 파운드리
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "Broadcom 커스텀AI칩 수주 강세 → 파운드리·장비 수요 후행 관찰"
+
+  - id: arm_leads_mobile_semi
+    sector: semiconductor
+    theme: ip_license → mobile_semi
+    source: ARM
+    targets:
+      - QCOM          # ARM 최대 라이센시
+      - MRVL          # 데이터센터 ARM칩
+      - "005930.KS"   # 삼성 엑시노스
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "ARM 라이센스·신규 아키텍처 강세 → 모바일·DC 반도체 후행 관찰"
+
+  - id: tsm_leads_kr_foundry_semi
+    sector: semiconductor
+    theme: foundry → peer_equipment
+    source: TSM
+    targets:
+      - "005930.KS"   # 삼성전자 파운드리 경쟁/벤치
+      - "042700.KS"   # 한미반도체 (CoWoS 장비)
+      - "039030.KQ"   # 이오테크닉스
+      - ASML
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "TSMC capex 발표·실적 강세 → CoWoS 장비·국내 파운드리 후행 관찰"
+
+  - id: kr_hami_leads_equipment_peers
+    sector: semiconductor
+    theme: equipment_hbm
+    source: "042700.KS"
+    targets:
+      - "039030.KQ"   # 이오테크닉스 (레이저 어닐링)
+      - "058470.KQ"   # 리노공업
+      - "095340.KQ"   # ISC
+      - "036810.KQ"   # 에프에스티
+    direction: UP_LEADS_UP
+    min_source_move_pct: 4.0
+    note: "한미반도체 TC본더 수주 → 반도체 장비·소켓 피어 후행 관찰"
+
+  # ── AI 인프라 / PCB / 케이블 ────────────────────────────────────
+
+  - id: smci_leads_pcb_cable
+    sector: ai_infra
+    theme: ai_server → pcb_cable
+    source: SMCI
+    targets:
+      - "007660.KS"   # 이수페타시스 (MLB PCB AI서버)
+      - "대덕전자"     # placeholder — 실 티커 미반영 시 무시됨
+      - "229640.KS"   # LS에코에너지 (전선)
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "SMCI AI서버 수주 강세 → MLB PCB·케이블 후행 관찰"
+
+  - id: dell_ai_server_leads_pcb
+    sector: ai_infra
+    theme: ai_server → pcb
+    source: DELL
+    targets:
+      - "007660.KS"   # 이수페타시스
+      - SMCI
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "Dell AI서버 수주 강세 → PCB·SMCI 후행 관찰"
+
+  # ── 바이오 CDMO / 수주 관계 ──────────────────────────────────────
+
+  - id: lly_glp1_leads_kr_cdmo
+    sector: bio_pharma
+    theme: glp1_obesity → cdmo
+    source: LLY
+    targets:
+      - "207940.KS"   # 삼성바이오로직스 (CDMO 수주)
+      - "068270.KS"   # 셀트리온 (바이오시밀러 피어)
+      - "000100.KS"   # 유한양행 (국내 GLP-1 파이프라인)
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "Lilly GLP-1 강세 → CDMO 수주·국내 바이오 피어 후행 관찰"
+
+  - id: regn_oncology_leads_kr_bio
+    sector: bio_pharma
+    theme: oncology → cdmo_peer
+    source: REGN
+    targets:
+      - "207940.KS"   # 삼성바이오 (ADC CDMO)
+      - "196170.KQ"   # 알테오젠 (ADC 플랫폼)
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "Regeneron 항암 강세 → ADC CDMO·국내 플랫폼 후행 관찰"
+
+  - id: alteogen_adc_leads_kr_bio
+    sector: bio_pharma
+    theme: adc_platform → cdmo_peers
+    source: "196170.KQ"
+    targets:
+      - "207940.KS"   # 삼성바이오 (CDMO)
+      - "303720.KS"   # 에스티팜 (ADC CDMO)
+      - "000100.KS"   # 유한양행 (ADC 파이프라인 협력)
+    direction: UP_LEADS_UP
+    min_source_move_pct: 5.0
+    note: "알테오젠 ADC 플랫폼 수주 강세 → CDMO·피어 후행 관찰"
+
+  - id: samsung_bio_leads_kr_cdmo
+    sector: bio_pharma
+    theme: cdmo → peers
+    source: "207940.KS"
+    targets:
+      - "303720.KS"   # 에스티팜
+      - "196170.KQ"   # 알테오젠
+      - "068270.KS"   # 셀트리온
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "삼성바이오 수주·실적 강세 → CDMO·바이오 피어 후행 관찰"
+
+  # ── 조선 기자재 / 방산 2차 공급망 ───────────────────────────────
+
+  - id: kr_shipbuilding_leads_equipment
+    sector: defense
+    theme: shipbuilding → subcontract
+    source: "329180.KS"
+    targets:
+      - "214320.KQ"   # 세진중공업 (선박 블록)
+      - "097230.KS"   # HJ중공업 (기자재)
+      - "009540.KS"   # HD현대마린솔루션 (서비스)
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "HD현대중공업 수주 강세 → 선박 기자재·블록 협력사 후행 관찰"
+
+  - id: kr_hanwha_aero_leads_defense_supply
+    sector: defense
+    theme: defense_export → supply_chain
+    source: "012450.KS"
+    targets:
+      - "079550.KS"   # LIG넥스원 (유도무기 협력)
+      - "272210.KS"   # 한화시스템 (레이더·전자전)
+      - "047810.KS"   # 한국항공우주
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "한화에어로 수출 수주 강세 → 방산 2차 공급망 후행 관찰"
+
+  - id: kr_lig_leads_defense_peers
+    sector: defense
+    theme: defense_missile → peers
+    source: "079550.KS"
+    targets:
+      - "012450.KS"   # 한화에어로스페이스
+      - "272210.KS"   # 한화시스템
+      - "047810.KS"   # 한국항공우주
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "LIG넥스원 수주 강세 → 방산 피어 후행 관찰"
+
+  # ── 자동차 / EV 배터리 ───────────────────────────────────────────
+
+  - id: hyundai_leads_parts
+    sector: auto_ev
+    theme: ev_completion → parts
+    source: "005380.KS"
+    targets:
+      - "012330.KS"   # 현대모비스 (독점 부품)
+      - "000270.KS"   # 기아 (피어)
+      - "161390.KS"   # 한국타이어
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.5
+    note: "현대차 판매 서프라이즈 → 부품·피어 후행 관찰"
+
+  - id: tsla_leads_ev_battery
+    sector: auto_ev
+    theme: ev_completion → battery_chain
+    source: TSLA
+    targets:
+      - "373220.KS"   # LG에너지솔루션
+      - "006400.KS"   # 삼성SDI
+      - "003670.KS"   # 포스코퓨처엠
+      - FLNC
+    direction: UP_LEADS_UP
+    min_source_move_pct: 3.0
+    note: "테슬라 인도량·가이던스 강세 → 배터리·소재 후행 관찰"
+
+  - id: tsla_down_leads_battery_down
+    sector: auto_ev
+    theme: ev_demand_down → battery_down
+    source: TSLA
+    targets:
+      - "373220.KS"
+      - "006400.KS"
+      - "003670.KS"
+    direction: DOWN_LEADS_DOWN
+    min_source_move_pct: 4.0
+    note: "테슬라 수요 쇼크·급락 → 배터리·소재 연쇄 하락 관찰"
+
+  # ── 금융 / 금리 ──────────────────────────────────────────────────
+
+  - id: jpmorgan_leads_kr_finance
+    sector: finance
+    theme: banking_us → banking_kr
+    source: JPM
+    targets:
+      - "105560.KS"   # KB금융
+      - "055550.KS"   # 신한지주
+      - "086790.KS"   # 하나금융지주
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "JPMorgan 실적 강세 → 한국 금융주 후행 관찰 (글로벌 은행 모멘텀)"
+
+  - id: gs_leads_kr_securities
+    sector: finance
+    theme: ib_us → securities_kr
+    source: GS
+    targets:
+      - "016360.KS"   # 삼성증권
+      - "071050.KS"   # 한국금융지주
+    direction: UP_LEADS_UP
+    min_source_move_pct: 2.0
+    note: "골드만삭스 강세 → 국내 증권주 후행 관찰"

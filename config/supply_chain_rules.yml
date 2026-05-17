@@ -656,3 +656,121 @@ rules:
           - {symbol: BAC, name: Bank of America}
     mover_reasons_bullish: [earnings_beat, rate_fx_macro, guidance_up]
     mover_reasons_bearish: [earnings_miss, rate_fx_macro, guidance_down]
+
+  # ── 17. AI 인프라 / PCB / 네트워크 ──────────────────────────────
+  - id: ai_infra_pcb_kr
+    name: AI 인프라 / PCB KR
+    market: KR
+    chain_name: AI 서버 수주 → MLB PCB / 네트워크 부품
+    description: AI 서버·HPC capex 확대 → 고다층 PCB·네트워크 부품 수혜
+    source_sectors: [AI, 서버, 데이터센터, 네트워크]
+    source_keywords: [AI서버, 데이터센터, HPC, 네트워크, PCB, SMCI, DELL, NVIDIA]
+    source_symbols:
+      - {symbol: SMCI, name: Super Micro}
+      - {symbol: DELL, name: Dell Technologies}
+      - {symbol: NVDA, name: NVIDIA}
+      - {symbol: 000660.KS, name: SK하이닉스}
+    beneficiaries:
+      - relation_type: BENEFICIARY
+        sector: AI서버 PCB
+        connection: AI 서버 수주 증가 → MLB(고다층) PCB 수요 급증
+        symbols:
+          - {symbol: 007660.KS, name: 이수페타시스}
+          - {symbol: 353200.KS, name: 대덕전자}
+          - {symbol: 008110.KS, name: 대덕GDS}
+      - relation_type: BENEFICIARY
+        sector: 네트워크 부품
+        connection: 데이터센터 확장 → 스위치·라우터·커넥터 수요
+        symbols:
+          - {symbol: 032790.KS, name: 에이텍}
+          - {symbol: 036810.KQ, name: 에프에스티}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: PCB
+        connection: AI capex 축소 → 고다층 PCB 주문 감소
+        symbols:
+          - {symbol: 007660.KS, name: 이수페타시스}
+          - {symbol: 353200.KS, name: 대덕전자}
+    mover_reasons_bullish: [ai_capex, order_contract, earnings_beat, guidance_up]
+    mover_reasons_bearish: [ai_capex, earnings_miss, guidance_down]
+
+  # ── 18. 구리 / 전선 / 케이블 ─────────────────────────────────────
+  - id: copper_cable_kr
+    name: 구리 / 전선 / 케이블 KR
+    market: KR
+    chain_name: AI 전력망·데이터센터 → 구리/전선/케이블
+    description: AI 데이터센터·신재생·그리드 투자 → 구리·전선·케이블 수요 폭증
+    source_sectors: [AI, 전력기기, 신재생에너지, 데이터센터]
+    source_keywords: [전선, 케이블, 구리, 데이터센터, 전력망, AI, 그리드]
+    source_symbols:
+      - {symbol: 010120.KS, name: LS ELECTRIC}
+      - {symbol: 267260.KS, name: HD현대일렉트릭}
+      - {symbol: ETN, name: Eaton}
+      - {symbol: PWR, name: Quanta Services}
+    beneficiaries:
+      - relation_type: SUPPLY_CHAIN_COST
+        sector: 전선/케이블
+        connection: 전력망·데이터센터 확장 → 초고압 케이블·전선 수요 급증
+        symbols:
+          - {symbol: 229640.KS, name: LS에코에너지}
+          - {symbol: 000500.KS, name: 가온전선}
+          - {symbol: 001260.KS, name: 남전선}
+          - {symbol: 025820.KS, name: 대한전선}
+      - relation_type: BENEFICIARY
+        sector: 구리 소재
+        connection: 케이블 수요 증가 → 원자재 구리 가격 연동 수혜
+        symbols:
+          - {symbol: 010130.KS, name: 고려아연}
+          - {symbol: 103140.KS, name: 풍산}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 전선
+        connection: AI capex 둔화 → 초고압 케이블 발주 감소
+        symbols:
+          - {symbol: 229640.KS, name: LS에코에너지}
+          - {symbol: 025820.KS, name: 대한전선}
+    mover_reasons_bullish: [ai_capex, order_contract, policy_benefit, earnings_beat]
+    mover_reasons_bearish: [earnings_miss, guidance_down, rate_fx_macro]
+
+  # ── 19. 조선 기자재 심화 KR ──────────────────────────────────────
+  - id: shipbuilding_subcontract_kr
+    name: 조선 기자재 / 의장품 KR
+    market: KR
+    chain_name: 조선 수주 확정 → 기자재 / 블록 / 의장품 2차 수혜
+    description: 대형 조선 수주 → 선박 블록·기자재·의장품 중소형 협력사 수혜
+    source_sectors: [조선, LNG선, 방산함정]
+    source_keywords: [조선, LNG, 수주, 함정, 잠수함, 블록, 기자재, 의장]
+    source_symbols:
+      - {symbol: 329180.KS, name: HD현대중공업}
+      - {symbol: 010140.KS, name: 삼성중공업}
+      - {symbol: 042660.KS, name: 한화오션}
+    beneficiaries:
+      - relation_type: SUPPLY_CHAIN_COST
+        sector: 선박 블록 / 구조물
+        connection: 수주 확정 → 선박 블록 협력사 하도급 발주 기대
+        symbols:
+          - {symbol: 214320.KQ, name: 세진중공업}
+          - {symbol: 097230.KS, name: HJ중공업}
+          - {symbol: 009540.KS, name: HD현대마린솔루션}
+      - relation_type: BENEFICIARY
+        sector: 선박 의장 / 기자재
+        connection: 조선 수주 확대 → 엔진·의장품·선박전장 주문 기대
+        symbols:
+          - {symbol: 071970.KS, name: HD현대일렉트릭}
+          - {symbol: 077970.KS, name: STX엔진}
+          - {symbol: 100840.KS, name: 에스엠코어}
+      - relation_type: BENEFICIARY
+        sector: LNG 특수 기자재
+        connection: LNG선 수주 → LNG 저장·탱크·밸브 업체 수혜
+        symbols:
+          - {symbol: 101490.KS, name: S&T모티브}
+          - {symbol: 075580.KS, name: 나무가}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 기자재
+        connection: 수주 감소 → 협력사 매출 감소 우려
+        symbols:
+          - {symbol: 214320.KQ, name: 세진중공업}
+          - {symbol: 097230.KS, name: HJ중공업}
+    mover_reasons_bullish: [order_contract, policy_benefit, earnings_beat]
+    mover_reasons_bearish: [order_contract, earnings_miss, guidance_down]
