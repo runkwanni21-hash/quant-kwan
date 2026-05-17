@@ -3452,6 +3452,9 @@ def surge_scan_cmd(
     skip_dedup: Annotated[
         bool, typer.Option("--skip-dedup/--no-skip-dedup", help="중복 알림 체크 건너뜀")
     ] = False,
+    force: Annotated[
+        bool, typer.Option("--force/--no-force", help="장 마감 시간에도 강제 실행 (테스트용)")
+    ] = False,
     send: Annotated[
         bool, typer.Option("--send/--no-send", help="텔레그램 전송 여부")
     ] = False,
@@ -3460,6 +3463,7 @@ def surge_scan_cmd(
 
     Example: uv run tele-quant surge-scan --market KR --threshold 3.0 --send
              uv run tele-quant surge-scan --market ALL --no-send
+             uv run tele-quant surge-scan --no-send --skip-dedup --force  (장 마감 테스트)
     """
     from pathlib import Path as _Path
 
@@ -3472,11 +3476,11 @@ def surge_scan_cmd(
 
     console.print(
         f"[bold]Surge Scan[/bold] market={market} threshold={threshold}% "
-        f"min_gap={min_gap}% workers={max_workers} send={send}"
+        f"min_gap={min_gap}% workers={max_workers} send={send} force={force}"
     )
 
-    if not is_market_open(market):
-        console.print(f"[dim]시장 마감 시간 — surge-scan 건너뜀 (market={market})[/dim]")
+    if not force and not is_market_open(market):
+        console.print(f"[dim]시장 마감 시간 — surge-scan 건너뜀 (market={market}, --force 로 강제 실행 가능)[/dim]")
         return
 
     dart_key = getattr(settings, "dart_api_key", "") or ""
