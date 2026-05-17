@@ -1,0 +1,12 @@
+[Unit]
+Description=KR 4H 브리핑 — 06:00 10:00 14:00 18:00 KST (UTC 21 01 05 09)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 21:00:00
+OnCalendar=Mon..Fri *-*-* 01:00:00
+OnCalendar=Mon..Fri *-*-* 05:00:00
+OnCalendar=Mon..Fri *-*-* 09:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

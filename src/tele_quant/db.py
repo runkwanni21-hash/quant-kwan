@@ -278,6 +278,82 @@ CREATE TABLE IF NOT EXISTS surge_targets (
 
 CREATE INDEX IF NOT EXISTS idx_surge_targets_created_at ON surge_targets(created_at);
 CREATE INDEX IF NOT EXISTS idx_surge_targets_target ON surge_targets(target_symbol);
+
+CREATE TABLE IF NOT EXISTS mock_portfolio_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    market TEXT NOT NULL DEFAULT '',
+    side TEXT NOT NULL DEFAULT 'LONG',
+    sector TEXT NOT NULL DEFAULT '',
+    entry_price REAL NOT NULL,
+    entry_score REAL NOT NULL,
+    entry_at TEXT NOT NULL,
+    invalidation_price TEXT,
+    target_price TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    exit_price REAL,
+    exit_at TEXT,
+    return_pct REAL,
+    is_institutional_blind_spot INTEGER DEFAULT 0,
+    source_pick_id INTEGER,
+    UNIQUE(symbol, side, entry_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mock_portfolio_status ON mock_portfolio_positions(status);
+CREATE INDEX IF NOT EXISTS idx_mock_portfolio_symbol ON mock_portfolio_positions(symbol);
+
+CREATE TABLE IF NOT EXISTS fundamentals_snapshot (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fetched_at TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    market TEXT NOT NULL DEFAULT '',
+    sector TEXT NOT NULL DEFAULT '',
+    market_cap_krw REAL,
+    market_cap_usd REAL,
+    pe_trailing REAL,
+    pe_forward REAL,
+    pb REAL,
+    roe REAL,
+    eps_growth REAL,
+    revenue_growth REAL,
+    op_margin REAL,
+    debt_to_equity REAL,
+    dividend_yield REAL,
+    w52_high REAL,
+    w52_low REAL,
+    w52_position_pct REAL,
+    current_price REAL,
+    is_blind_spot INTEGER DEFAULT 0,
+    fetch_date TEXT,
+    UNIQUE(symbol, fetch_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fundamentals_symbol ON fundamentals_snapshot(symbol);
+CREATE INDEX IF NOT EXISTS idx_fundamentals_fetched ON fundamentals_snapshot(fetched_at);
+
+CREATE TABLE IF NOT EXISTS macro_snapshot (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fetched_at TEXT NOT NULL,
+    wti_price REAL,
+    wti_chg REAL,
+    us10y REAL,
+    us10y_chg REAL,
+    usd_krw REAL,
+    usd_krw_chg REAL,
+    vix REAL,
+    vix_chg REAL,
+    gold_price REAL,
+    gold_chg REAL,
+    sp500_chg REAL,
+    kospi_chg REAL,
+    dxy REAL,
+    dxy_chg REAL,
+    regime TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_macro_snapshot_fetched ON macro_snapshot(fetched_at);
 """
 
 # Columns added after initial schema — applied via ALTER TABLE in _init

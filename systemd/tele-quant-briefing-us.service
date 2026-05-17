@@ -1,0 +1,8 @@
+[Unit]
+Description=Tele Quant 4H 퀀터멘탈 브리핑 — US (매크로·종목·포트폴리오 통합)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+ExecStart=%h/.local/bin/uv run tele-quant briefing --market US --send

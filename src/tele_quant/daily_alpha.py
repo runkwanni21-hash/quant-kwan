@@ -301,6 +301,14 @@ def _fetch_kr_universe(top_n: int = 200) -> list[tuple[str, str, str]]:
                 seen.add(sym)
                 deduped.append((sym, name, sector))
 
+        # _UNIVERSE_KR 의도 종목 우선순위 정렬 (항상 포함 보장)
+        try:
+            from tele_quant.relation_feed import _UNIVERSE_KR
+            priority_set = set(_UNIVERSE_KR)
+            deduped.sort(key=lambda x: (0 if x[0] in priority_set else 1))
+        except Exception:
+            pass
+
         return deduped[:top_n]
 
     except Exception as exc:
@@ -309,19 +317,27 @@ def _fetch_kr_universe(top_n: int = 200) -> list[tuple[str, str, str]]:
 
 
 def _fetch_us_universe(top_n: int = 200) -> list[tuple[str, str, str]]:
-    """NASDAQ + NYSE 상위 종목 — alias book에서 US 심볼 추출."""
+    """큐레이션된 US 유니버스 — relation_feed._UNIVERSE_US 기준 (오염 방지)."""
     try:
-        from tele_quant.analysis.aliases import load_alias_config
+        from tele_quant.relation_feed import _UNIVERSE_US
 
-        book = load_alias_config()
-        us_syms = [
-            (s.symbol, s.name, s.sector)
-            for s in book.all_symbols
-            if s.market == "US" and 2 <= len(s.symbol) <= 5
-        ]
-        # Priority: shorter symbols (usually larger caps) first
-        us_syms.sort(key=lambda x: len(x[0]))
-        return us_syms[:top_n]
+        # alias book에서 이름·섹터 보강
+        name_map: dict[str, tuple[str, str]] = {}
+        try:
+            from tele_quant.analysis.aliases import load_alias_config
+            book = load_alias_config()
+            for s in book.all_symbols:
+                if s.market == "US":
+                    name_map[s.symbol] = (s.name or s.symbol, s.sector or "")
+        except Exception:
+            pass
+
+        result: list[tuple[str, str, str]] = []
+        for sym in _UNIVERSE_US:
+            name, sector = name_map.get(sym, (sym, ""))
+            result.append((sym, name, sector))
+
+        return result[:top_n]
     except Exception as exc:
         log.warning("US universe build failed: %s", exc)
         return []

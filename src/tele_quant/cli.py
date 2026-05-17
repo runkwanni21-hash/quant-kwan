@@ -3524,6 +3524,98 @@ def surge_scan_cmd(
         console.print("[dim](--no-send: 미리보기만)[/dim]")
 
 
+@app.command("briefing")
+def briefing_cmd(
+    market: Annotated[
+        str, typer.Option("--market", help="시장 (KR / US / ALL)")
+    ] = "KR",
+    top_n: Annotated[
+        int, typer.Option("--top-n", help="LONG/SHORT 후보 최대 수")
+    ] = 5,
+    send: Annotated[
+        bool, typer.Option("--send/--no-send", help="텔레그램 전송 여부")
+    ] = False,
+) -> None:
+    """4H 퀀터멘탈 브리핑 — 매크로·펀더멘탈·종목·포트폴리오 통합.
+
+    Example: uv run tele-quant briefing --market KR --send
+             uv run tele-quant briefing --market ALL --no-send
+    """
+    from pathlib import Path as _Path
+    from tele_quant.briefing import run_4h_briefing
+    from tele_quant.db import Store as _Store
+
+    market = market.upper()
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    markets = ["KR", "US"] if market == "ALL" else [market]
+
+    for mkt in markets:
+        console.print(f"[bold]4H Briefing[/bold] market={mkt} top_n={top_n} send={send}")
+
+        try:
+            report = run_4h_briefing(mkt, store, settings, top_n=top_n)
+        except Exception as exc:
+            console.print(f"[red]briefing failed: {exc}[/red]")
+            continue
+
+        if not report:
+            console.print(f"[dim]{mkt} 브리핑 생성 실패[/dim]")
+            continue
+
+        console.print("\n" + report)
+
+        if send:
+            async def _send(r: str = report) -> None:
+                sender = TelegramSender(settings)
+                await sender.send(r)
+
+            asyncio.run(_send())
+            console.print(f"[green]{mkt} 브리핑 전송 완료[/green]")
+        else:
+            console.print("[dim](--no-send: 미리보기만)[/dim]")
+
+
+@app.command("portfolio-status")
+def portfolio_status_cmd(
+    send: Annotated[
+        bool, typer.Option("--send/--no-send", help="텔레그램 전송 여부")
+    ] = False,
+) -> None:
+    """모의 포트폴리오 현재 P&L 스냅샷.
+
+    Example: uv run tele-quant portfolio-status --no-send
+    """
+    from pathlib import Path as _Path
+    from tele_quant.db import Store as _Store
+    from tele_quant.mock_portfolio import build_portfolio_section, get_portfolio_summary
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    summary = get_portfolio_summary(store)
+    section = build_portfolio_section(store)
+
+    console.print(f"[bold]모의 포트폴리오[/bold]  보유 {summary['open_count']}/{summary['max_positions']}  "
+                  f"승률 {summary['win_rate']:.0f}%  평균수익 {summary['avg_return']:+.1f}%")
+    console.print("\n" + section)
+
+    if send and section:
+        from datetime import UTC as _UTC
+        header = f"💼 모의 포트폴리오 현황 — {datetime.now(_UTC).strftime('%m/%d %H:%M')} UTC\n"
+        report = header + section + "\n\n⚠ 공개 정보 기반 리서치 보조. 투자 판단 책임은 사용자에게 있음"
+
+        async def _send() -> None:
+            sender = TelegramSender(settings)
+            await sender.send(report)
+
+        asyncio.run(_send())
+        console.print("[green]전송 완료[/green]")
+    elif not send:
+        console.print("[dim](--no-send: 미리보기만)[/dim]")
+
+
 @app.command("alpha-review")
 def alpha_review_cmd(
     market: Annotated[

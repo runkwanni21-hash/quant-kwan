@@ -1,0 +1,12 @@
+[Unit]
+Description=US 4H 브리핑 — 14:00 18:00 22:00 ET + 06:00 (UTC 18 22 02 10)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 18:00:00
+OnCalendar=Mon..Fri *-*-* 22:00:00
+OnCalendar=Mon..Fri *-*-* 02:00:00
+OnCalendar=Mon..Fri *-*-* 10:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
