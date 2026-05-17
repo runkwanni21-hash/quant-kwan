@@ -174,6 +174,22 @@ class Settings(BaseSettings):
     report_max_bearish_tickers: int = 4
     report_max_pair_watch: int = 4
 
+    # ── 4H Advisory-only 모드 ─────────────────────────────────────────────────
+    # True 이면 잦은 알림(surge/price_alert/daily_alpha)을 4H 브리핑으로 흡수
+    advisory_only_mode: bool = True
+    # True 이면 즉시 발송 조건(score>=90+direct_evidence)을 만족해야만 독립 발송
+    alert_digest_only: bool = True
+    # 즉시 발송 최소 점수 (score >= 이 값 + direct_evidence 필수)
+    urgent_alert_min_score: float = 90.0
+    # 4H 브리핑 포함 최소 점수
+    advisory_min_score: float = 70.0
+    # 4H 브리핑 내 LONG 최대 표시 수
+    advisory_max_longs: int = 3
+    # 4H 브리핑 내 SHORT 최대 표시 수
+    advisory_max_shorts: int = 1
+    # 4H 브리핑 내 WATCH 최대 표시 수
+    advisory_max_watch: int = 5
+
     # Watchlist
     watchlist_enabled: bool = True
     watchlist_path: str = "config/watchlist.yml"

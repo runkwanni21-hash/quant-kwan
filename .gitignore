@@ -11,6 +11,7 @@ telegram.session
 tele_quant.session
 
 # runtime data
+data/private/
 data/*.db
 data/*.db-*
 data/*.sqlite
