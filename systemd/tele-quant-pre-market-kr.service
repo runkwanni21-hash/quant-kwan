@@ -1,0 +1,8 @@
+[Unit]
+Description=Tele Quant Pre-Market Alert — KR 08:00 KST (US 전일 급등락 → KR 연동 예열)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+ExecStart=%h/.local/bin/uv run tele-quant pre-market-alert --send --threshold 3.0 --top-n 8

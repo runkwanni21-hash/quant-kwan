@@ -1,0 +1,9 @@
+[Unit]
+Description=KR Pre-Market Alert — 매일 08:00 KST (US 전일 종가 기준 예열 알림)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 08:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

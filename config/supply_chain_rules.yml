@@ -774,3 +774,348 @@ rules:
           - {symbol: 097230.KS, name: HJ중공업}
     mover_reasons_bullish: [order_contract, policy_benefit, earnings_beat]
     mover_reasons_bearish: [order_contract, earnings_miss, guidance_down]
+
+  # ── 20. US 방산 ↔ KR 방산/항공우주 (양방향) ────────────────────────────────
+  - id: defense_cross_market_us_to_kr
+    name: US 방산 급등 → KR 방산 후행 관찰
+    market: CROSS
+    chain_name: US 방산 랠리 → KR 방산·항공우주 동조 관찰
+    description: LMT/RTX/GD/NOC 급등 시 KR 방산·항공우주 종목 후행 모멘텀 관찰
+    source_sectors: [방산, 항공우주, 방산전자]
+    source_keywords: [방산, 수주, 지정학, 전쟁, NATO, 국방예산, 방위비]
+    source_symbols:
+      - {symbol: LMT, name: Lockheed Martin}
+      - {symbol: RTX, name: RTX Corporation}
+      - {symbol: NOC, name: Northrop Grumman}
+      - {symbol: GD, name: General Dynamics}
+      - {symbol: LHX, name: L3Harris}
+      - {symbol: HII, name: Huntington Ingalls}
+    beneficiaries:
+      - relation_type: LAGGING_BENEFICIARY
+        sector: 방산/항공우주
+        connection: US 방산 랠리 → KR 방산 글로벌 수요 동조 후행 기대
+        symbols:
+          - {symbol: 012450.KS, name: 한화에어로스페이스}
+          - {symbol: 047810.KS, name: 한국항공우주}
+          - {symbol: 272210.KS, name: 한화시스템}
+      - relation_type: PEER_MOMENTUM
+        sector: 방산/미사일
+        connection: US 방산 피어 모멘텀 → KR 미사일·유도무기 관찰
+        symbols:
+          - {symbol: 079550.KS, name: LIG넥스원}
+          - {symbol: 064350.KS, name: 현대로템}
+          - {symbol: 103140.KS, name: 풍산}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 방산
+        connection: 지정학 완화·예산 삭감 시 방산 수요 둔화 우려
+        symbols:
+          - {symbol: 012450.KS, name: 한화에어로스페이스}
+          - {symbol: 079550.KS, name: LIG넥스원}
+    mover_reasons_bullish: [order_contract, policy_benefit, geopolitics]
+    mover_reasons_bearish: [policy_risk, guidance_down, geopolitics]
+
+  # ── 21. KR 방산/조선 → US 방산 후행 (역방향) ──────────────────────────────
+  - id: defense_cross_market_kr_to_us
+    name: KR 방산/조선 급등 → US 방산 동조 관찰
+    market: CROSS
+    chain_name: KR 방산·조선 랠리 → US 방산 피어 모멘텀
+    description: 한화에어로/HD현대중공업 급등 시 지정학 모멘텀이 US 방산에도 전파 가능
+    source_sectors: [방산/항공우주, 조선/방산]
+    source_keywords: [수주, 방산, 조선, 지정학, 국방, K방산]
+    source_symbols:
+      - {symbol: 012450.KS, name: 한화에어로스페이스}
+      - {symbol: 329180.KS, name: HD현대중공업}
+      - {symbol: 047810.KS, name: 한국항공우주}
+      - {symbol: 079550.KS, name: LIG넥스원}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 방산/항공
+        connection: KR 방산 랠리 → 지정학 프리미엄이 US 방산 피어로 전파 가능
+        symbols:
+          - {symbol: LMT, name: Lockheed Martin}
+          - {symbol: RTX, name: RTX Corporation}
+          - {symbol: NOC, name: Northrop Grumman}
+          - {symbol: KTOS, name: Kratos Defense}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 방산
+        connection: KR 방산 약세 → 지정학 완화 신호, US 방산 부담 가능
+        symbols:
+          - {symbol: LMT, name: Lockheed Martin}
+          - {symbol: RTX, name: RTX Corporation}
+    mover_reasons_bullish: [order_contract, geopolitics, policy_benefit]
+    mover_reasons_bearish: [policy_risk, geopolitics]
+
+  # ── 22. US 반도체장비 ↔ KR 반도체 소부장 (양방향) ─────────────────────────
+  - id: semicon_equip_cross_us_to_kr
+    name: US 반도체장비 → KR 반도체 소부장 후행
+    market: CROSS
+    chain_name: US 장비주 랠리 → KR 소부장 후행 관찰
+    description: ASML/AMAT/LRCX/KLAC 급등 시 KR 반도체 소부장 후행 수혜 관찰
+    source_sectors: [반도체장비]
+    source_keywords: [반도체, 장비, EUV, 식각, 증착, 검사, WFE]
+    source_symbols:
+      - {symbol: ASML, name: ASML}
+      - {symbol: AMAT, name: Applied Materials}
+      - {symbol: LRCX, name: Lam Research}
+      - {symbol: KLAC, name: KLA Corp}
+      - {symbol: ACLS, name: Axcelis Technologies}
+      - {symbol: ONTO, name: Onto Innovation}
+    beneficiaries:
+      - relation_type: LAGGING_BENEFICIARY
+        sector: 반도체장비
+        connection: US 장비주 랠리 → KR 반도체 장비·소재 국산화 수혜 후행
+        symbols:
+          - {symbol: 042700.KS, name: 한미반도체}
+          - {symbol: 039030.KS, name: 이오테크닉스}
+          - {symbol: 240810.KS, name: 원익IPS}
+      - relation_type: PEER_MOMENTUM
+        sector: 반도체소재
+        connection: 글로벌 WFE 사이클 회복 → KR 소재 수요 동조
+        symbols:
+          - {symbol: 058470.KS, name: 리노공업}
+          - {symbol: 166090.KS, name: 하나머티리얼즈}
+          - {symbol: 357780.KS, name: 솔브레인}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 반도체소부장
+        connection: WFE 사이클 하강 → KR 소부장 주문 감소 우려
+        symbols:
+          - {symbol: 042700.KS, name: 한미반도체}
+          - {symbol: 039030.KS, name: 이오테크닉스}
+    mover_reasons_bullish: [earnings_beat, order_contract, ai_capex]
+    mover_reasons_bearish: [earnings_miss, guidance_down, inventory_build]
+
+  # ── 23. KR 반도체 소부장 → US 장비주 역방향 ─────────────────────────────────
+  - id: semicon_equip_cross_kr_to_us
+    name: KR 반도체 소부장 급등 → US 장비주 동조 관찰
+    market: CROSS
+    chain_name: KR 소부장 랠리 → WFE 사이클 확인 → US 장비주 피어 모멘텀
+    description: 한미반도체/이오테크닉스 급등 시 글로벌 WFE 사이클 강세 신호로 US 장비주 동조 가능
+    source_sectors: [반도체장비, 반도체소재]
+    source_keywords: [반도체, 패키징, HBM, 레이저, 본딩, 검사]
+    source_symbols:
+      - {symbol: 042700.KS, name: 한미반도체}
+      - {symbol: 039030.KS, name: 이오테크닉스}
+      - {symbol: 240810.KS, name: 원익IPS}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 반도체장비
+        connection: KR 소부장 랠리 → WFE 사이클 강세 신호 → US 장비 피어 모멘텀
+        symbols:
+          - {symbol: AMAT, name: Applied Materials}
+          - {symbol: LRCX, name: Lam Research}
+          - {symbol: KLAC, name: KLA Corp}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 반도체장비
+        connection: KR 소부장 약세 → WFE 수요 둔화 신호
+        symbols:
+          - {symbol: AMAT, name: Applied Materials}
+          - {symbol: LRCX, name: Lam Research}
+    mover_reasons_bullish: [order_contract, earnings_beat, ai_capex]
+    mover_reasons_bearish: [guidance_down, inventory_build]
+
+  # ── 24. US AI 전력기기 ↔ KR 전력기기 (양방향) ────────────────────────────────
+  - id: power_grid_cross_us_to_kr
+    name: US AI 전력기기 → KR 전력기기 후행
+    market: CROSS
+    chain_name: ETN/GEV/HUBB 랠리 → KR 효성중공업·LS ELECTRIC·HD현대일렉트릭 후행
+    description: US 전력기기 급등 시 KR 변압기·개폐기·전력기기 글로벌 수요 동조
+    source_sectors: [AI전력기기, 발전설비]
+    source_keywords: [전력기기, 변압기, 그리드, AI전력, 데이터센터, 전력수요]
+    source_symbols:
+      - {symbol: ETN, name: Eaton}
+      - {symbol: GEV, name: GE Vernova}
+      - {symbol: PWR, name: Quanta Services}
+      - {symbol: HUBB, name: Hubbell}
+    beneficiaries:
+      - relation_type: LAGGING_BENEFICIARY
+        sector: AI전력기기
+        connection: US 전력기기 랠리 → KR 변압기·전력기기 글로벌 수요 후행
+        symbols:
+          - {symbol: 298040.KS, name: 효성중공업}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
+          - {symbol: 267260.KS, name: HD현대일렉트릭}
+      - relation_type: PEER_MOMENTUM
+        sector: 전선/케이블
+        connection: 그리드 인프라 투자 → 전선 수요 동조
+        symbols:
+          - {symbol: 103590.KQ, name: 일진전기}
+          - {symbol: 033100.KQ, name: 제룡전기}
+          - {symbol: 229640.KS, name: LS에코에너지}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: AI전력기기
+        connection: AI 전력 수요 둔화 → KR 전력기기 주문 감소 우려
+        symbols:
+          - {symbol: 298040.KS, name: 효성중공업}
+          - {symbol: 010120.KS, name: LS ELECTRIC}
+    mover_reasons_bullish: [ai_capex, order_contract, policy_benefit]
+    mover_reasons_bearish: [guidance_down, demand_slowdown]
+
+  # ── 25. KR 전력기기 → US 전력기기 역방향 ────────────────────────────────────
+  - id: power_grid_cross_kr_to_us
+    name: KR 전력기기 급등 → US 전력기기 동조 관찰
+    market: CROSS
+    chain_name: KR 변압기 랠리 → 글로벌 그리드 수요 확인 → US 전력기기 피어 모멘텀
+    description: 효성중공업/HD현대일렉트릭 급등 시 글로벌 그리드 수요 확인으로 US ETN/HUBB 동조 가능
+    source_sectors: [AI전력기기, 변압기]
+    source_keywords: [변압기, 전력기기, 수주, 그리드, 전력수요]
+    source_symbols:
+      - {symbol: 298040.KS, name: 효성중공업}
+      - {symbol: 267260.KS, name: HD현대일렉트릭}
+      - {symbol: 010120.KS, name: LS ELECTRIC}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: AI전력기기
+        connection: KR 변압기 랠리 → 글로벌 그리드 수요 강세 신호 → US 전력기기 동조
+        symbols:
+          - {symbol: ETN, name: Eaton}
+          - {symbol: HUBB, name: Hubbell}
+          - {symbol: GEV, name: GE Vernova}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: AI전력기기
+        connection: KR 전력기기 약세 → 글로벌 그리드 수요 둔화 신호
+        symbols:
+          - {symbol: ETN, name: Eaton}
+          - {symbol: HUBB, name: Hubbell}
+    mover_reasons_bullish: [order_contract, ai_capex, earnings_beat]
+    mover_reasons_bearish: [guidance_down, demand_slowdown]
+
+  # ── 26. US K뷰티·뷰티 ↔ KR K뷰티 (양방향) ───────────────────────────────────
+  - id: kbeauty_cross_us_to_kr
+    name: US 뷰티 급등 → KR K뷰티 후행
+    market: CROSS
+    chain_name: ELF/ULTA 랠리 → KR 아모레·LG생활건강·한국콜마·코스맥스 후행
+    description: 미국 뷰티 소비 강세 시 KR ODM·브랜드 글로벌 수출 수혜 후행
+    source_sectors: [K뷰티/뷰티, 뷰티리테일]
+    source_keywords: [뷰티, 화장품, 미국소비, K뷰티, ODM, 수출]
+    source_symbols:
+      - {symbol: ELF, name: e.l.f. Beauty}
+      - {symbol: ULTA, name: Ulta Beauty}
+      - {symbol: NKE, name: Nike}
+    beneficiaries:
+      - relation_type: LAGGING_BENEFICIARY
+        sector: K뷰티브랜드
+        connection: 미국 뷰티 소비 강세 → KR 뷰티 수출·ODM 글로벌 수혜 후행
+        symbols:
+          - {symbol: 090430.KS, name: 아모레퍼시픽}
+          - {symbol: 051900.KS, name: LG생활건강}
+          - {symbol: 237880.KQ, name: 클리오}
+      - relation_type: PEER_MOMENTUM
+        sector: K뷰티ODM
+        connection: 글로벌 뷰티 수요 → KR ODM 수주 피어 모멘텀
+        symbols:
+          - {symbol: 161890.KQ, name: 한국콜마}
+          - {symbol: 192820.KQ, name: 코스맥스}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: K뷰티
+        connection: 미국 소비 둔화 → KR K뷰티 수출 수요 감소 우려
+        symbols:
+          - {symbol: 090430.KS, name: 아모레퍼시픽}
+          - {symbol: 161890.KQ, name: 한국콜마}
+    mover_reasons_bullish: [earnings_beat, consumer_spending, guidance_up]
+    mover_reasons_bearish: [earnings_miss, consumer_slowdown, guidance_down]
+
+  # ── 27. KR K뷰티 → US 뷰티 역방향 ──────────────────────────────────────────
+  - id: kbeauty_cross_kr_to_us
+    name: KR K뷰티 급등 → US 뷰티 피어 모멘텀
+    market: CROSS
+    chain_name: 한국콜마·코스맥스 랠리 → 글로벌 뷰티 수요 강세 → ELF/ULTA 동조
+    description: KR ODM 급등 시 글로벌 뷰티 소비 강세 신호로 US 뷰티 피어 동조 가능
+    source_sectors: [K뷰티ODM, K뷰티브랜드]
+    source_keywords: [K뷰티, ODM, 수출, 화장품, 미국수출]
+    source_symbols:
+      - {symbol: 161890.KQ, name: 한국콜마}
+      - {symbol: 192820.KQ, name: 코스맥스}
+      - {symbol: 090430.KS, name: 아모레퍼시픽}
+    beneficiaries:
+      - relation_type: PEER_MOMENTUM
+        sector: 뷰티
+        connection: K뷰티 글로벌 수요 확인 → US 뷰티 피어 모멘텀
+        symbols:
+          - {symbol: ELF, name: e.l.f. Beauty}
+          - {symbol: ULTA, name: Ulta Beauty}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 뷰티
+        connection: K뷰티 수요 둔화 → 글로벌 뷰티 소비 약화 신호
+        symbols:
+          - {symbol: ELF, name: e.l.f. Beauty}
+    mover_reasons_bullish: [earnings_beat, order_contract, consumer_spending]
+    mover_reasons_bearish: [earnings_miss, guidance_down]
+
+  # ── 28. US EV/배터리 ↔ KR 배터리 소재 (양방향) ──────────────────────────────
+  - id: ev_battery_cross_us_to_kr
+    name: US EV/배터리 → KR 배터리 소재 후행
+    market: CROSS
+    chain_name: TSLA/리튬주 랠리 → KR 에코프로비엠·엘앤에프·포스코퓨처엠 후행
+    description: EV 수요·리튬 가격 강세 시 KR 배터리 소재 후행 수혜 관찰
+    source_sectors: [전기차/에너지, ESS/에너지]
+    source_keywords: [EV, 배터리, 리튬, 양극재, 전기차, IRA, 에너지저장]
+    source_symbols:
+      - {symbol: TSLA, name: Tesla}
+      - {symbol: FLNC, name: Fluence Energy}
+      - {symbol: FSLR, name: First Solar}
+    beneficiaries:
+      - relation_type: LAGGING_BENEFICIARY
+        sector: 배터리소재
+        connection: EV 수요 강세 → KR 배터리 소재 수주 후행 기대
+        symbols:
+          - {symbol: 247540.KS, name: 에코프로비엠}
+          - {symbol: 066970.KS, name: 엘앤에프}
+          - {symbol: 003670.KS, name: 포스코퓨처엠}
+      - relation_type: PEER_MOMENTUM
+        sector: 배터리
+        connection: EV 모멘텀 → KR 배터리 셀 동조
+        symbols:
+          - {symbol: 006400.KS, name: 삼성SDI}
+          - {symbol: 373220.KS, name: LG에너지솔루션}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 배터리/소재
+        connection: EV 수요 둔화 → KR 배터리 소재 주문 감소 우려
+        symbols:
+          - {symbol: 247540.KS, name: 에코프로비엠}
+          - {symbol: 066970.KS, name: 엘앤에프}
+    mover_reasons_bullish: [demand_surge, policy_benefit, earnings_beat]
+    mover_reasons_bearish: [demand_slowdown, policy_risk, guidance_down]
+
+  # ── 29. US 반도체 메모리 ↔ KR 메모리 peer (양방향 강화) ──────────────────────
+  - id: memory_cross_us_kr_bidirectional
+    name: US 메모리 ↔ KR 메모리 양방향 peer
+    market: CROSS
+    chain_name: MU/NVDA HBM ↔ 삼성전자·SK하이닉스 양방향 peer
+    description: MU/NVDA 급등락이 KR 메모리와 동조하며, KR 메모리 움직임이 US 메모리에도 선행 가능
+    source_sectors: [반도체, 반도체/AI]
+    source_keywords: [메모리, HBM, DRAM, NAND, AI메모리, 데이터센터]
+    source_symbols:
+      - {symbol: MU, name: Micron}
+      - {symbol: NVDA, name: NVIDIA}
+      - {symbol: AMD, name: AMD}
+    beneficiaries:
+      - relation_type: LAGGING_BENEFICIARY
+        sector: 반도체
+        connection: HBM 수요 강세 → KR 메모리 수혜 후행
+        symbols:
+          - {symbol: 000660.KS, name: SK하이닉스}
+          - {symbol: 005930.KS, name: 삼성전자}
+      - relation_type: PEER_MOMENTUM
+        sector: 반도체소부장
+        connection: 메모리 사이클 회복 → KR 소부장 수혜
+        symbols:
+          - {symbol: 042700.KS, name: 한미반도체}
+          - {symbol: 039030.KS, name: 이오테크닉스}
+    victims_on_bearish:
+      - relation_type: DEMAND_SLOWDOWN
+        sector: 반도체
+        connection: 메모리 수요 둔화 → KR 메모리·소부장 부담
+        symbols:
+          - {symbol: 000660.KS, name: SK하이닉스}
+          - {symbol: 005930.KS, name: 삼성전자}
+    mover_reasons_bullish: [ai_capex, earnings_beat, demand_surge]
+    mover_reasons_bearish: [inventory_build, guidance_down, earnings_miss]

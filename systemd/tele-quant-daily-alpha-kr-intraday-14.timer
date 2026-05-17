@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily Alpha KR 장중 14:00 KST 스캔 (마감 1시간 전)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 14:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

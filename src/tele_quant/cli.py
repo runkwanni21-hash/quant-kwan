@@ -1746,6 +1746,160 @@ def backlog_audit_cmd(
         raise SystemExit(1)
 
 
+@app.command("pre-market-alert")
+def pre_market_alert_cmd(
+    threshold: Annotated[
+        float, typer.Option("--threshold", help="US 움직임 최소 기준 (%)")
+    ] = 3.0,
+    top_n: Annotated[
+        int, typer.Option("--top-n", help="표시할 KR 관찰 후보 최대 수")
+    ] = 8,
+    no_send: Annotated[
+        bool, typer.Option("--no-send/--send", help="전송 없이 출력만")
+    ] = True,
+) -> None:
+    """KR 장 개시 전 예열 알림 — US 전일 종가 기준 급등락 → KR 연결 종목 관찰.
+
+    US 마감 후 KR 개장 전(08:00 KST) 실행하면 기관 대비 3시간 선행 정보 활용 가능.
+
+    Example: uv run tele-quant pre-market-alert --no-send
+             uv run tele-quant pre-market-alert --send --threshold 2.0
+    """
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    import yfinance as yf
+
+    from tele_quant.relation_feed import _NAME_MAP, _SECTOR_MAP, _UNIVERSE_US
+    from tele_quant.supply_chain_alpha import load_supply_chain_rules
+
+    now_kst = datetime.now(UTC) + timedelta(hours=9)
+    console.print(f"[cyan]pre-market-alert: {now_kst.strftime('%Y-%m-%d %H:%M KST')} — US 전일 급등락 → KR 예열[/cyan]")
+
+    # ── US 전일 종가 수집 (yfinance 2일, 변동률 계산) ──────────────────────────
+    us_movers: list[dict] = []
+    for sym in _UNIVERSE_US:
+        try:
+            ticker = yf.Ticker(sym)
+            hist = ticker.history(period="3d", interval="1d", auto_adjust=True)
+            if hist is None or len(hist) < 2:
+                continue
+            prev_close = float(hist["Close"].iloc[-2])
+            last_close = float(hist["Close"].iloc[-1])
+            if prev_close <= 0:
+                continue
+            ret_pct = (last_close - prev_close) / prev_close * 100
+            if abs(ret_pct) >= threshold:
+                us_movers.append({
+                    "symbol": sym,
+                    "name": _NAME_MAP.get(sym, sym),
+                    "sector": _SECTOR_MAP.get(sym, ""),
+                    "ret_pct": ret_pct,
+                    "last_close": last_close,
+                })
+        except Exception:
+            pass
+
+    us_movers.sort(key=lambda x: abs(x["ret_pct"]), reverse=True)
+
+    if not us_movers:
+        console.print(f"[yellow]US ±{threshold}% 이상 움직임 없음[/yellow]")
+        return
+
+    # ── 공급망 룰로 KR 연결 종목 탐색 ──────────────────────────────────────────
+    rules = load_supply_chain_rules()
+    kr_candidates: dict[str, dict] = {}
+
+    for mover in us_movers:
+        sym = mover["symbol"]
+        direction = "UP" if mover["ret_pct"] > 0 else "DOWN"
+        for rule in rules:
+            src_syms = [s.get("symbol", "") for s in rule.get("source_symbols", [])]
+            if sym not in src_syms:
+                continue
+            targets_key = "beneficiaries" if direction == "UP" else "victims_on_bearish"
+            for group in rule.get(targets_key, []):
+                for tgt in group.get("symbols", []):
+                    tgt_sym = tgt.get("symbol", "")
+                    if not tgt_sym.endswith((".KS", ".KQ")):
+                        continue
+                    if tgt_sym not in kr_candidates:
+                        kr_candidates[tgt_sym] = {
+                            "symbol": tgt_sym,
+                            "name": tgt.get("name") or _NAME_MAP.get(tgt_sym, tgt_sym),
+                            "sector": group.get("sector", ""),
+                            "relation": group.get("relation_type", ""),
+                            "triggers": [],
+                        }
+                    kr_candidates[tgt_sym]["triggers"].append(
+                        f"{mover['name']}({mover['ret_pct']:+.1f}%)"
+                    )
+
+    # ── 리포트 생성 ──────────────────────────────────────────────────────────
+    lines: list[str] = [
+        f"🌅 KR 장 개시 전 예열 알림 [{now_kst.strftime('%m/%d %H:%M KST')}]",
+        "",
+        "📊 US 전일 주요 급등락",
+    ]
+
+    up_movers = [m for m in us_movers if m["ret_pct"] > 0][:5]
+    dn_movers = [m for m in us_movers if m["ret_pct"] < 0][:5]
+
+    if up_movers:
+        lines.append("▸ 급등")
+        for m in up_movers:
+            lines.append(f"  🚀 {m['name']} ({m['symbol']}) {m['ret_pct']:+.1f}% [{m['sector']}]")
+    if dn_movers:
+        lines.append("▸ 급락")
+        for m in dn_movers:
+            lines.append(f"  💥 {m['name']} ({m['symbol']}) {m['ret_pct']:+.1f}% [{m['sector']}]")
+
+    lines.append("")
+    if kr_candidates:
+        lines.append("🇰🇷 오늘 KR 연동 관찰 후보 (공급망·peer 연결)")
+        sorted_kr = sorted(
+            kr_candidates.values(),
+            key=lambda x: len(x["triggers"]),
+            reverse=True,
+        )[:top_n]
+        for i, c in enumerate(sorted_kr, 1):
+            rel_label = {
+                "LAGGING_BENEFICIARY": "후행수혜",
+                "BENEFICIARY": "직접수혜",
+                "PEER_MOMENTUM": "피어동조",
+                "DEMAND_SLOWDOWN": "수요위험",
+                "VICTIM": "피해우려",
+            }.get(c["relation"], c["relation"])
+            trigger_str = " / ".join(c["triggers"][:3])
+            lines.append(
+                f"  {i}. {c['name']} ({c['symbol']}) [{rel_label}·{c['sector']}]"
+            )
+            lines.append(f"     연결: {trigger_str}")
+    else:
+        lines.append("🇰🇷 KR 연동 후보 없음 (임계값 또는 룰 범위 초과)")
+
+    lines += [
+        "",
+        "─" * 28,
+        "공개 정보 기반 리서치 보조. 투자 판단 책임은 사용자에게 있음.",
+    ]
+
+    report = "\n".join(lines)
+    console.print(report)
+
+    if not no_send:
+        settings = _settings()
+
+        async def _send() -> None:
+            from tele_quant.telegram_sender import TelegramGateway, TelegramSender
+            async with TelegramGateway(settings) as gateway:
+                sender = TelegramSender(settings, gateway=gateway)
+                await sender.send(report)
+
+        asyncio.run(_send())
+        console.print("[green]pre-market-alert 전송 완료[/green]")
+
+
 @app.command("output-lint")
 def output_lint_cmd(
     file: Annotated[
