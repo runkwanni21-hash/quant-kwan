@@ -4,7 +4,7 @@ import contextlib
 import json
 import sqlite3
 from collections.abc import Iterable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -210,6 +210,27 @@ CREATE TABLE IF NOT EXISTS daily_alpha_picks (
 
 CREATE INDEX IF NOT EXISTS idx_daily_alpha_created_at ON daily_alpha_picks(created_at);
 CREATE INDEX IF NOT EXISTS idx_daily_alpha_symbol ON daily_alpha_picks(symbol);
+
+CREATE TABLE IF NOT EXISTS order_backlog_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    market TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    event_date TEXT NOT NULL,
+    amount_ok_krw REAL,
+    amount_usd_million REAL,
+    client TEXT NOT NULL DEFAULT '',
+    contract_type TEXT NOT NULL DEFAULT '',
+    chain_tier INTEGER NOT NULL DEFAULT 1,
+    raw_title TEXT NOT NULL DEFAULT '',
+    raw_amount_text TEXT NOT NULL DEFAULT '',
+    backlog_tier TEXT NOT NULL DEFAULT 'LOW',
+    UNIQUE(symbol, event_date, raw_title)
+);
+
+CREATE INDEX IF NOT EXISTS idx_backlog_symbol ON order_backlog_events(symbol);
+CREATE INDEX IF NOT EXISTS idx_backlog_created_at ON order_backlog_events(created_at);
 """
 
 # Columns added after initial schema — applied via ALTER TABLE in _init
@@ -1458,6 +1479,68 @@ class Store:
                 (price_at_review, outcome_return_pct, hit, row_id),
             )
             conn.commit()
+
+    # ── Order Backlog ─────────────────────────────────────────────────────────
+
+    def insert_backlog_events(self, events: list[Any]) -> int:
+        """BacklogEvent 리스트를 order_backlog_events에 upsert. 저장 건수 반환."""
+        from tele_quant.models import utc_now as _utcnow
+        now = _utcnow().isoformat()
+        count = 0
+        with self.connect() as conn:
+            for ev in events:
+                try:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO order_backlog_events
+                        (created_at, symbol, market, source, event_date,
+                         amount_ok_krw, amount_usd_million, client, contract_type,
+                         chain_tier, raw_title, raw_amount_text, backlog_tier)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            now,
+                            ev.symbol,
+                            ev.market,
+                            ev.source,
+                            ev.event_date.isoformat(),
+                            ev.amount_ok_krw,
+                            ev.amount_usd_million,
+                            ev.client,
+                            ev.contract_type,
+                            ev.chain_tier,
+                            ev.raw_title,
+                            ev.raw_amount_text,
+                            ev.backlog_tier,
+                        ),
+                    )
+                    count += conn.execute("SELECT changes()").fetchone()[0]
+                except sqlite3.OperationalError:
+                    pass
+            conn.commit()
+        return count
+
+    def recent_backlog_events(self, symbol: str, days: int = 60) -> list[dict]:
+        """최근 N일 이내 특정 심볼의 수주잔고 이벤트 반환."""
+        since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM order_backlog_events WHERE symbol=? AND created_at>=?"
+                " ORDER BY created_at DESC",
+                (symbol, since),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def recent_all_backlog_events(self, days: int = 7) -> list[dict]:
+        """최근 N일 전체 수주잔고 이벤트 (금액 큰 순)."""
+        since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM order_backlog_events WHERE created_at>=?"
+                " ORDER BY amount_ok_krw DESC NULLS LAST",
+                (since,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def _row_to_item(self, row: sqlite3.Row) -> RawItem:
         published_at = parse_dt(row["published_at"]) or utc_now()

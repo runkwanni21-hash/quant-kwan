@@ -1439,6 +1439,86 @@ def sector_cycle_cmd(
         console.print("[green]sector-cycle 전송 완료[/green]")
 
 
+@app.command("order-backlog")
+def order_backlog_cmd(
+    symbol: Annotated[
+        str, typer.Option("--symbol", help="특정 심볼 지정 (없으면 전체 고수주잔고 레지스트리 + DB 신규 공시)")
+    ] = "",
+    market: Annotated[
+        str, typer.Option("--market", help="KR 또는 US (symbol 없을 때 필터)")
+    ] = "",
+    days: Annotated[
+        int, typer.Option("--days", help="최근 N일 공시 조회 범위")
+    ] = 30,
+    no_send: Annotated[
+        bool, typer.Option("--no-send/--send", help="전송 없이 출력만")
+    ] = True,
+) -> None:
+    """수주잔고 현황 조회 — DART(KR) + EDGAR(US) + yfinance 병렬 수집.
+
+    Example: uv run tele-quant order-backlog
+             uv run tele-quant order-backlog --symbol 329180.KS
+             uv run tele-quant order-backlog --market US --days 60
+    """
+    from tele_quant.db import Store
+    from tele_quant.order_backlog import (
+        _STATIC_BACKLOG,
+        build_backlog_section,
+        fetch_backlog_events,
+        save_backlog_events,
+    )
+    from tele_quant.relation_feed import _UNIVERSE_KR, _UNIVERSE_US
+
+    settings = _settings()
+    store = Store(settings.sqlite_path)
+    dart_key = getattr(settings, "opendart_api_key", "") or ""
+
+    # 대상 심볼 결정
+    if symbol:
+        symbols = [symbol]
+    else:
+        # 기본: 전체 유니버스 + 정적 레지스트리 심볼
+        registry_syms = list(_STATIC_BACKLOG.keys())
+        universe_syms = list(_UNIVERSE_KR) + list(_UNIVERSE_US)
+        all_syms = list(dict.fromkeys(registry_syms + universe_syms))
+        if market.upper() == "KR":
+            symbols = [s for s in all_syms if s.endswith((".KS", ".KQ"))]
+        elif market.upper() == "US":
+            symbols = [s for s in all_syms if not s.endswith((".KS", ".KQ"))]
+        else:
+            symbols = all_syms
+
+    console.print(f"[cyan]수주잔고 조회 시작: {len(symbols)}개 심볼, 최근 {days}일[/cyan]")
+
+    events = fetch_backlog_events(
+        symbols=symbols,
+        dart_api_key=dart_key,
+        lookback_days=days,
+        timeout=12.0,
+        max_workers=8,
+    )
+
+    saved = save_backlog_events(events, store)
+    console.print(f"[green]DB 저장: {saved}건 신규[/green]")
+
+    # 리포트 출력
+    section = build_backlog_section(events, top_n=15)
+    console.print(section)
+
+    if not no_send and events:
+        import asyncio
+
+        from tele_quant.telegram_sender import TelegramGateway, TelegramSender
+
+        async def _send() -> None:
+            async with TelegramGateway(settings) as gateway:
+                sender = TelegramSender(settings, gateway=gateway)
+                await sender.send(section)
+
+        asyncio.run(_send())
+        console.print("[green]order-backlog 전송 완료[/green]")
+
+
 @app.command("output-lint")
 def output_lint_cmd(
     file: Annotated[

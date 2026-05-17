@@ -1470,6 +1470,37 @@ def build_weekly_deterministic_summary(
         except Exception:
             pass
 
+    # 16. 수주잔고 현황 (DB 최근 7일)
+    if daily_alpha_store is not None:
+        try:
+            from tele_quant.order_backlog import BacklogEvent, build_backlog_section
+
+            raw_rows = daily_alpha_store.recent_all_backlog_events(days=7)
+            if raw_rows:
+                bl_events = [
+                    BacklogEvent(
+                        symbol=r["symbol"],
+                        market=r.get("market", ""),
+                        source=r.get("source", ""),
+                        event_date=datetime.fromisoformat(r["event_date"])
+                        if isinstance(r.get("event_date"), str)
+                        else datetime.now(UTC),
+                        amount_ok_krw=r.get("amount_ok_krw"),
+                        amount_usd_million=r.get("amount_usd_million"),
+                        client=r.get("client", ""),
+                        contract_type=r.get("contract_type", ""),
+                        raw_title=r.get("raw_title", ""),
+                        raw_amount_text=r.get("raw_amount_text", ""),
+                        chain_tier=r.get("chain_tier", 1),
+                        backlog_tier=r.get("backlog_tier", "LOW"),
+                    )
+                    for r in raw_rows
+                ]
+                lines.append(build_backlog_section(bl_events, top_n=8))
+                lines.append("")
+        except Exception:
+            pass
+
     lines += [
         "─" * 30,
         "공개 정보 기반 개인 리서치 보조용이며 투자 판단 책임은 사용자에게 있음.",

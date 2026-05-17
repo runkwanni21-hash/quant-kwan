@@ -78,6 +78,16 @@ _RELEVANCE_SCORE: dict[str, float] = {
     "LAGGING_BENEFICIARY": 65.0,
 }
 
+# relation_type → chain_tier 매핑 (1=직접, 2=2차후행, 3=3차피어)
+_CHAIN_TIER: dict[str, int] = {
+    "SUPPLY_CHAIN_COST": 1,
+    "BENEFICIARY": 1,
+    "VICTIM": 1,
+    "DEMAND_SLOWDOWN": 1,
+    "LAGGING_BENEFICIARY": 2,
+    "PEER_MOMENTUM": 3,
+}
+
 # unknown_price_only source는 spillover 신뢰도를 크게 낮춤
 _UNKNOWN_SOURCE_PENALTY = 10.0
 
@@ -110,6 +120,7 @@ class SpilloverTarget:
     chain_name: str
     connection: str
     source: MoverEvent
+    chain_tier: int = 1      # 1=직접공급/수혜, 2=2차부품/후행, 3=3차원자재/피어
 
 
 # ── Rule loading ──────────────────────────────────────────────────────────────
@@ -267,6 +278,7 @@ def find_spillover_targets(
                             relation_type=rel_type, rule_id=rule_id,
                             chain_name=chain_name, connection=connection,
                             source=mover,
+                            chain_tier=_CHAIN_TIER.get(rel_type, 1),
                         ))
 
             else:  # BEARISH
@@ -288,6 +300,7 @@ def find_spillover_targets(
                             relation_type=rel_type, rule_id=rule_id,
                             chain_name=chain_name, connection=connection,
                             source=mover,
+                            chain_tier=_CHAIN_TIER.get(rel_type, 1),
                         ))
 
     log.info("[spillover] targets LONG=%d SHORT=%d", len(long_targets), len(short_targets))
@@ -351,10 +364,12 @@ def _score_long(
     # unknown_price_only source는 신뢰도 대폭 감점
     if src.reason_type == "unknown_price_only":
         penalty += _UNKNOWN_SOURCE_PENALTY
+    from tele_quant.order_backlog import backlog_boost as _backlog_boost
+    bl_boost = _backlog_boost(target.symbol, store)
     return min(100.0, max(0.0,
         s_move * 0.15 + s_reason * 0.15 + s_chain * 0.15
         + sent * 0.10 + val * 0.15 + tech4 * 0.15
-        + tech3 * 0.10 + vol * 0.05 - penalty
+        + tech3 * 0.10 + vol * 0.05 - penalty + bl_boost * 0.05
     ))
 
 
@@ -384,40 +399,57 @@ def _score_short(
     penalty = _risk_penalty(target.symbol, d4h.get("rsi"), d3.get("vol_ratio"), src.market, "SHORT")
     if src.reason_type == "unknown_price_only":
         penalty += _UNKNOWN_SOURCE_PENALTY
+    from tele_quant.order_backlog import backlog_boost as _backlog_boost
+    bl_boost = _backlog_boost(target.symbol, store)
     return min(100.0, max(0.0,
         s_move * 0.15 + s_reason * 0.15 + s_chain * 0.15
         + (100 - sent) * 0.10 + val * 0.15 + tech4 * 0.15
-        + tech3 * 0.10 + vol * 0.05 - penalty
+        + tech3 * 0.10 + vol * 0.05 - penalty + bl_boost * 0.03
     ))
 
 
 # ── Style labels ──────────────────────────────────────────────────────────────
 
-def _style_long(relation_type: str, val: float, tech4: float, source_reason: str = "") -> str:
+def _style_long(
+    relation_type: str, val: float, tech4: float,
+    source_reason: str = "", chain_tier: int = 1,
+) -> str:
     # unknown_price_only source로는 "2차 수혜 확산" 금지
     if source_reason == "unknown_price_only":
         if relation_type in ("BENEFICIARY", "SUPPLY_CHAIN_COST"):
             return "공급망 반사수혜 (이유 불명 source)"
         return "관찰 후보 (이유 불명 source)"
+    tier_label = {2: "2차", 3: "3차"}.get(chain_tier, "")
     if relation_type in ("BENEFICIARY", "SUPPLY_CHAIN_COST"):
-        return "2차 수혜 확산 + 저평가 반등" if val >= 65 else "공급망 반사수혜"
+        base = "수혜 확산 + 저평가 반등" if val >= 65 else "공급망 반사수혜"
+        return f"{tier_label} {base}".strip() if tier_label else base
     if relation_type == "LAGGING_BENEFICIARY":
-        return "피어 후행 수혜"
+        base = "피어 후행 수혜"
+        return f"{tier_label} {base}".strip() if tier_label else base
     if relation_type == "PEER_MOMENTUM":
-        return "피어 후행반응"
-    return "수혜 확산"
+        base = "피어 후행반응"
+        return f"{tier_label} {base}".strip() if tier_label else base
+    base = "수혜 확산"
+    return f"{tier_label} {base}".strip() if tier_label else base
 
 
-def _style_short(relation_type: str, val: float, tech4: float, source_reason: str = "") -> str:
+def _style_short(
+    relation_type: str, val: float, tech4: float,
+    source_reason: str = "", chain_tier: int = 1,
+) -> str:
     if source_reason == "unknown_price_only":
         if relation_type in ("VICTIM", "DEMAND_SLOWDOWN"):
             return "공급망 피해 (이유 불명 source)"
         return "관찰 후보 (이유 불명 source)"
+    tier_label = {2: "2차", 3: "3차"}.get(chain_tier, "")
     if relation_type in ("VICTIM", "DEMAND_SLOWDOWN"):
-        return "2차 피해 확산 + 과열 숏" if val >= 65 else "공급망 비용 부담"
+        base = "피해 확산 + 과열 숏" if val >= 65 else "공급망 비용 부담"
+        return f"{tier_label} {base}".strip() if tier_label else base
     if relation_type == "PEER_MOMENTUM":
-        return "악재 확산"
-    return "수요 둔화 피해"
+        base = "악재 확산"
+        return f"{tier_label} {base}".strip() if tier_label else base
+    base = "수요 둔화 피해"
+    return f"{tier_label} {base}".strip() if tier_label else base
 
 
 # ── Pick builder ──────────────────────────────────────────────────────────────
@@ -457,12 +489,12 @@ def _build_pick(
     if side == "LONG":
         tech3, tech4, r3, r4 = _score_technical_long(d3, d4h)
         val, val_r = _score_value_long(f)
-        style = _style_long(target.relation_type, val, tech4, src_reason)
+        style = _style_long(target.relation_type, val, tech4, src_reason, target.chain_tier)
         penalty = _risk_penalty(target.symbol, d4h.get("rsi"), vol_r, market, "LONG")
     else:
         tech3, tech4, r3, r4 = _score_technical_short(d3, d4h)
         val, val_r = _score_value_short(f)
-        style = _style_short(target.relation_type, val, tech4, src_reason)
+        style = _style_short(target.relation_type, val, tech4, src_reason, target.chain_tier)
         penalty = _risk_penalty(target.symbol, d4h.get("rsi"), vol_r, market, "SHORT")
 
     vol_score, _vr = _score_volume(vol_r, side)
