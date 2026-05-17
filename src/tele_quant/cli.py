@@ -3665,3 +3665,40 @@ def alpha_review_cmd(
         console.print("[green]전송 완료[/green]")
     else:
         console.print("[dim](--no-send: 미리보기만)[/dim]")
+
+
+# ── inbound-bot ───────────────────────────────────────────────────────────────
+
+@app.command("inbound-bot")
+def inbound_bot_cmd(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="DEBUG 로그 출력"),
+) -> None:
+    """텔레그램 수신 봇 — 사용자 명령(/분석·/브리핑·/포트·/매크로·/수혜주)에 즉시 응답.
+
+    .env.local 에 TELEGRAM_BOT_TOKEN 이 있어야 합니다.
+    TELEGRAM_INBOUND_ALLOWED_IDS 로 허용할 chat_id 를 콤마 구분으로 지정하세요.
+    미설정 시 TELEGRAM_BOT_TARGET_CHAT_ID 로 자동 fallback.
+
+    Example:
+        uv run tele-quant inbound-bot
+        uv run tele-quant inbound-bot --verbose
+    """
+    import logging as _logging
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.inbound_bot import run_inbound_bot
+
+    if verbose:
+        _logging.getLogger("tele_quant").setLevel(_logging.DEBUG)
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    console.print("[bold cyan]tele-quant 수신 봇 시작[/bold cyan]")
+    console.print("종료: Ctrl-C\n")
+
+    try:
+        asyncio.run(run_inbound_bot(settings, store))
+    except KeyboardInterrupt:
+        console.print("\n[dim]봇 종료[/dim]")

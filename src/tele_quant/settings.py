@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_bot_target_chat_id: str | None = None
 
+    # 수신 봇 (inbound_bot.py) — 미설정 시 위 두 값으로 fallback
+    telegram_inbound_bot_token: str | None = None   # 별도 봇 토큰 (없으면 telegram_bot_token 사용)
+    telegram_inbound_allowed_ids: str = ""           # 허용 chat_id 콤마 구분, 비면 bot_target_chat_id 사용
+
     ollama_host: str = "http://127.0.0.1:11434"
     ollama_chat_model: str = "qwen3:8b"
     ollama_embed_model: str = "qwen3-embedding:0.6b"
