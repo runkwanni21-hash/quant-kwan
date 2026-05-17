@@ -1546,7 +1546,7 @@ def output_lint_cmd(
     # 줄 시작 조각 문장 — headline_cleaner를 우회한 fragment
     _check("HIGH", r"^치 후 |^드 플|^이를 정당화", "줄 시작 조각 문장 잔류", regex=True)
     # 잘못된 섹션 표기
-    _check("HIGH", "숏/매도 경계 후보", "숏/매도 경계 후보 표기 오류 — SHORT 관찰 후보·관망 표기여야 함")
+    _check("HIGH", "숏/매도 경계", "숏/매도 경계 표기 잔류 — SHORT 관찰 경계로 교체 필요")
     _check("HIGH", "현재가 확인 불가", "현재가 확인 불가 텍스트 직접 노출 — 접힘 처리 누락")
     # unknown_price_only source가 연결고리 생성에 쓰인 경우
     _check(
