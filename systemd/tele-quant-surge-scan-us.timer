@@ -1,0 +1,9 @@
+[Unit]
+Description=US 급등감지 — 장중 15분마다 (09:30-16:00 ET, 코드에서 시간 체크)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* *:0/15:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

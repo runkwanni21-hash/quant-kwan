@@ -1,0 +1,8 @@
+[Unit]
+Description=Tele Quant Surge Scan — KR 장중 15분 급등감지 (09:00-15:30 KST)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+ExecStart=%h/.local/bin/uv run tele-quant surge-scan --market KR --threshold 3.0 --send

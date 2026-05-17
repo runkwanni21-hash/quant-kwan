@@ -1,0 +1,9 @@
+[Unit]
+Description=KR 급등감지 — 장중 15분마다 (09:00-15:30 KST, 코드에서 시간 체크)
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* *:0/15:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -231,6 +231,53 @@ CREATE TABLE IF NOT EXISTS order_backlog_events (
 
 CREATE INDEX IF NOT EXISTS idx_backlog_symbol ON order_backlog_events(symbol);
 CREATE INDEX IF NOT EXISTS idx_backlog_created_at ON order_backlog_events(created_at);
+
+CREATE TABLE IF NOT EXISTS surge_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    market TEXT NOT NULL DEFAULT '',
+    sector TEXT NOT NULL DEFAULT '',
+    intraday_pct REAL NOT NULL,
+    volume_ratio REAL,
+    price REAL,
+    prev_close REAL,
+    open_price REAL,
+    catalyst_type TEXT NOT NULL DEFAULT 'volume_surge_only',
+    catalyst_confidence REAL NOT NULL DEFAULT 0.0,
+    catalyst_ko TEXT NOT NULL DEFAULT '',
+    news_headline TEXT NOT NULL DEFAULT '',
+    direction TEXT NOT NULL DEFAULT 'BULLISH',
+    UNIQUE(created_at, symbol)
+);
+
+CREATE INDEX IF NOT EXISTS idx_surge_events_symbol ON surge_events(symbol);
+CREATE INDEX IF NOT EXISTS idx_surge_events_created_at ON surge_events(created_at);
+
+CREATE TABLE IF NOT EXISTS surge_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    source_symbol TEXT NOT NULL,
+    target_symbol TEXT NOT NULL,
+    target_name TEXT NOT NULL DEFAULT '',
+    target_market TEXT NOT NULL DEFAULT '',
+    relation_type TEXT NOT NULL DEFAULT '',
+    connection TEXT NOT NULL DEFAULT '',
+    rule_id TEXT NOT NULL DEFAULT '',
+    chain_name TEXT NOT NULL DEFAULT '',
+    current_price REAL,
+    intraday_pct REAL,
+    gap_pct REAL,
+    side TEXT NOT NULL DEFAULT 'LONG',
+    score REAL,
+    chain_tier INTEGER DEFAULT 1,
+    reason TEXT NOT NULL DEFAULT '',
+    UNIQUE(created_at, source_symbol, target_symbol)
+);
+
+CREATE INDEX IF NOT EXISTS idx_surge_targets_created_at ON surge_targets(created_at);
+CREATE INDEX IF NOT EXISTS idx_surge_targets_target ON surge_targets(target_symbol);
 """
 
 # Columns added after initial schema — applied via ALTER TABLE in _init

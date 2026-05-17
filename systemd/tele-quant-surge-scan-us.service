@@ -1,0 +1,8 @@
+[Unit]
+Description=Tele Quant Surge Scan — US 장중 15분 급등감지 (09:30-16:00 ET = 13:30-20:00 UTC)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/quant_spillover/tele_quant
+ExecStart=%h/.local/bin/uv run tele-quant surge-scan --market US --threshold 3.0 --send

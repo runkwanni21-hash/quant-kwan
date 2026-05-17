@@ -225,7 +225,7 @@ def _match_mover_to_rules(mover: MoverEvent, rules: list[dict]) -> list[dict]:
     mover_market = mover.market
     for rule in rules:
         rule_market = rule.get("market", "BOTH")
-        if rule_market not in (mover_market, "BOTH"):
+        if rule_market not in (mover_market, "BOTH", "CROSS"):
             continue
         source_syms = {s.get("symbol", "") for s in rule.get("source_symbols", [])}
         if mover.symbol in source_syms:

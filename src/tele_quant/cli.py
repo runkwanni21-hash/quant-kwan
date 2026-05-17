@@ -3435,6 +3435,91 @@ def price_alert_cmd(
         console.print("[dim]트리거 없음 (장중 시간 아님이거나 도달 종목 없음)[/dim]")
 
 
+@app.command("surge-scan")
+def surge_scan_cmd(
+    market: Annotated[
+        str, typer.Option("--market", help="시장 (KR / US / ALL)")
+    ] = "ALL",
+    threshold: Annotated[
+        float, typer.Option("--threshold", help="장중 급등 임계 % (기본 3.0)")
+    ] = 3.0,
+    min_gap: Annotated[
+        float, typer.Option("--min-gap", help="미반영 갭 최소 % (기본 2.0)")
+    ] = 2.0,
+    max_workers: Annotated[
+        int, typer.Option("--workers", help="병렬 조회 스레드 수")
+    ] = 12,
+    skip_dedup: Annotated[
+        bool, typer.Option("--skip-dedup/--no-skip-dedup", help="중복 알림 체크 건너뜀")
+    ] = False,
+    send: Annotated[
+        bool, typer.Option("--send/--no-send", help="텔레그램 전송 여부")
+    ] = False,
+) -> None:
+    """장중 급등·급락 감지 → 카탈리스트 규명 → 미반영 관련 종목 LONG/SHORT 관찰 후보.
+
+    Example: uv run tele-quant surge-scan --market KR --threshold 3.0 --send
+             uv run tele-quant surge-scan --market ALL --no-send
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.surge_alert import build_surge_report, is_market_open, run_surge_scan
+
+    market = market.upper()
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    console.print(
+        f"[bold]Surge Scan[/bold] market={market} threshold={threshold}% "
+        f"min_gap={min_gap}% workers={max_workers} send={send}"
+    )
+
+    if not is_market_open(market):
+        console.print(f"[dim]시장 마감 시간 — surge-scan 건너뜀 (market={market})[/dim]")
+        return
+
+    dart_key = getattr(settings, "dart_api_key", "") or ""
+
+    surges, targets = run_surge_scan(
+        market=market,
+        threshold=threshold,
+        dart_api_key=dart_key,
+        max_workers=max_workers,
+        store=store,
+        skip_dedup=skip_dedup,
+    )
+
+    if not surges:
+        console.print(f"[dim]급등 종목 없음 (threshold={threshold}% / 최근 중복 제외)[/dim]")
+        return
+
+    # min_gap 으로 targets 재필터 (run_surge_scan 기본값과 다를 수 있음)
+    if min_gap != 2.0:
+        targets = [t for t in targets if t.gap_pct >= min_gap]
+
+    console.print(f"[green]급등 감지: {len(surges)}개  미반영 후보: {len(targets)}개[/green]")
+    for ev in surges[:5]:
+        console.print(
+            f"  {'▲' if ev.direction == 'BULLISH' else '▼'} "
+            f"{ev.name}({ev.symbol}) {ev.intraday_pct:+.1f}%  [{ev.catalyst_ko or '이유불명'}]"
+        )
+
+    report = build_surge_report(surges, targets, market=market)
+    if report:
+        console.print("\n" + report)
+
+    if send and report:
+        async def _send() -> None:
+            sender = TelegramSender(settings)
+            await sender.send(report)
+
+        asyncio.run(_send())
+        console.print("[green]전송 완료[/green]")
+    elif not send:
+        console.print("[dim](--no-send: 미리보기만)[/dim]")
+
+
 @app.command("alpha-review")
 def alpha_review_cmd(
     market: Annotated[
