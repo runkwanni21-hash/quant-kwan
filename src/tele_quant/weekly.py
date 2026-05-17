@@ -1470,15 +1470,23 @@ def build_weekly_deterministic_summary(
         except Exception:
             pass
 
-    # 16. 수주잔고 현황 (DB 최근 7일)
-    if daily_alpha_store is not None:
-        try:
-            from tele_quant.order_backlog import BacklogEvent, build_backlog_section
+    # 16. 수주잔고 현황 (DB 최근 7일 + 정적 레지스트리 fallback)
+    try:
+        from tele_quant.order_backlog import (
+            BacklogEvent,
+            _STATIC_BACKLOG,
+            _static_backlog_event,
+            build_backlog_section,
+        )
 
+        bl_events: list[BacklogEvent] = []
+
+        # DB 최근 공시 이벤트 (store가 있을 때만)
+        if daily_alpha_store is not None:
             raw_rows = daily_alpha_store.recent_all_backlog_events(days=7)
-            if raw_rows:
-                bl_events = [
-                    BacklogEvent(
+            for r in raw_rows:
+                try:
+                    bl_events.append(BacklogEvent(
                         symbol=r["symbol"],
                         market=r.get("market", ""),
                         source=r.get("source", ""),
@@ -1493,13 +1501,24 @@ def build_weekly_deterministic_summary(
                         raw_amount_text=r.get("raw_amount_text", ""),
                         chain_tier=r.get("chain_tier", 1),
                         backlog_tier=r.get("backlog_tier", "LOW"),
-                    )
-                    for r in raw_rows
-                ]
-                lines.append(build_backlog_section(bl_events, top_n=8))
-                lines.append("")
-        except Exception:
-            pass
+                    ))
+                except Exception:
+                    pass
+
+        # 정적 레지스트리 항상 포함 (중복 제거)
+        db_symbols = {e.symbol for e in bl_events if e.source != "STATIC"}
+        for sym in _STATIC_BACKLOG:
+            if sym not in db_symbols:
+                ev = _static_backlog_event(sym)
+                if ev:
+                    bl_events.append(ev)
+
+        # 금액 기준 내림차순 정렬
+        bl_events.sort(key=lambda e: (e.amount_ok_krw or 0), reverse=True)
+        lines.append(build_backlog_section(bl_events, top_n=10))
+        lines.append("")
+    except Exception:
+        pass
 
     lines += [
         "─" * 30,
