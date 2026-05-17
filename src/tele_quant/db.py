@@ -354,6 +354,114 @@ CREATE TABLE IF NOT EXISTS macro_snapshot (
 );
 
 CREATE INDEX IF NOT EXISTS idx_macro_snapshot_fetched ON macro_snapshot(fetched_at);
+
+-- ── Top Mover Miner ────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS top_mover_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    market TEXT NOT NULL,
+    window_days INTEGER NOT NULL,
+    top_n INTEGER NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    stats_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS top_mover_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    market TEXT NOT NULL,
+    sector TEXT NOT NULL DEFAULT '',
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    start_close REAL,
+    end_close REAL,
+    return_pct REAL NOT NULL,
+    avg_turnover REAL,
+    liquidity_tier TEXT DEFAULT '',
+    source_reason TEXT DEFAULT '',
+    UNIQUE(run_id, symbol)
+);
+
+-- ── Relation Edges ─────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS relation_edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    source_symbol TEXT NOT NULL,
+    source_name TEXT NOT NULL DEFAULT '',
+    source_market TEXT NOT NULL DEFAULT '',
+    source_sector TEXT NOT NULL DEFAULT '',
+    target_symbol TEXT NOT NULL,
+    target_name TEXT NOT NULL DEFAULT '',
+    target_market TEXT NOT NULL DEFAULT '',
+    target_sector TEXT NOT NULL DEFAULT '',
+    relation_type TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    expected_lag_hours INTEGER NOT NULL DEFAULT 24,
+    confidence TEXT NOT NULL DEFAULT 'LOW',
+    relation_score REAL NOT NULL DEFAULT 0,
+    evidence_type TEXT NOT NULL DEFAULT '',
+    evidence_title TEXT NOT NULL DEFAULT '',
+    evidence_url TEXT NOT NULL DEFAULT '',
+    evidence_summary TEXT NOT NULL DEFAULT '',
+    rule_id TEXT NOT NULL DEFAULT '',
+    source_return_3m_pct REAL,
+    web_evidence_count INTEGER DEFAULT 0,
+    price_evidence_count INTEGER DEFAULT 0,
+    hit_rate REAL,
+    avg_target_return REAL,
+    lift_vs_market REAL,
+    last_reviewed_at TEXT,
+    UNIQUE(source_symbol, target_symbol, relation_type, direction)
+);
+
+CREATE INDEX IF NOT EXISTS idx_relation_edges_source ON relation_edges(source_symbol);
+CREATE INDEX IF NOT EXISTS idx_relation_edges_target ON relation_edges(target_symbol);
+CREATE INDEX IF NOT EXISTS idx_relation_edges_active ON relation_edges(active);
+CREATE INDEX IF NOT EXISTS idx_relation_edges_score ON relation_edges(relation_score);
+
+CREATE TABLE IF NOT EXISTS relation_edge_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    edge_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    evidence_type TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    url TEXT NOT NULL DEFAULT '',
+    snippet TEXT NOT NULL DEFAULT '',
+    source_name TEXT NOT NULL DEFAULT '',
+    published_at TEXT,
+    confidence REAL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS relation_follow_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    edge_id INTEGER NOT NULL,
+    source_symbol TEXT NOT NULL,
+    target_symbol TEXT NOT NULL,
+    source_move_pct REAL NOT NULL,
+    source_move_type TEXT NOT NULL,
+    target_return_4h REAL,
+    target_return_1d REAL,
+    target_return_3d REAL,
+    target_return_5d REAL,
+    target_return_10d REAL,
+    market_return_1d REAL,
+    expected_direction TEXT NOT NULL,
+    hit_1d INTEGER,
+    hit_3d INTEGER,
+    hit_5d INTEGER,
+    reviewed INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_follow_events_edge ON relation_follow_events(edge_id);
+CREATE INDEX IF NOT EXISTS idx_follow_events_source ON relation_follow_events(source_symbol);
 """
 
 # Columns added after initial schema — applied via ALTER TABLE in _init
@@ -1689,6 +1797,269 @@ class Store:
             rows = conn.execute(
                 "SELECT * FROM order_backlog_events WHERE created_at>=?"
                 " ORDER BY amount_ok_krw DESC NULLS LAST",
+                (since,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Top Mover Miner ───────────────────────────────────────────────────────
+
+    def save_top_mover_run(self, run: Any) -> int:
+        """TopMoverRun을 DB에 저장하고 run_id 반환."""
+        now = datetime.now(UTC).isoformat()
+        stats = getattr(run, "stats", {}) or {}
+        with self.connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO top_mover_runs
+                   (created_at, market, window_days, top_n, source, stats_json)
+                   VALUES (?,?,?,?,?,?)""",
+                (
+                    now,
+                    run.market,
+                    run.window_days,
+                    run.top_n,
+                    run.source,
+                    json.dumps(stats),
+                ),
+            )
+            run_id = cur.lastrowid or 0
+            for m in run.members:
+                with contextlib.suppress(sqlite3.IntegrityError):
+                    conn.execute(
+                        """INSERT OR IGNORE INTO top_mover_members
+                           (run_id, rank, symbol, name, market, sector,
+                            start_date, end_date, start_close, end_close,
+                            return_pct, avg_turnover, liquidity_tier, source_reason)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            run_id,
+                            m.rank,
+                            m.symbol,
+                            m.name,
+                            m.market,
+                            m.sector,
+                            m.start_date,
+                            m.end_date,
+                            m.start_close,
+                            m.end_close,
+                            m.return_pct,
+                            m.avg_turnover,
+                            m.liquidity_tier,
+                            m.source_reason,
+                        ),
+                    )
+            conn.commit()
+        return run_id
+
+    def get_latest_top_mover_run(self, market: str) -> dict | None:
+        """최근 top_mover_run과 멤버 반환."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM top_mover_runs WHERE market=? ORDER BY id DESC LIMIT 1",
+                (market,),
+            ).fetchone()
+            if row is None:
+                return None
+            run = dict(row)
+            members = conn.execute(
+                "SELECT * FROM top_mover_members WHERE run_id=? ORDER BY rank",
+                (run["id"],),
+            ).fetchall()
+            run["members"] = [dict(m) for m in members]
+        return run
+
+    def get_latest_top_mover_members(self, market: str) -> list[dict]:
+        """최근 실행의 top mover 멤버 리스트 반환."""
+        run = self.get_latest_top_mover_run(market)
+        if run is None:
+            return []
+        return run.get("members", [])
+
+    # ── Relation Edges ────────────────────────────────────────────────────────
+
+    def upsert_relation_edges(self, edges: list[Any]) -> tuple[int, int]:
+        """relation_edges 삽입 또는 업데이트. (inserted, updated) 반환."""
+        now = datetime.now(UTC).isoformat()
+        inserted = updated = 0
+        with self.connect() as conn:
+            for e in edges:
+                row = e if isinstance(e, dict) else (
+                    {k: v for k, v in e.__dict__.items()} if hasattr(e, "__dict__") else {}
+                )
+                existing = conn.execute(
+                    "SELECT id FROM relation_edges WHERE source_symbol=? AND target_symbol=?"
+                    " AND relation_type=? AND direction=?",
+                    (row.get("source_symbol"), row.get("target_symbol"),
+                     row.get("relation_type"), row.get("direction")),
+                ).fetchone()
+                active_val = 0 if (row.get("confidence") == "INACTIVE") else 1
+                if existing:
+                    conn.execute(
+                        """UPDATE relation_edges SET
+                           updated_at=?, active=?, source_name=?, source_market=?,
+                           source_sector=?, target_name=?, target_market=?, target_sector=?,
+                           expected_lag_hours=?, confidence=?, relation_score=?,
+                           evidence_type=?, evidence_title=?, evidence_url=?,
+                           evidence_summary=?, rule_id=?, source_return_3m_pct=?
+                           WHERE id=?""",
+                        (
+                            now, active_val,
+                            row.get("source_name", ""), row.get("source_market", ""),
+                            row.get("source_sector", ""), row.get("target_name", ""),
+                            row.get("target_market", ""), row.get("target_sector", ""),
+                            row.get("expected_lag_hours", 24),
+                            row.get("confidence", "LOW"), row.get("relation_score", 0.0),
+                            row.get("evidence_type", ""), row.get("evidence_title", ""),
+                            row.get("evidence_url", ""), row.get("evidence_summary", ""),
+                            row.get("rule_id", ""), row.get("source_return_3m_pct"),
+                            existing["id"],
+                        ),
+                    )
+                    updated += 1
+                else:
+                    with contextlib.suppress(sqlite3.IntegrityError):
+                        conn.execute(
+                            """INSERT INTO relation_edges
+                               (created_at, updated_at, active,
+                                source_symbol, source_name, source_market, source_sector,
+                                target_symbol, target_name, target_market, target_sector,
+                                relation_type, direction, expected_lag_hours,
+                                confidence, relation_score, evidence_type, evidence_title,
+                                evidence_url, evidence_summary, rule_id, source_return_3m_pct)
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (
+                                now, now, active_val,
+                                row.get("source_symbol", ""), row.get("source_name", ""),
+                                row.get("source_market", ""), row.get("source_sector", ""),
+                                row.get("target_symbol", ""), row.get("target_name", ""),
+                                row.get("target_market", ""), row.get("target_sector", ""),
+                                row.get("relation_type", ""), row.get("direction", ""),
+                                row.get("expected_lag_hours", 24),
+                                row.get("confidence", "LOW"), row.get("relation_score", 0.0),
+                                row.get("evidence_type", ""), row.get("evidence_title", ""),
+                                row.get("evidence_url", ""), row.get("evidence_summary", ""),
+                                row.get("rule_id", ""), row.get("source_return_3m_pct"),
+                            ),
+                        )
+                        inserted += 1
+            conn.commit()
+        return inserted, updated
+
+    def get_all_relation_edges(self, active_only: bool = True) -> list[dict]:
+        """relation_edges 테이블 전체 조회."""
+        with self.connect() as conn:
+            if active_only:
+                rows = conn.execute(
+                    "SELECT * FROM relation_edges WHERE active=1 ORDER BY relation_score DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM relation_edges ORDER BY relation_score DESC"
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_relation_edge_stats(
+        self,
+        edge_id: int,
+        hit_rate: float | None,
+        avg_target_return: float | None,
+        lift_vs_market: float | None = None,
+    ) -> None:
+        """relation_edge의 성과 통계 업데이트."""
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE relation_edges
+                   SET hit_rate=?, avg_target_return=?, lift_vs_market=?, last_reviewed_at=?
+                   WHERE id=?""",
+                (hit_rate, avg_target_return, lift_vs_market, now, edge_id),
+            )
+            conn.commit()
+
+    def deactivate_relation_edge(self, edge_id: int) -> None:
+        """관계 엣지 비활성화."""
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE relation_edges SET active=0, updated_at=? WHERE id=?",
+                (now, edge_id),
+            )
+            conn.commit()
+
+    # ── Relation Follow Events ────────────────────────────────────────────────
+
+    def save_follow_events(self, events: list[Any]) -> int:
+        """FollowEvent 리스트를 relation_follow_events에 저장."""
+        now = datetime.now(UTC).isoformat()
+        count = 0
+        with self.connect() as conn:
+            for ev in events:
+                row = ev if isinstance(ev, dict) else (
+                    {k: v for k, v in ev.__dict__.items()} if hasattr(ev, "__dict__") else {}
+                )
+                conn.execute(
+                    """INSERT INTO relation_follow_events
+                       (created_at, edge_id, source_symbol, target_symbol,
+                        source_move_pct, source_move_type, target_return_4h,
+                        target_return_1d, target_return_3d, target_return_5d,
+                        target_return_10d, market_return_1d, expected_direction,
+                        hit_1d, hit_3d, hit_5d, reviewed)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+                    (
+                        row.get("created_at", now) if not isinstance(row.get("created_at"), datetime)
+                        else row["created_at"].isoformat(),
+                        row.get("edge_id", 0),
+                        row.get("source_symbol", ""),
+                        row.get("target_symbol", ""),
+                        row.get("source_move_pct", 0.0),
+                        row.get("source_move_type", ""),
+                        row.get("target_return_4h"),
+                        row.get("target_return_1d"),
+                        row.get("target_return_3d"),
+                        row.get("target_return_5d"),
+                        row.get("target_return_10d"),
+                        row.get("market_return_1d"),
+                        row.get("expected_direction", ""),
+                        int(row["hit_1d"]) if row.get("hit_1d") is not None else None,
+                        int(row["hit_3d"]) if row.get("hit_3d") is not None else None,
+                        int(row["hit_5d"]) if row.get("hit_5d") is not None else None,
+                    ),
+                )
+                count += 1
+            conn.commit()
+        return count
+
+    def get_pending_follow_events(self, include_reviewed: bool = False) -> list[dict]:
+        """follow_events 반환. include_reviewed=True이면 모든 이벤트 반환."""
+        with self.connect() as conn:
+            if include_reviewed:
+                rows = conn.execute(
+                    "SELECT * FROM relation_follow_events ORDER BY created_at"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM relation_follow_events WHERE reviewed=0 ORDER BY created_at"
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_follow_event(self, event_id: int, updates: dict[str, Any]) -> None:
+        """follow_event 레코드 부분 업데이트."""
+        if not updates:
+            return
+        fields = ", ".join(f"{k}=?" for k in updates)
+        values = [*updates.values(), event_id]
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE relation_follow_events SET {fields} WHERE id=?",
+                values,
+            )
+            conn.commit()
+
+    def get_recent_follow_events(self, days: int = 30) -> list[dict]:
+        """최근 N일 follow_events 반환 (최신순)."""
+        since = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM relation_follow_events WHERE created_at>=? ORDER BY created_at DESC",
                 (since,),
             ).fetchall()
         return [dict(r) for r in rows]

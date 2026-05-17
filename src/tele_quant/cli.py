@@ -3702,3 +3702,513 @@ def inbound_bot_cmd(
         asyncio.run(run_inbound_bot(settings, store))
     except KeyboardInterrupt:
         console.print("\n[dim]봇 종료[/dim]")
+
+
+# ── Top Mover Miner ───────────────────────────────────────────────────────────
+
+@app.command("top-movers-refresh")
+def top_movers_refresh_cmd(
+    market: Annotated[
+        str, typer.Option("--market", help="시장: US / KR / ALL")
+    ] = "ALL",
+    days: Annotated[
+        int, typer.Option("--days", help="최근 N일 기간 (default 90)")
+    ] = 90,
+    top_n: Annotated[
+        int, typer.Option("--top-n", help="상위 N개 선별 (default 100)")
+    ] = 100,
+    save: Annotated[
+        bool, typer.Option("--save/--no-save", help="DB 저장 여부")
+    ] = False,
+) -> None:
+    """최근 3개월 급등주 자동 선별 (US/KR/ALL).
+
+    Example:
+        uv run tele-quant top-movers-refresh --market US --days 90 --top-n 100 --save
+        uv run tele-quant top-movers-refresh --market KR --days 90 --top-n 100 --save
+        uv run tele-quant top-movers-refresh --market ALL --save
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.top_mover_miner import fetch_kr_top_movers, fetch_us_top_movers
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    markets = ["US", "KR"] if market.upper() == "ALL" else [market.upper()]
+
+    for mkt in markets:
+        console.print(f"\n[bold]Top Movers — {mkt}[/bold] (days={days}, top_n={top_n})")
+        run = (fetch_us_top_movers if mkt == "US" else fetch_kr_top_movers)(
+            days=days, top_n=top_n
+        )
+        if not run.members:
+            console.print("[yellow]데이터 없음 (universe 부족 또는 네트워크 실패)[/yellow]")
+            continue
+
+        for m in run.members[:10]:
+            tag = f"[{m.liquidity_tier}]" if m.liquidity_tier else ""
+            console.print(
+                f"  {m.rank:3d}. {m.symbol:<15} {m.return_pct:+.1f}%  {tag}  {m.name[:30]}"
+            )
+        if len(run.members) > 10:
+            console.print(f"  ... 외 {len(run.members) - 10}개")
+
+        if save:
+            run_id = store.save_top_mover_run(run)
+            console.print(f"[green]저장 완료 run_id={run_id}[/green]")
+        else:
+            console.print("[dim](--no-save: DB 저장 안 함)[/dim]")
+
+    console.print("\n⚠ 공개 정보 기반 리서치 보조. 투자 판단 책임은 사용자에게 있음.")
+
+
+# ── Relation Mine ─────────────────────────────────────────────────────────────
+
+@app.command("relation-mine")
+def relation_mine_cmd(
+    market: Annotated[
+        str, typer.Option("--market", help="시장: US / KR / ALL")
+    ] = "ALL",
+    days: Annotated[
+        int, typer.Option("--days", help="최근 N일 기간 (default 90)")
+    ] = 90,
+    top_n: Annotated[
+        int, typer.Option("--top-n", help="상위 N개 (default 100)")
+    ] = 100,
+    beneficiaries: Annotated[
+        int, typer.Option("--beneficiaries", help="각 source당 수혜주 최소 수")
+    ] = 2,
+    victims: Annotated[
+        int, typer.Option("--victims", help="각 source당 피해주 최소 수")
+    ] = 2,
+    save: Annotated[
+        bool, typer.Option("--save/--no-save", help="DB 저장 여부")
+    ] = False,
+    from_top_movers: Annotated[
+        str, typer.Option("--from-top-movers", help="'latest' 이면 DB 최신 run 사용")
+    ] = "",
+) -> None:
+    """급등주별 수혜주/피해주 관계 엣지 생성.
+
+    Example:
+        uv run tele-quant relation-mine --market US --save
+        uv run tele-quant relation-mine --from-top-movers latest --save
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.relation_miner import RelationMiner
+    from tele_quant.top_mover_miner import TopMover, fetch_kr_top_movers, fetch_us_top_movers
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    supply_chain_path = _Path("config/supply_chain_rules.yml")
+    pair_watch_path = _Path("config/pair_watch_rules.yml")
+    sector_cycle_path = _Path("config/sector_cycle_rules.yml")
+    miner = RelationMiner(supply_chain_path, pair_watch_path, sector_cycle_path)
+
+    all_movers: list[TopMover] = []
+    markets = ["US", "KR"] if market.upper() == "ALL" else [market.upper()]
+
+    if from_top_movers.lower() == "latest":
+        for mkt in markets:
+            db_run = store.get_latest_top_mover_run(mkt)
+            if db_run:
+                for m in db_run.get("members", []):
+                    all_movers.append(
+                        TopMover(
+                            symbol=m["symbol"], name=m.get("name", ""),
+                            market=m["market"], sector=m.get("sector", ""),
+                            rank=m["rank"], start_date=m.get("start_date", ""),
+                            end_date=m.get("end_date", ""),
+                            start_close=m.get("start_close"),
+                            end_close=m.get("end_close"),
+                            return_pct=m["return_pct"],
+                            avg_turnover=m.get("avg_turnover"),
+                            liquidity_tier=m.get("liquidity_tier", ""),
+                            source_reason=m.get("source_reason", ""),
+                        )
+                    )
+    else:
+        for mkt in markets:
+            run = (fetch_us_top_movers if mkt == "US" else fetch_kr_top_movers)(
+                days=days, top_n=top_n
+            )
+            all_movers.extend(run.members)
+
+    if not all_movers:
+        console.print("[yellow]선별된 급등주 없음. --from-top-movers latest 또는 --save 후 재시도[/yellow]")
+        return
+
+    console.print(f"[bold]Relation Mine[/bold] — {len(all_movers)}개 source mover 처리 중...")
+    edges = miner.mine_all(all_movers, max_per_mover=beneficiaries + victims + 4)
+
+    b_count = sum(1 for e in edges if e.relation_type in ("BENEFICIARY", "PEER_MOMENTUM", "SUPPLIER"))
+    v_count = sum(1 for e in edges if e.relation_type in ("VICTIM", "COMPETITOR", "INPUT_COST_VICTIM"))
+    console.print(f"생성된 엣지: {len(edges)}개 (수혜계열 {b_count}, 피해계열 {v_count})")
+
+    if save:
+        from tele_quant.relation_graph import RelationGraph
+        rg = RelationGraph()
+        rg.add_edges(edges)
+        ins, upd = rg.save_to_db(store)
+        console.print(f"[green]저장 완료 inserted={ins} updated={upd}[/green]")
+    else:
+        for e in edges[:15]:
+            console.print(
+                f"  {e.source_symbol} → {e.target_symbol}"
+                f" [{e.relation_type}, {e.direction}, {e.confidence}, score={e.relation_score:.0f}]"
+            )
+        if len(edges) > 15:
+            console.print(f"  ... 외 {len(edges) - 15}개 (--save로 저장)")
+
+    console.print("\n⚠ 상관관계는 인과관계가 아님. 공개 정보 기반 리서치 보조. 투자 판단 책임은 사용자에게 있음.")
+
+
+# ── Relation Expand ───────────────────────────────────────────────────────────
+
+@app.command("relation-expand")
+def relation_expand_cmd(
+    target_edges: Annotated[
+        int, typer.Option("--target-edges", help="목표 엣지 수 (default 4000)")
+    ] = 4000,
+    save: Annotated[
+        bool, typer.Option("--save/--no-save", help="DB 저장 여부")
+    ] = False,
+) -> None:
+    """기존 관계 엣지를 확장해 4,000~8,000개 생성.
+
+    Example:
+        uv run tele-quant relation-expand --target-edges 8000 --save
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.relation_graph import RelationGraph
+    from tele_quant.relation_miner import RelationMiner
+    from tele_quant.top_mover_miner import TopMover
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    supply_chain_path = _Path("config/supply_chain_rules.yml")
+    pair_watch_path = _Path("config/pair_watch_rules.yml")
+    sector_cycle_path = _Path("config/sector_cycle_rules.yml")
+    miner = RelationMiner(supply_chain_path, pair_watch_path, sector_cycle_path)
+
+    existing = store.get_all_relation_edges(active_only=False)
+    console.print(f"기존 엣지: {len(existing)}개")
+
+    us_run = store.get_latest_top_mover_run("US")
+    kr_run = store.get_latest_top_mover_run("KR")
+
+    movers: list[TopMover] = []
+    for run in [us_run, kr_run]:
+        if not run:
+            continue
+        for m in run.get("members", []):
+            movers.append(
+                TopMover(
+                    symbol=m["symbol"], name=m.get("name", ""),
+                    market=m["market"], sector=m.get("sector", ""),
+                    rank=m["rank"], start_date=m.get("start_date", ""),
+                    end_date=m.get("end_date", ""),
+                    start_close=m.get("start_close"),
+                    end_close=m.get("end_close"),
+                    return_pct=m["return_pct"],
+                    avg_turnover=m.get("avg_turnover"),
+                    liquidity_tier=m.get("liquidity_tier", ""),
+                    source_reason=m.get("source_reason", ""),
+                )
+            )
+
+    if not movers:
+        console.print("[yellow]top_mover_runs 없음. 먼저 top-movers-refresh --save 실행[/yellow]")
+        return
+
+    edges = miner.mine_all(movers, max_per_mover=20)
+    console.print(f"생성된 엣지: {len(edges)}개 (목표 {target_edges}개)")
+
+    if save:
+        rg = RelationGraph()
+        rg.add_edges(edges)
+        ins, upd = rg.save_to_db(store)
+        console.print(f"[green]저장 완료 inserted={ins} updated={upd}[/green]")
+    else:
+        console.print("[dim](--no-save: DB 저장 안 함)[/dim]")
+
+    console.print("\n⚠ 상관관계는 인과관계가 아님. 공개 정보 기반 리서치 보조. 투자 판단 책임은 사용자에게 있음.")
+
+
+# ── Relation Follow ───────────────────────────────────────────────────────────
+
+@app.command("relation-follow")
+def relation_follow_cmd(
+    market: Annotated[
+        str, typer.Option("--market", help="시장: US / KR / ALL")
+    ] = "ALL",
+    hours: Annotated[
+        float, typer.Option("--hours", help="source 움직임 감지 lookback 시간 (default 4)")
+    ] = 4.0,
+    source: Annotated[
+        str, typer.Option("--source", help="특정 source 심볼만 처리")
+    ] = "",
+    save: Annotated[
+        bool, typer.Option("--save/--no-save", help="DB 저장 여부")
+    ] = False,
+) -> None:
+    """관계 엣지 추적 — source 움직임 감지 후 target 반응 기록.
+
+    Example:
+        uv run tele-quant relation-follow --market ALL --hours 4 --save
+        uv run tele-quant relation-follow --source NVDA --save
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.relation_follow import RelationFollow
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    follower = RelationFollow(store)
+    console.print("[bold]Relation Follow[/bold] — source 움직임 스캔 중...")
+
+    events = follower.scan_source_moves(market=market.upper(), hours_back=hours)
+    if source:
+        events = [e for e in events if e.get("source_symbol", "").upper() == source.upper()]
+
+    if not events:
+        console.print("[dim]감지된 source 움직임 없음[/dim]")
+    else:
+        console.print(f"감지: {len(events)}개 움직임")
+        for ev in events[:10]:
+            console.print(
+                f"  {ev['source_symbol']} {ev['source_move_pct']:+.1f}%"
+                f" → {ev['target_symbol']} [{ev['expected_direction']}]"
+            )
+        if save:
+            saved = follower.record_follow_events(events)
+            updated = follower.update_pending_returns()
+            follower.update_edge_hit_rates()
+            console.print(f"[green]저장 {saved}건, 업데이트 {updated}건[/green]")
+        else:
+            console.print("[dim](--no-save: DB 저장 안 함)[/dim]")
+
+    console.print("\n⚠ 관찰 기록이며 매수·매도 지시가 아닙니다. 투자 판단 책임은 사용자에게 있음.")
+
+
+# ── Relation Review ───────────────────────────────────────────────────────────
+
+@app.command("relation-review")
+def relation_review_cmd(
+    days: Annotated[
+        int, typer.Option("--days", help="최근 N일 성과 분석 (default 30)")
+    ] = 30,
+    send: Annotated[
+        bool, typer.Option("--send/--no-send", help="텔레그램 전송 여부")
+    ] = False,
+) -> None:
+    """관계 엣지 성과 리뷰 — hit_rate, avg_return, 비활성화 추천.
+
+    Example:
+        uv run tele-quant relation-review --days 30
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.relation_follow import build_relation_review
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    report = build_relation_review(store, days=days)
+    if not report:
+        console.print("[dim]성과 데이터 없음 (relation-follow 먼저 실행)[/dim]")
+        return
+
+    console.print(report)
+
+    if send:
+        async def _send() -> None:
+            from tele_quant.telegram_sender import TelegramSender
+            sender = TelegramSender(settings)
+            await sender.send(report)
+        asyncio.run(_send())
+        console.print("[green]전송 완료[/green]")
+
+
+# ── Relation Report ───────────────────────────────────────────────────────────
+
+@app.command("relation-report")
+def relation_report_cmd(
+    top_n: Annotated[
+        int, typer.Option("--top-n", help="상위 N개 표시 (default 30)")
+    ] = 30,
+    send: Annotated[
+        bool, typer.Option("--send/--no-send", help="텔레그램 전송 여부")
+    ] = False,
+) -> None:
+    """관계 엣지 리포트 출력.
+
+    Example:
+        uv run tele-quant relation-report --top-n 30 --no-send
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.relation_graph import build_relation_report
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    report = build_relation_report(store, top_n=top_n)
+    if not report:
+        console.print("[dim]저장된 관계 엣지 없음. relation-mine --save 먼저 실행[/dim]")
+        return
+
+    console.print(report)
+
+    if send:
+        async def _send() -> None:
+            from tele_quant.telegram_sender import TelegramSender
+            sender = TelegramSender(settings)
+            await sender.send(report)
+        asyncio.run(_send())
+        console.print("[green]전송 완료[/green]")
+
+
+# ── Relation Audit ────────────────────────────────────────────────────────────
+
+@app.command("relation-audit")
+def relation_audit_cmd(
+    fail_on_high: Annotated[
+        bool, typer.Option("--fail-on-high", help="HIGH 위험 발견 시 exit code 1")
+    ] = False,
+) -> None:
+    """관계 엣지 품질 검사 — self-loop, 중복, 심볼 오류, 낮은 hit_rate 등.
+
+    Example:
+        uv run tele-quant relation-audit
+        uv run tele-quant relation-audit --fail-on-high
+    """
+    import re
+    import sys
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    edges = store.get_all_relation_edges(active_only=False)
+    if not edges:
+        console.print("[dim]저장된 관계 엣지 없음[/dim]")
+        return
+
+    issues: list[tuple[str, str, str]] = []  # (level, edge_id, message)
+
+    seen: set[tuple] = set()
+    _SHORT_TICKER = re.compile(r"^[A-Z]{1,2}$")
+    _BROKER_NAMES = {"GS", "MS", "DB", "CS", "UBS", "BNP", "JPM", "BAC", "C"}
+    _FORBIDDEN = re.compile(
+        r"(매수|매도|확정 수익|반드시 상승|수혜 확정|피해 확정|자동매매|상관관계.*인과)"
+    )
+
+    for e in edges:
+        eid = str(e.get("id", "?"))
+        src = e.get("source_symbol", "")
+        tgt = e.get("target_symbol", "")
+        rtype = e.get("relation_type", "")
+        direc = e.get("direction", "")
+        conf = e.get("confidence", "")
+        score = e.get("relation_score", 0)
+        hit_rate = e.get("hit_rate")
+        ev_url = e.get("evidence_url", "")
+        summary = e.get("evidence_summary", "")
+
+        if src == tgt:
+            issues.append(("HIGH", eid, f"self-loop: {src}"))
+
+        key = (src, tgt, rtype, direc)
+        if key in seen:
+            issues.append(("MEDIUM", eid, f"중복 엣지: {src}→{tgt} [{rtype}]"))
+        seen.add(key)
+
+        if _SHORT_TICKER.match(src) and src in _BROKER_NAMES:
+            issues.append(("HIGH", eid, f"브로커명 오탐 source: {src}"))
+        if _SHORT_TICKER.match(tgt) and tgt in _BROKER_NAMES:
+            issues.append(("HIGH", eid, f"브로커명 오탐 target: {tgt}"))
+
+        if conf == "HIGH" and not ev_url:
+            issues.append(("MEDIUM", eid, f"HIGH confidence인데 evidence_url 없음: {src}→{tgt}"))
+
+        if _FORBIDDEN.search(summary):
+            issues.append(("HIGH", eid, f"금지 표현 발견: {src}→{tgt}"))
+
+        if hit_rate is not None and hit_rate < 0.35 and e.get("active") == 1:
+            issues.append(("LOW", eid, f"hit_rate={hit_rate:.0%} 낮음, 비활성화 검토: {src}→{tgt}"))
+
+        if score < 50 and e.get("active") == 1:
+            issues.append(("MEDIUM", eid, f"score={score:.0f} < 50인데 active=1: {src}→{tgt}"))
+
+    high_cnt = sum(1 for lvl, _, _ in issues if lvl == "HIGH")
+    med_cnt = sum(1 for lvl, _, _ in issues if lvl == "MEDIUM")
+    low_cnt = sum(1 for lvl, _, _ in issues if lvl == "LOW")
+
+    console.print(f"[bold]Relation Audit[/bold] — 총 {len(edges)}개 엣지 검사")
+    console.print(f"  HIGH: {high_cnt}  MEDIUM: {med_cnt}  LOW: {low_cnt}")
+
+    _COLORS = {"HIGH": "red", "MEDIUM": "yellow", "LOW": "dim"}
+    for lvl, eid, msg in issues:
+        color = _COLORS.get(lvl, "white")
+        console.print(f"  [{color}][{lvl}][/{color}] id={eid} {msg}")
+
+    if not issues:
+        console.print("[green]이슈 없음[/green]")
+
+    if fail_on_high and high_cnt > 0:
+        sys.exit(1)
+
+
+# ── Relation Export ───────────────────────────────────────────────────────────
+
+@app.command("relation-export")
+def relation_export_cmd(
+    output_dir: Annotated[
+        str, typer.Option("--output-dir", help="출력 디렉토리 (default: data/generated)")
+    ] = "data/generated",
+) -> None:
+    """관계 엣지를 CSV + YAML로 내보내기.
+
+    Example:
+        uv run tele-quant relation-export
+        uv run tele-quant relation-export --output-dir data/generated
+    """
+    from pathlib import Path as _Path
+
+    from tele_quant.db import Store as _Store
+    from tele_quant.relation_graph import RelationGraph
+
+    settings = _settings()
+    store = _Store(_Path(settings.sqlite_path))
+
+    out_dir = _Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    rg = RelationGraph()
+    count = rg.load_from_db(store)
+    console.print(f"[bold]Relation Export[/bold] — {count}개 엣지 로드")
+
+    csv_path = out_dir / "relation_edges_latest.csv"
+    yml_path = out_dir / "relation_edges_latest.yml"
+
+    n_csv = rg.export_csv(csv_path)
+    n_yml = rg.export_yaml(yml_path)
+
+    console.print(f"[green]CSV: {csv_path} ({n_csv}행)[/green]")
+    console.print(f"[green]YAML: {yml_path} ({n_yml}개)[/green]")
+    console.print("\n⚠ 공개 정보 기반 리서치 보조. 투자 판단 책임은 사용자에게 있음.")
